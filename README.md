@@ -240,6 +240,20 @@ with the Agent tool, or just describe the change and let it delegate:
 | `security-reviewer` | The trust boundary, hostile clients, fairness of the dice, secrets |
 | `game-rules-reviewer` | Reducer purity, rule correctness, determinism, property-test coverage |
 
+Run the panel with `/review`, which lives in `.claude/commands/review.md`:
+
+```
+/review                    the working diff, routed to the agents it touches
+/review all                the whole repository
+/review main...HEAD        a specific range
+/review security-reviewer  force one agent
+```
+
+It routes by which files changed, spawns the relevant agents in parallel, and
+merges their findings into one report grouped by severity. Agents can also be
+invoked directly by describing a change — the `description` on each is written
+for that.
+
 They are read-only by design: they report, they do not edit. Each one is
 written around this project's real invariants and the bugs it has actually
 shipped — the hibernation trap, the disabled-button dimming, sticky `:hover` on
