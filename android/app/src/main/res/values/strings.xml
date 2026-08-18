@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Amelia\'s Games</string>
+    <string name="title_activity_main">Amelia\'s Games</string>
+    <string name="package_name">games.amelia.boardgames</string>
+    <string name="custom_url_scheme">games.amelia.boardgames</string>
+</resources>

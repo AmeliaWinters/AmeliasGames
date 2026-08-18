@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Built artefacts
+*.apk
+*.aab
+
+# Android: the native project is committed, its build output is not.
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# Cloudflare
+.wrangler/
+.dev.vars

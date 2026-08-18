@@ -1,0 +1,720 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Amelia's Games
+
+   Two palettes, one design. Everything below the palette blocks — type,
+   layout, motion — is shared, so switching palette changes only colour.
+
+   Plum & Rose is the default: aubergine ink on a blush ground, raspberry
+   against violet counters. Saturated rather than pastel, and deliberately
+   free of gradients, glows and glassmorphism.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root,
+:root[data-palette="plum"] {
+  --ground: #f9eef1;
+  --surface: #fdf7f9;
+  --board: #ebd5de;
+  --hole: #fdf7f9;
+
+  --ink: #32172b;
+  --muted: #6e4460;
+  --rule: #e0c4d0;
+
+  --seat-0: #c42a62; /* raspberry */
+  --seat-1: #5e3a87; /* violet */
+
+  --point-dark: #d7a8c0;
+  --point-light: #faf2f5;
+  --tray: #d9b9c9;
+
+  --action: #32172b;
+  --action-text: #fdf7f9;
+  --alert: #8e1f3c;
+  --live: #2f6f4f;
+
+  color-scheme: light;
+}
+
+:root[data-palette="paper"] {
+  --ground: #f4efe6;
+  --surface: #fbf8f2;
+  --board: #e8decb;
+  --hole: #f7f3ea;
+
+  --ink: #1a1714;
+  --muted: #5a5249;
+  --rule: #d8cdb8;
+
+  --seat-0: #c6432e; /* vermilion */
+  --seat-1: #1b6b72; /* deep teal */
+
+  --point-dark: #d3c09c;
+  --point-light: #f8f4ea;
+  --tray: #d6c4a4;
+
+  --action: #1a1714;
+  --action-text: #fbf8f2;
+  --alert: #8f3520;
+  --live: #2f6f4f;
+
+  color-scheme: light;
+}
+
+/* ── Type ──────────────────────────────────────────────────────────────
+   A deliberate three-role pairing, all system stacks so nothing is
+   fetched over the network — the Android build has to work offline. */
+:root {
+  --display: Georgia, "Noto Serif", "Times New Roman", serif;
+  --body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --panel-radius: 3px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── The one layout primitive: a hairline-ruled panel, repeated ─────── */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 18px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.topbar h1 {
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.room-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+.swap {
+  font-family: var(--body);
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 6px 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--rule);
+}
+
+/* Connection state, shown as a dot because it is glanceable, not read. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.dot.open {
+  background: var(--live);
+}
+.dot.connecting,
+.dot.closed {
+  background: var(--alert);
+}
+
+/* ── Messages ──────────────────────────────────────────────────────── */
+.banner {
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+.banner.error {
+  color: var(--alert);
+  border-color: var(--alert);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dismiss {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  flex: none;
+}
+
+/* ── Players ───────────────────────────────────────────────────────── */
+.players {
+  display: flex;
+  gap: 8px;
+}
+
+.player {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  font-size: 0.88rem;
+}
+/* Whose turn it is gets weight, not a colour wash. */
+.player.active {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.player .chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+.player.p0 .chip {
+  background: var(--seat-0);
+}
+.player.p1 .chip {
+  background: var(--seat-1);
+}
+
+.player .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player .note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  flex: none;
+}
+
+/* ── Status ────────────────────────────────────────────────────────── */
+.status {
+  font-family: var(--display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 2px 0;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.hint .said-code {
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--ink);
+}
+
+/* ── Board ─────────────────────────────────────────────────────────── */
+.board {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  padding: 6px;
+  background: var(--board);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+.board.placeholder {
+  aspect-ratio: 7 / 6;
+}
+
+.column {
+  display: grid;
+  grid-template-rows: repeat(6, 1fr);
+  gap: 5px;
+  position: relative;
+  background: none;
+  border: 0;
+  padding: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.column:disabled {
+  cursor: default;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--hole);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.cell.p0 {
+  background: var(--seat-0);
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.16);
+}
+.cell.p1 {
+  background: var(--seat-1);
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.16);
+}
+.cell.winning {
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.16),
+    0 0 0 2px var(--ink);
+}
+
+/* Where your counter would land. Interaction feedback, not decoration. */
+.ghost {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+}
+.column:focus-visible .ghost {
+  opacity: 0.07;
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────
+   Two animations exist, and both carry information: a counter falling
+   tells you where it landed, and the ring draws the eye to the win.
+   Nothing fades in for the sake of it. */
+@keyframes drop {
+  from {
+    transform: translateY(-380%);
+  }
+  70% {
+    transform: translateY(0);
+  }
+  85% {
+    transform: translateY(-7%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes claim {
+  from {
+    box-shadow:
+      inset 0 -2px 3px rgb(0 0 0 / 0.16),
+      0 0 0 0 var(--ink);
+  }
+}
+
+.cell.landed {
+  animation: drop 340ms cubic-bezier(0.35, 0, 0.4, 1);
+}
+.cell.winning {
+  animation: claim 420ms ease-out;
+}
+/* The winning counter is both. Play them in order — it falls, then the ring
+   closes around it — rather than letting the later rule cancel the drop. */
+.cell.landed.winning {
+  animation:
+    drop 340ms cubic-bezier(0.35, 0, 0.4, 1),
+    claim 420ms ease-out 340ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell.landed,
+  .cell.winning,
+  .cell.landed.winning {
+    animation: none;
+  }
+}
+
+/* ── Controls ──────────────────────────────────────────────────────── */
+button {
+  font-family: var(--body);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 11px 16px;
+  cursor: pointer;
+}
+/* Board columns are buttons too, but a column being unplayable says nothing
+   about whether its counters should be legible — fading them washes out the
+   whole board on the opponent's turn and after the game ends. */
+button:disabled:not(.column):not(.point):not(.bg-bar) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-text);
+  font-weight: 600;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ── Opening screen ────────────────────────────────────────────────── */
+.setup {
+  padding-top: 9vh;
+  gap: 11px;
+}
+
+.setup .wordmark {
+  font-family: var(--display);
+  font-size: clamp(1.9rem, 8vw, 2.4rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.tagline {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+input {
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 11px 12px;
+}
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -1px;
+}
+
+.code-input {
+  font-family: var(--mono);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 5px 0;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.setup .swap {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding-left: 0;
+}
+
+/* ── Hover ─────────────────────────────────────────────────────────────
+   Gated on a device that genuinely hovers. On a touchscreen :hover sticks
+   after a tap, which left the tapped column highlighted for the rest of
+   the turn. */
+@media (hover: hover) {
+  .code:hover {
+    color: var(--ink);
+    border-color: var(--ink);
+  }
+
+  .swap:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+
+  .column:hover:not(:disabled) .ghost {
+    opacity: 0.07;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--ink);
+  }
+
+  button.primary:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+}
+
+/* ── Backgammon ────────────────────────────────────────────────────────
+   Twelve points to a side with the bar down the middle. The bar is placed
+   absolutely over a fixed-width gap left in each row, so both rows and the
+   bar stay in register at any screen width. */
+.bg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bg-board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--board);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 4px;
+}
+
+.bg-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr) 26px repeat(6, 1fr);
+}
+
+.bg-bar-slot {
+  /* Reserves the channel the bar sits in. */
+}
+
+.bg-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(50% - 13px);
+  width: 26px;
+  padding: 0;
+  background: var(--tray);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+}
+.bg-bar.live {
+  border-color: var(--ink);
+}
+.bg-bar.chosen {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.bar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 2px 0;
+}
+.bar-stack.bottom {
+  flex-direction: column-reverse;
+}
+
+/* Each point is one column wide and five checkers tall. */
+.point {
+  position: relative;
+  aspect-ratio: 1 / 5;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.point:disabled {
+  cursor: default;
+}
+
+.triangle {
+  position: absolute;
+  inset: 0;
+}
+.point.dark .triangle {
+  background: var(--point-dark);
+}
+.point.light .triangle {
+  background: var(--point-light);
+}
+.bg-row.top .triangle {
+  clip-path: polygon(0 0, 100% 0, 50% 92%);
+}
+.bg-row.bottom .triangle {
+  clip-path: polygon(0 100%, 100% 100%, 50% 8%);
+}
+
+/* Where a selected checker may go, and which checker is selected. */
+.point.target {
+  box-shadow: inset 0 0 0 2px var(--live);
+}
+.point.chosen {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.stack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.bg-row.bottom .stack {
+  flex-direction: column-reverse;
+}
+
+.checker {
+  width: 88%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.18);
+}
+.checker.s0 {
+  background: var(--seat-0);
+  color: var(--action-text);
+}
+.checker.s1 {
+  background: var(--seat-1);
+  color: var(--action-text);
+}
+.bar-stack .checker {
+  width: 82%;
+}
+
+.bg-tray,
+.bg-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.borne,
+.race {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bg-tray .bear {
+  margin-left: auto;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+.dice {
+  display: flex;
+  gap: 6px;
+}
+
+.die {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+}
+
+.pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  place-self: center;
+}
+
+/* ── Game picker ───────────────────────────────────────────────────── */
+.games {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 8px;
+}
+.games legend {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0 0 5px;
+}
+.game {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  color: var(--ink);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.game.picked {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.game input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--ink);
+}
