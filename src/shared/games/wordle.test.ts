@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   HIDDEN,
+  KEY_ROWS,
   MAX_GUESSES,
   canAct,
   isFinished,
+  keyMarks,
   markGuess,
   wordle,
 } from './wordle.js';
@@ -280,5 +282,49 @@ describe('the turn hint', () => {
       state = play(state, { type: 'guess', word: 'blank' }, 0);
     }
     expect(wordle.turn(state)).toBe(1);
+  });
+});
+
+describe('the keyboard', () => {
+  /** Mark `guess` against `secret` the way a real row would be. */
+  const row = (guess: string, secret: string) => ({
+    word: guess,
+    marks: markGuess(guess, secret),
+  });
+
+  it('has every letter exactly once', () => {
+    const letters = KEY_ROWS.join('');
+    expect(letters).toHaveLength(26);
+    expect(new Set(letters).size).toBe(26);
+  });
+
+  it('says nothing before the first guess', () => {
+    expect(keyMarks([])).toEqual({});
+  });
+
+  it('colours a letter by what it turned out to be', () => {
+    // CRANE against CIGAR: C green, A and R yellow, N and E absent.
+    const marks = keyMarks([row('CRANE', 'CIGAR')]);
+    expect(marks).toEqual({ C: 'hit', R: 'near', A: 'near', N: 'miss', E: 'miss' });
+  });
+
+  it('promotes a yellow to green when a later guess places it', () => {
+    // A is yellow in CRANE and green in ABIDE. The key must end up green.
+    const marks = keyMarks([row('CRANE', 'ABIDE'), row('ABIDE', 'ABIDE')]);
+    expect(marks.A).toBe('hit');
+  });
+
+  it('never demotes a letter it has already placed', () => {
+    // The reverse order: green first, then a guess where that A is marked
+    // grey because ABIDE's only A was claimed elsewhere in the row.
+    const marks = keyMarks([row('ABIDE', 'ABIDE'), row('AROMA', 'ABIDE')]);
+    expect(marks.A).toBe('hit');
+  });
+
+  it('leaves a letter nobody has tried out of the map entirely', () => {
+    // The difference between "grey" and "not yet guessed" is the whole point.
+    const marks = keyMarks([row('CRANE', 'CIGAR')]);
+    expect(marks.Z).toBeUndefined();
+    expect('N' in marks).toBe(true);
   });
 });

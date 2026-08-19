@@ -124,6 +124,7 @@ body {
 .wof-tile,
 .wd-panel,
 .wd-tile,
+.wd-key,
 button,
 input {
   border: 1px solid var(--rule);
@@ -1168,4 +1169,71 @@ input:focus-visible {
 
 .wd-setup {
   gap: 12px;
+}
+
+/* ── Word Duel: the keyboard ───────────────────────────────────────────
+   Two jobs at once. It is the record of what you have learned -- green,
+   yellow, tried-and-absent, untried -- and on a phone it is how you type,
+   which keeps the OS keyboard from covering the grids you are meant to be
+   watching. It shows your own letters only. */
+.wd-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wd-keys-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.wd-key {
+  flex: 1 1 auto;
+  /* Thumbs, not cursors. 32px is the floor that still fits ten keys across
+     the narrowest phone this app supports. */
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(0.72rem, 3.1vw, 0.95rem);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+/* Enter and backspace earn their width from the letters around them. */
+.wd-key.wide {
+  flex: 1 4 auto;
+  font-family: var(--body);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+/* The same three colours as the tiles, so a green key and a green tile are
+   obviously the same claim. An untried key is left alone: "not yet guessed"
+   is the fourth state, and it reads as absence rather than as a colour. */
+.wd-key.hit,
+.wd-key.near,
+.wd-key.miss {
+  border-color: transparent;
+  color: var(--mark-text);
+}
+.wd-key.hit {
+  background: var(--mark-hit);
+}
+.wd-key.near {
+  background: var(--mark-near);
+}
+.wd-key.miss {
+  /* Tried and absent. Dimmed rather than recoloured -- it is the one state
+     that means "stop considering this", and it should recede. */
+  background: var(--mark-miss);
+  opacity: 0.75;
+}
+
+/* Disabled keys are the whole keyboard at once (you have solved it, or run
+   out), so this must not read as twenty-six individually broken buttons. */
+.wd-keys:has(.wd-key:disabled) {
+  opacity: 0.55;
 }

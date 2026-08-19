@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from "react";
 // types below are type-only, so they are erased and carry no runtime import.
 import {
   HIDDEN,
+  KEY_ROWS,
   MAX_GUESSES,
   WORD_LENGTH,
   canAct,
   isFinished,
+  keyMarks,
   opponentOf,
 } from "../../shared/games/wordleDisplay.js";
 import type {
@@ -142,6 +144,82 @@ function WordInput({
         </button>
       </div>
     </form>
+  );
+}
+
+
+/**
+ * The keyboard, doing the two jobs it does in Wordle: it is the record of what
+ * you have learned, and on a phone it is how you type. Tapping beats the OS
+ * keyboard here — that one covers half the screen, and this board's whole point
+ * is watching two grids at once.
+ *
+ * It shows only your own letters. Your opponent's marks are against a different
+ * word and would be worse than useless on these keys.
+ */
+function Keyboard({
+  rows,
+  disabled,
+  onLetter,
+  onBackspace,
+  onEnter,
+  canSubmit,
+}: {
+  rows: Row[];
+  disabled: boolean;
+  onLetter(letter: string): void;
+  onBackspace(): void;
+  onEnter(): void;
+  canSubmit: boolean;
+}) {
+  const marks = keyMarks(rows);
+
+  return (
+    <div className="wd-keys" role="group" aria-label="Letters you have tried">
+      {KEY_ROWS.map((row, index) => (
+        <div className="wd-keys-row" key={row}>
+          {/* Backspace and enter sit on the last row, as they do everywhere. */}
+          {index === 2 && (
+            <button
+              type="button"
+              className="wd-key wide"
+              disabled={disabled || !canSubmit}
+              onClick={onEnter}
+            >
+              Enter
+            </button>
+          )}
+          {[...row].map((letter) => {
+            const mark = marks[letter];
+            return (
+              <button
+                type="button"
+                key={letter}
+                className={mark ? `wd-key ${mark}` : "wd-key"}
+                disabled={disabled}
+                onClick={() => onLetter(letter)}
+                // Untried letters say nothing extra: "K, not yet tried" on
+                // twenty-odd keys is noise, and silence already means that.
+                aria-label={mark ? `${letter}, ${MARK_LABEL[mark]}` : letter}
+              >
+                {letter}
+              </button>
+            );
+          })}
+          {index === 2 && (
+            <button
+              type="button"
+              className="wd-key wide"
+              disabled={disabled}
+              onClick={onBackspace}
+              aria-label="Backspace"
+            >
+              ⌫
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -281,6 +359,18 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
               {nameFor(them)} is done — the table is yours.
             </p>
           )}
+          <Keyboard
+            rows={state.guesses[seat]}
+            disabled={!myMove}
+            canSubmit={draft.length === WORD_LENGTH}
+            onLetter={(letter) =>
+              setDraft((current) =>
+                current.length >= WORD_LENGTH ? current : current + letter,
+              )
+            }
+            onBackspace={() => setDraft((current) => current.slice(0, -1))}
+            onEnter={submit}
+          />
         </>
       )}
     </div>

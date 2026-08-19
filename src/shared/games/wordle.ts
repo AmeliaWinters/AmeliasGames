@@ -9,16 +9,19 @@ import {
   isFinished,
   opponentOf,
 } from './wordleDisplay.js';
+
 import type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
 
 // Re-exported so the reducer, its tests and the board all name these in one
 // place, while only this file ever reaches the word list.
 export {
   HIDDEN,
+  KEY_ROWS,
   MAX_GUESSES,
   WORD_LENGTH,
   canAct,
   isFinished,
+  keyMarks,
   opponentOf,
 } from './wordleDisplay.js';
 export type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';

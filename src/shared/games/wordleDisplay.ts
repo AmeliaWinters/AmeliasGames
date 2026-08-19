@@ -90,3 +90,38 @@ export function canAct(state: WordleState, seat: number): boolean {
   if (state.phase === 'play') return !isFinished(state, seat);
   return false;
 }
+
+/**
+ * The keyboard, in the three rows everyone already knows. A layout constant
+ * rather than something derived, because the point of a QWERTY keyboard is
+ * that the letters are exactly where the player expects them.
+ */
+export const KEY_ROWS: readonly string[] = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
+
+/**
+ * What each letter has turned out to be, across every guess a player has made.
+ *
+ * The precedence is the interesting part: a letter keeps the *best* news it
+ * has ever had. Guess CRANE against ABIDE and the A comes back yellow; guess
+ * ABIDE next and it goes green — the key must stay green, because a key that
+ * downgraded would be telling the player something false about a letter they
+ * have already placed.
+ *
+ * Only ever fed a player's own guesses. Their opponent's marks are against a
+ * different word and would be nonsense here.
+ */
+export function keyMarks(rows: Row[]): Record<string, Mark> {
+  const rank: Record<Mark, number> = { miss: 1, near: 2, hit: 3 };
+  const marks: Record<string, Mark> = {};
+
+  for (const row of rows) {
+    for (let i = 0; i < row.word.length; i++) {
+      const letter = row.word[i];
+      const mark = row.marks[i];
+      const held = marks[letter];
+      if (held === undefined || rank[mark] > rank[held]) marks[letter] = mark;
+    }
+  }
+
+  return marks;
+}
