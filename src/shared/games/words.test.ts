@@ -20,7 +20,7 @@ describe('the word list', () => {
   });
 
   it('is big enough that guessing does not feel like fighting the dictionary', () => {
-    expect(WORDS.size).toBeGreaterThan(1500);
+    expect(WORDS.size).toBeGreaterThan(15000);
   });
 
   it('agrees with WORD_LENGTH', () => {
@@ -45,8 +45,22 @@ describe('isWord', () => {
   });
 
   it('allows the slang and profanity the list deliberately includes', () => {
-    for (const word of ['janky', 'legit', 'bitch', 'fucks']) {
+    for (const word of ['janky', 'legit', 'bitch', 'fucks', 'cocks', 'pussy', 'porno']) {
       expect(isWord(word)).toBe(true);
+    }
+  });
+
+  /**
+   * The list this replaced was hand-written and full of holes — it was missing
+   * `below`, `being` and `alias`, which is what a word game must never do. The
+   * words below are the ones that were actually reported; the plain English in
+   * the second row is there because those were the embarrassing ones.
+   */
+  it('knows the ordinary words a hand-written list kept missing', () => {
+    const reported = ['trans', 'porno', 'alias', 'cocks', 'pussy'];
+    const ordinary = ['below', 'being', 'begin', 'abide', 'beach', 'aisle', 'amuse'];
+    for (const word of [...reported, ...ordinary]) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
     }
   });
 });

@@ -115,8 +115,11 @@ the registry. That is load-bearing rather than incidental, and worth a
 for the other, then both hunt the word they were given. Six guesses; fewer
 guesses wins, the same count is a draw, and solving does not end the game —
 your opponent still plays out the guesses they have left. The word list is
-deliberately permissive about slang and swearing, and deliberately free of
-slurs.
+every five-letter word in dwyl/english-words, about sixteen thousand of them,
+plus a short hand-kept list of slang the dictionary predates. It is raw and
+unfiltered, slurs included -- a deliberate choice. A hand-written list was
+tried first and was not fit for purpose: it was missing `below`, `being` and
+`alias`, and a word game that rejects real words is one people argue with.
 
 It is the game that breaks the turn model. Play is *free-simultaneous*: nobody
 waits, so `GameDefinition.turn` — which assumes one active seat — reports
