@@ -12,6 +12,8 @@ import {
 // would collide with Vite.
 const PORT = Number(process.env.GAME_PORT ?? 8787);
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
+/** Matches the worker: a socket that connects and never says hello is evicted. */
+const HELLO_TIMEOUT_MS = 30 * 1000;
 
 interface Room {
   engine: RoomEngine;
@@ -21,6 +23,14 @@ interface Room {
 }
 
 const rooms = new Map<string, Room>();
+
+/**
+ * Sockets that have connected but not yet said hello, with the time they
+ * arrived. The worker evicts these on its alarm; without the same sweep here a
+ * socket that opens and stays silent is never cleaned up, because `close` never
+ * fires for a connection nobody is using.
+ */
+const pending = new Map<WebSocket, number>();
 
 function connectedSeats(room: Room): Set<number> {
   return new Set(room.sockets.keys());
@@ -43,6 +53,7 @@ function broadcast(room: Room): void {
 
 function handleConnection(socket: WebSocket): void {
   let joined: { room: Room; seat: number } | null = null;
+  pending.set(socket, Date.now());
 
   socket.on('message', (raw) => {
     let msg: ClientMessage;
@@ -109,6 +120,7 @@ function handleConnection(socket: WebSocket): void {
       room.sockets.set(result.seat, socket);
       room.emptySince = null;
       joined = { room, seat: result.seat };
+      pending.delete(socket);
 
       send(socket, {
         t: 'welcome',
@@ -140,6 +152,7 @@ function handleConnection(socket: WebSocket): void {
   });
 
   socket.on('close', () => {
+    pending.delete(socket);
     if (!joined) return;
     const { room, seat } = joined;
     if (room.sockets.get(seat) === socket) room.sockets.delete(seat);
@@ -154,7 +167,19 @@ function handleConnection(socket: WebSocket): void {
 
 export function startServer(port: number = PORT): WebSocketServer {
   const wss = new WebSocketServer({ port });
-  wss.on('connection', handleConnection);
+  // The worker validates the code at the edge before routing and again on
+  // hello. Nothing here routes by code, but "a bad code never gets a socket" is
+  // stated as an invariant, and an adapter that only enforces it in one place
+  // is where the two drift apart.
+  wss.on('connection', (socket, request) => {
+    const code = (new URL(request.url ?? '/', 'http://localhost').searchParams.get('code') ?? '')
+      .toUpperCase();
+    if (code && !isRoomCode(code)) {
+      socket.close(4003, 'Invalid room code');
+      return;
+    }
+    handleConnection(socket);
+  });
   return wss;
 }
 
@@ -162,6 +187,12 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if (room.emptySince !== null && now - room.emptySince > EMPTY_ROOM_TTL_MS) rooms.delete(code);
+  }
+  for (const [socket, since] of pending) {
+    if (now - since > HELLO_TIMEOUT_MS) {
+      socket.close(4001, 'Never said hello');
+      pending.delete(socket);
+    }
   }
 }, 60_000).unref();
 

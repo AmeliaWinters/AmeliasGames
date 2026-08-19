@@ -329,12 +329,25 @@ export class GameRoom implements DurableObject {
       if (now - emptySince >= EMPTY_ROOM_TTL_MS) {
         await this.state.storage.deleteAll();
         this.engine = null;
+        // deleteAll() took the 'code' key with it, so the routing-code check in
+        // fetch() would wave through a socket arriving with any valid code and
+        // let it create a room whose code does not match the object it lives
+        // in. Close whatever is still attached: this object is now a blank one,
+        // and anything holding it open is holding a room that no longer exists.
+        for (const ws of this.state.getWebSockets()) ws.close(4002, 'Room closed');
         return; // nothing left to watch
       }
       await this.state.storage.put('emptySince', emptySince);
     }
 
-    await this.state.storage.setAlarm(now + (pending ? PENDING_TICK_MS : IDLE_TICK_MS));
+    // Only keep ticking if there is something to watch: an unseated socket on
+    // its hello timer, or an empty room counting down to deletion. A room with
+    // players in it needs no housekeeping, and rescheduling regardless woke the
+    // object every few minutes for as long as anyone held a socket open.
+    // `persist()` and `webSocketClose` re-arm the alarm when that changes.
+    if (pending || this.connectedSeats().size === 0) {
+      await this.state.storage.setAlarm(now + (pending ? PENDING_TICK_MS : IDLE_TICK_MS));
+    }
   }
 }
 

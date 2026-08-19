@@ -3,6 +3,7 @@ import { WebSocket, type WebSocketServer } from 'ws';
 import { startServer } from './index.js';
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../shared/protocol.js';
 import { isRoomCode, makeRoomCode } from '../shared/room.js';
+import { ALPHABET, BLANK, PUZZLES } from '../shared/games/wheel.js';
 
 /** A well-formed hello, so a test only has to say what it is varying. */
 function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): ClientMessage {
@@ -86,6 +87,11 @@ class TestClient {
       if (msg.t === t) return msg as Extract<ServerMessage, { t: T }>;
     }
     throw new Error(`never received a ${t} message`);
+  }
+
+  /** Everything received so far, queued or not — for tests that inspect frames. */
+  received(): ServerMessage[] {
+    return this.inbox.slice();
   }
 
   /** Discard queued messages so the next assertion sees only what follows. */
@@ -325,5 +331,55 @@ describe('server authority', () => {
     stranger.send({ t: 'move', move: { type: 'drop', col: 0 } });
     expect((await stranger.nextOf('error')).message).toMatch(/join a room first/i);
     stranger.close();
+  });
+});
+
+describe('hidden state over the wire', () => {
+  /**
+   * The reducer's `view()` is unit-tested, but the property that actually
+   * matters is end-to-end: nothing a real socket receives ever carries an
+   * unmasked answer. A refactor that broadcast `engine.snapshot()` or hoisted
+   * one shared payload out of the per-seat loop would pass every `view()` test
+   * and still deal both players the answer. So this reads the frames.
+   */
+  it('never sends an unmasked puzzle answer to either player', async () => {
+    const code = makeRoomCode();
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true, gameId: 'wheel' }));
+    await host.nextOf('welcome');
+    const guest = await TestClient.connect();
+    guest.send(hello({ name: 'Guest', code, gameId: 'wheel' }));
+    await guest.nextOf('welcome');
+
+    // Drive the board hard from both seats: spin, call every letter, and try
+    // to buy vowels. Whatever the rng drew, the round gets played out.
+    for (const letter of ALPHABET) {
+      host.send({ t: 'move', move: { type: 'spin' } });
+      host.send({ t: 'move', move: { type: 'letter', letter } });
+      guest.send({ t: 'move', move: { type: 'spin' } });
+      guest.send({ t: 'move', move: { type: 'letter', letter } });
+    }
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Everything either socket received, including frames still queued.
+    const wire = [host.received(), guest.received()].flat().map((m) => JSON.stringify(m));
+    expect(wire.length).toBeGreaterThan(0);
+    const joined = wire.join('\n');
+
+    // Checked against the whole bank rather than the drawn puzzle, so the test
+    // needs no knowledge of which one the rng picked. An answer may legitimately
+    // appear once its round is over, so only frames whose room is mid-round
+    // count -- which is exactly the leak worth catching.
+    const live = wire.filter((f) => !f.includes('"roundOver":true'));
+    const leaked = PUZZLES.filter((p) => live.some((f) => f.includes(p.answer))).map(
+      (p) => p.answer,
+    );
+    expect(leaked).toEqual([]);
+    // Sanity: the masked board really did reach the players, so an empty
+    // `leaked` means "no answer sent", not "no frames inspected".
+    expect(joined).toContain(BLANK);
+
+    host.close();
+    guest.close();
   });
 });

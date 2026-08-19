@@ -29,28 +29,42 @@ import { GAME_MANIFEST } from './manifest.js';
  * `PUZZLES` is the second half of the same problem: masking the current answer
  * achieves nothing if the client is holding the list it was drawn from, since
  * the shape of the phrase would pick it out. It stays out of the browser
- * because nothing in the client's import graph reaches this file's reducer —
- * the board takes only types and display helpers, and the lobby reads
- * `manifest.js` rather than the registry, so the bundler drops the rest. That
- * is load-bearing, not incidental: a client-side `import` of `games/index.js`
- * would put all forty-seven answers back in the bundle.
+ * because no client module imports a runtime binding from this file: the board
+ * takes its values from `wheelDisplay.js` and its types type-only, the lobby
+ * reads `manifest.js` rather than the registry, and the room-code helpers live
+ * in `roomCode.js` so `App.tsx` never pulls in `room.js` and the registry
+ * behind it.
+ *
+ * That is structure, not bundler luck — an earlier version relied on Rollup
+ * shaking the answers back out of a graph that did reach them, which held, but
+ * only until someone added one value import. `wheel.bundle.test.ts` builds the
+ * client and greps it, so the guarantee is now checked rather than asserted.
  */
 
-export const ROUNDS = 3;
-export const VOWEL_COST = 250;
-/** Solving is always worth something, so an early guess is never a wasted one. */
-export const ROUND_MINIMUM = 500;
+// Constants and the money formatter live in wheelDisplay.ts, which imports
+// nothing, so the board can reach them without reaching PUZZLES. Re-exported
+// here so the reducer and its tests still import from one place.
+import {
+  ALPHABET,
+  BLANK,
+  CONSONANTS,
+  ROUNDS,
+  ROUND_MINIMUM,
+  VOWELS,
+  VOWEL_COST,
+  money,
+} from './wheelDisplay.js';
 
-export const VOWELS = 'AEIOU';
-/** Y is a consonant here, exactly as it is on the show. */
-export const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXYZ';
-export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-/**
- * Stands in for a letter nobody has called yet. Never appears in a puzzle —
- * `wheel.test.ts` holds the bank to that.
- */
-export const BLANK = '_';
+export {
+  ALPHABET,
+  BLANK,
+  CONSONANTS,
+  ROUNDS,
+  ROUND_MINIMUM,
+  VOWELS,
+  VOWEL_COST,
+  money,
+} from './wheelDisplay.js';
 
 /** A hostile client is not owed an unbounded string to normalise. */
 const MAX_GUESS = 200;
@@ -211,20 +225,6 @@ export const PUZZLES: readonly Puzzle[] = [
 
 // ── Small pure helpers ─────────────────────────────────────────────────
 
-/**
- * Money, grouped. Hand-rolled rather than `toLocaleString`, which depends on
- * whatever ICU data a given Node build happens to ship — a reducer that
- * formats differently on the server than in a test is not a pure reducer.
- */
-export function money(amount: number): string {
-  const digits = String(Math.abs(Math.trunc(amount)));
-  let grouped = '';
-  for (let i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 === 0) grouped += ',';
-    grouped += digits[i];
-  }
-  return `${amount < 0 ? '-' : ''}$${grouped}`;
-}
 
 /** How many seats this game was set up for. Derived, so it cannot disagree. */
 export function seatCount(state: WofState): number {
@@ -571,7 +571,11 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     // Every seat sees the same board: what is hidden is hidden from everyone.
     // Once the round is over the phrase is public, which is what lets the board
     // show what it was.
-    if (state.roundOver) return state;
+    // A copy either way. Returning `state` itself here would hand a caller a
+    // live reference to reducer state on exactly one branch -- harmless while
+    // every caller serialises the result, and a trap the first time one does
+    // not. The two branches should differ in what they mask, not in that.
+    if (state.roundOver) return { ...state };
     return { ...state, answer: mask(state.answer, state.called) };
   },
 

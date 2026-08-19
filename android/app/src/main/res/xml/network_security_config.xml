@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Release posture: no cleartext, anywhere. The app talks to one https origin.
-  The debug build overrides this (see src/debug/res/xml) so LAN testing against
-  a plain-http dev server still works, and that allowance cannot escape into a
-  release APK.
+  The debug build overrides this (see src/debug/res/xml) so testing against a
+  plain-http dev server still works. Note that the debug variant is the one
+  sideloaded to phones, so that override is not confined to a developer machine
+  the way the name suggests -- which is why it names specific hosts rather than
+  permitting cleartext outright.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />

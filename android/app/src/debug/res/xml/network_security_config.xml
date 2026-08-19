@@ -2,8 +2,24 @@
 <!--
   Debug builds only. Gradle picks this file over the one in src/main for the
   debug variant, which is what lets `npm run apk` talk to a plain-http dev
-  server on the LAN without weakening the shipped app.
+  server without weakening the shipped app.
+
+  It stays a deny-by-default config with named exceptions rather than a blanket
+  `<base-config cleartextTrafficPermitted="true" />`, because the APK friends
+  actually install IS this variant (see README: the artifact is app-debug.apk).
+  A blanket allowance would therefore let the real, distributed app be talked
+  down to plain http for any host -- including the deployed worker -- by anyone
+  able to answer a DNS query on the same network. The exceptions below cannot:
+  they name loopback and the emulator's host alias only.
+
+  Testing against a dev server on the LAN: add your machine's address as another
+  <domain> here. It is deliberately not a wildcard.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <!-- The host machine, as seen from the Android emulator. -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
 </network-security-config>

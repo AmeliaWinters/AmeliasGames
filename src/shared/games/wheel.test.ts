@@ -571,6 +571,8 @@ describe('full games', () => {
       let state = wheel.setup(players, rng);
       let previous = state.score.slice();
       let moves = 0;
+      let awards = 0;
+      const seen: string[] = [state.answer];
 
       while (!state.over) {
         if (++moves > 2000) throw new Error('a match failed to reach an end');
@@ -591,7 +593,31 @@ describe('full games', () => {
           } else move = { type: 'spin' };
         }
 
+        const before = state;
         state = ok(apply(state, move, seat, rng));
+
+        // The accounting identity, and the wheel's analogue of backgammon's
+        // checker conservation: a round pays exactly one seat, and it is the
+        // seat that solved it. Nothing else distinguishes awarding to `seat`
+        // from awarding to `state.turn`, or from awarding twice.
+        if (state.roundOver && !before.roundOver) {
+          const gained = state.score.map((n, i) => n - before.score[i]);
+          expect(gained.filter((n) => n > 0)).toHaveLength(1);
+          // Against the bank as it stands at the award, not before the move:
+          // the winning call's own money counts, and awardRound floors the
+          // bank at ROUND_MINIMUM before paying it out.
+          expect(gained[seat]).toBe(state.bank[seat]);
+          expect(state.bank[seat]).toBeGreaterThanOrEqual(ROUND_MINIMUM);
+          awards++;
+        }
+
+        // Masking, checked on a live game rather than only on a fresh puzzle.
+        // This is what would catch `roundOver` being set one move early — the
+        // single failure that ruins the game silently, and the one the static
+        // per-puzzle assertion cannot see.
+        if (!state.roundOver) {
+          expect(wheel.view!(state, state.turn).answer).toBe(mask(state.answer, state.called));
+        }
 
         expect(state.bank.every((n) => n >= 0)).toBe(true);
         expect(state.score.every((n) => n >= 0)).toBe(true);
@@ -605,10 +631,16 @@ describe('full games', () => {
         expect(new Set(state.called).size).toBe(state.called.length);
         expect(state.bank).toHaveLength(players);
         if (state.over) expect(state.roundOver).toBe(true);
+        if (state.round !== before.round) seen.push(state.answer);
         previous = state.score.slice();
       }
 
       expect(state.round).toBe(ROUNDS);
+      // Every round paid out exactly once, across the whole match.
+      expect(awards).toBe(ROUNDS);
+      // A match never repeats a puzzle, checked over random play rather than
+      // in one hand-driven three-round game.
+      expect(new Set(seen).size).toBe(seen.length);
       // Somebody has to have won something: every round pays its winner.
       expect(Math.max(...state.score)).toBeGreaterThanOrEqual(ROUND_MINIMUM);
       expect(leaders(state).length).toBeGreaterThanOrEqual(1);

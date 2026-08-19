@@ -93,10 +93,11 @@ body {
 }
 
 /* ── The one layout primitive: a hairline-ruled panel, repeated ───────
-   Applied rather than described. Backgrounds stay per-site (chrome sits on
-   --surface, the playing surfaces on --board); the rule and the radius are the
-   shared part, and live here once so a change to either lands everywhere. */
-.panel,
+   Named by the things that use it, not by a `.panel` class -- there was one,
+   and nothing ever rendered it, so it described the primitive instead of
+   applying it. Backgrounds stay per-site (chrome sits on --surface, the playing
+   surfaces on --board); the rule and the radius are the shared part, and live
+   here once so a change to either lands everywhere. */
 .code,
 .banner,
 .player,

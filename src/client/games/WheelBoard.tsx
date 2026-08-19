@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+// Values from wheelDisplay.js, which imports nothing — the board must never
+// pull the reducer (and its answer bank) into the client bundle. The types
+// below are type-only, so they are erased and carry no runtime import.
 import {
   ALPHABET,
   BLANK,
@@ -6,9 +9,8 @@ import {
   VOWELS,
   VOWEL_COST,
   money,
-  type WofMove,
-  type WofState,
-} from "../../shared/games/wheel.js";
+} from "../../shared/games/wheelDisplay.js";
+import type { WofMove, WofState } from "../../shared/games/wheel.js";
 
 interface Props {
   state: WofState;

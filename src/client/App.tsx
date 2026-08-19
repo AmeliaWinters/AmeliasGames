@@ -8,7 +8,7 @@ import {
   gameList,
   type GameEntry,
 } from "../shared/games/manifest.js";
-import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/room.js";
+import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
 import type { C4State } from "../shared/games/connect4.js";
 import type { BgState } from "../shared/games/backgammon.js";
 import type { WofState } from "../shared/games/wheel.js";
@@ -157,18 +157,29 @@ export function App() {
       <main className="app setup">
         <h1 className="wordmark">{joinFailureHeading(errorKind)}</h1>
         <p className="tagline">{error}</p>
-        <button
-          className="primary"
-          onClick={() => {
-            dismissError();
-            history.replaceState(null, "", location.pathname + location.search);
-            setCode(null);
-            setCreate(false);
-            setIntent("idle");
-          }}
-        >
-          Back to the start
-        </button>
+        {/*
+          A protocol error means this bundle is out of date, so going "back to
+          the start" would only re-send the same stale hello and fail the same
+          way. The screen asks for a refresh; the button has to actually be one.
+        */}
+        {errorKind === "protocol" ? (
+          <button className="primary" onClick={() => location.reload()}>
+            Refresh the page
+          </button>
+        ) : (
+          <button
+            className="primary"
+            onClick={() => {
+              dismissError();
+              history.replaceState(null, "", location.pathname + location.search);
+              setCode(null);
+              setCreate(false);
+              setIntent("idle");
+            }}
+          >
+            Back to the start
+          </button>
+        )}
       </main>
     );
   }

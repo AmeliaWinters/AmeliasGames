@@ -14,7 +14,7 @@ export const PROTOCOL_VERSION = 1;
 export type ErrorKind =
   /** No room with that code — expired, swept, or never existed. */
   | 'no-room'
-  /** The room exists but both seats are taken. */
+  /** The room exists but every seat at its table is taken. */
   | 'full'
   /** Client and server disagree about the wire format. */
   | 'protocol'
@@ -37,7 +37,7 @@ export interface RoomView {
   turn: number | null;
   status: string;
   over: boolean;
-  /** True while we're still short of minPlayers. */
+  /** True while the room is still short of the table size it was opened for. */
   waiting: boolean;
 }
 

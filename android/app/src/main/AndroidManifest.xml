@@ -23,17 +23,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- An invite link opens the installed app rather than the browser.
-                 Room codes live in the fragment, which Android does not match
-                 on, so the filter is on the host and the app reads the hash. -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="amelias-games.anonylunt.workers.dev" />
-            </intent-filter>
+            <!-- Deliberately no VIEW filter for the invite host.
+                 Claiming the host only pays off with two things this app does
+                 not yet have: a listener for Capacitor's appUrlOpen to read the
+                 room code out of the fragment (Android does not match on it, so
+                 the code never arrives as an intent path), and an
+                 /.well-known/assetlinks.json served from the host and signed
+                 with the release certificate, without which autoVerify fails
+                 and Android 12+ ignores the filter anyway.
+                 With neither in place, claiming the host was strictly worse
+                 than not claiming it: the tap left the browser -- where the
+                 link works -- and opened the app at its start page with the
+                 room code discarded, dropping the friend into an empty lobby.
+                 Restore this filter alongside @capacitor/app and assetlinks,
+                 not before. -->
 
         </activity>
 
