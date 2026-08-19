@@ -12,9 +12,12 @@ import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../sha
 import type { C4State } from "../shared/games/connect4.js";
 import type { BgState } from "../shared/games/backgammon.js";
 import type { WofState } from "../shared/games/wheel.js";
+// Type-only, so no reducer and no word list follow it into the bundle.
+import type { WordleState } from "../shared/games/wordleDisplay.js";
 import { Connect4Board } from "./games/Connect4Board.js";
 import { BackgammonBoard, BackgammonStatus } from "./games/BackgammonBoard.js";
 import { WheelBoard } from "./games/WheelBoard.js";
+import { WordleBoard } from "./games/WordleBoard.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
@@ -322,6 +325,17 @@ function GameBoard({
           seat={seat}
           names={room.players.map((p) => p.name)}
           myTurn={myTurn}
+          onMove={sendMove}
+        />
+      );
+    case "wordle":
+      // No `myTurn`: Word Duel is free-simultaneous, so whether this player
+      // may type is a question only the board's own `canAct` can answer.
+      return (
+        <WordleBoard
+          state={room.state as WordleState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
           onMove={sendMove}
         />
       );

@@ -35,6 +35,14 @@
   --live: #2f6f4f;
   --pending: #9a6a12;
 
+  /* Word Duel's three tile states. Deliberately not Wordle's own green and
+     yellow, which fight this palette; these are the greens and ambers already
+     in it, darkened until white type clears 4.5:1 on every one. */
+  --mark-hit: #2f6f4f;
+  --mark-near: #8a5f10;
+  --mark-miss: #7a6070;
+  --mark-text: #fdf7f9;
+
   color-scheme: light;
 }
 
@@ -62,6 +70,12 @@
   --alert: #8f3520;
   --live: #2f6f4f;
   --pending: #8a6516;
+
+  /* Word Duel's three tile states -- see the note in the plum palette. */
+  --mark-hit: #2f6f4f;
+  --mark-near: #8a6516;
+  --mark-miss: #6f6960;
+  --mark-text: #fbf8f2;
 
   color-scheme: light;
 }
@@ -108,6 +122,8 @@ body {
 .wof-purse,
 .wof-wheel,
 .wof-tile,
+.wd-panel,
+.wd-tile,
 button,
 input {
   border: 1px solid var(--rule);
@@ -989,4 +1005,167 @@ input:focus-visible {
   margin: 0;
   padding: 0;
   accent-color: var(--ink);
+}
+
+/* ── Word Duel ─────────────────────────────────────────────────────────
+   Two grids side by side on one phone: yours on the left, theirs on the
+   right. That is the whole idea of the game made visible, so the panels stay
+   side by side at every width rather than stacking -- a stacked layout would
+   put their progress below the fold, which is exactly the thing you want to
+   watch. The tiles shrink instead. */
+.wd-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+.wd-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.wd-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: var(--surface);
+}
+
+.wd-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+/* The guess count is reference, not headline: same line, less weight. */
+.wd-count {
+  flex: none;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* The word that side is hunting. Yours reads out; theirs is five dots until
+   the game ends. Monospace so the two panels line up whichever it is. */
+.wd-target {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.wd-target.masked {
+  /* Nothing to read, so nothing that looks readable. */
+  color: var(--rule);
+}
+
+.wd-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wd-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+}
+
+.wd-tile {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  background: var(--hole);
+  font-family: var(--display);
+  font-size: clamp(0.7rem, 3.2vw, 1rem);
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.wd-tile.hit,
+.wd-tile.near,
+.wd-tile.miss {
+  border-color: transparent;
+  color: var(--mark-text);
+}
+.wd-tile.hit {
+  background: var(--mark-hit);
+}
+.wd-tile.near {
+  background: var(--mark-near);
+}
+.wd-tile.miss {
+  background: var(--mark-miss);
+}
+
+.wd-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wd-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wd-entry-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wd-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  /* Wide tracking so five letters read as five slots, and 16px so iOS does
+     not zoom the viewport the moment the field takes focus. */
+  font-size: 1rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.wd-submit {
+  flex: none;
+  /* A thumb target, matching the other actions in the app. */
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.9rem;
+}
+.wd-submit:disabled {
+  opacity: 0.45;
+}
+
+.wd-brief,
+.wd-locked,
+.wd-waiting {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.wd-locked strong {
+  font-family: var(--mono);
+  letter-spacing: 0.18em;
+  color: var(--ink);
+}
+
+.wd-setup {
+  gap: 12px;
 }

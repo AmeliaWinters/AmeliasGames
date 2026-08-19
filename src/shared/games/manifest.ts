@@ -23,6 +23,7 @@ export const GAME_MANIFEST = {
   connect4: { id: 'connect4', name: 'Connect Four', minPlayers: 2, maxPlayers: 2 },
   backgammon: { id: 'backgammon', name: 'Backgammon', minPlayers: 2, maxPlayers: 2 },
   wheel: { id: 'wheel', name: 'Wheel of Fortune', minPlayers: 2, maxPlayers: 4 },
+  wordle: { id: 'wordle', name: 'Word Duel', minPlayers: 2, maxPlayers: 2 },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;

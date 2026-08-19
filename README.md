@@ -103,13 +103,37 @@ letters are called — because the client is *sent* the state, so an answer that
 reaches it is an answer anyone can read out of devtools. Masking preserves
 length and punctuation, since knowing the shape of the phrase is the game.
 
-The forty-seven puzzles are the other half of the same problem: masking the
+The two hundred-odd puzzles are the other half of the same problem: masking the
 current answer achieves nothing if the browser is holding the list it came
 from, since the shape would pick it out. They stay out of the bundle because
 nothing in the client's import graph reaches the reducer — the board takes
 only types and display helpers, and the lobby reads `manifest.js` rather than
 the registry. That is load-bearing rather than incidental, and worth a
 `grep` of `dist/` after any change to those imports.
+
+**Word Duel** — two players, head-to-head Wordle. Each sets a five-letter word
+for the other, then both hunt the word they were given. Six guesses; fewer
+guesses wins, the same count is a draw, and solving does not end the game —
+your opponent still plays out the guesses they have left. The word list is
+deliberately permissive about slang and swearing, and deliberately free of
+slurs.
+
+It is the game that breaks the turn model. Play is *free-simultaneous*: nobody
+waits, so `GameDefinition.turn` — which assumes one active seat — reports
+whoever is furthest behind purely to give the status line something to say.
+The reducer never consults it, and neither does the board. Whether a player may
+act is `canAct(state, seat)`, and that distinction is the whole reason
+`wordleDisplay.ts` exists.
+
+Both players' guesses and marks are open, which costs nothing and is worth
+saying why: you are each guessing the *other's* word, so their attempts on
+yours tell you only what you could already mark yourself. `view()` hides
+exactly one thing — the word your opponent set for you — and stops hiding it
+once you have solved it or the game is over. The word list is server-only for
+size rather than secrecy: it is the largest thing in the repo, moves are
+validated on the server, and one convenience import in the board would put a
+dictionary on every phone that opens the lobby. `bundle.test.ts` holds that
+line.
 
 ## Adding a game
 
@@ -335,7 +359,7 @@ of every handler. Load from storage, don't assume.
 
 ## Status
 
-Connect Four, Backgammon and Wheel of Fortune are all complete and tested end
+Connect Four, Backgammon, Wheel of Fortune and Word Duel are all complete and tested end
 to end on both transports. Chess is the intended next game, as a pure-rules
 exercise; Wheel of Fortune has since taken Hearts' job of proving out `view()`.
 
