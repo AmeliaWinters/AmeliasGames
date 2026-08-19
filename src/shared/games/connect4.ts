@@ -1,4 +1,5 @@
 import type { GameDefinition, MoveResult } from '../types.js';
+import { GAME_MANIFEST } from './manifest.js';
 
 export const ROWS = 6;
 export const COLS = 7;
@@ -67,9 +68,13 @@ export function findWinningLine(
   return null;
 }
 
+function isOver(state: C4State): boolean {
+  return state.winner !== null || state.draw;
+}
+
 export const connect4: GameDefinition<C4State, C4Move> = {
-  id: 'connect4',
-  name: 'Connect Four',
+  id: GAME_MANIFEST.connect4.id,
+  name: GAME_MANIFEST.connect4.name,
   minPlayers: 2,
   maxPlayers: 2,
 
@@ -126,12 +131,12 @@ export const connect4: GameDefinition<C4State, C4Move> = {
   },
 
   turn(state) {
-    return this.isOver(state) ? null : state.turn;
+    // Deliberately not `this.isOver` — GameDefinition promises nothing about
+    // method binding, so a destructured `turn` would throw.
+    return isOver(state) ? null : state.turn;
   },
 
-  isOver(state) {
-    return state.winner !== null || state.draw;
-  },
+  isOver,
 
   status(state, names) {
     const nameFor = (seat: 0 | 1) => names[seat] ?? `Player ${seat + 1}`;

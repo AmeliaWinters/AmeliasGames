@@ -1,0 +1,11 @@
+{
+  // No DOM, no Node, no workerd. If something in src/shared stops compiling
+  // under this config, it has reached for a global that only exists on one of
+  // the three surfaces it is supposed to run on.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["vitest/globals"]
+  },
+  "include": ["src/shared"]
+}

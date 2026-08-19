@@ -1,7 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ClientMessage, RoomView, ServerMessage } from '../shared/protocol.js';
+import {
+  PROTOCOL_VERSION,
+  type ClientMessage,
+  type ErrorKind,
+  type RoomView,
+  type ServerMessage,
+} from '../shared/protocol.js';
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed';
+/**
+ * `connecting` is the first attempt, `closed` is a connection we had and lost.
+ * They are deliberately distinct: a first-time visitor should not be told we
+ * are "reconnecting" to something they were never connected to.
+ *
+ * `superseded` is terminal — this seat is being played somewhere else, so
+ * retrying would only start a fight over it.
+ */
+export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'superseded';
+
+/** Close code the server uses when the same player joins from elsewhere. */
+const TAKEN_OVER = 4000;
 
 function randomId(): string {
   // crypto.randomUUID needs a secure context, which a plain http:// LAN address
@@ -63,6 +80,8 @@ export interface UseRoom {
   seat: number | null;
   status: ConnectionStatus;
   error: string | null;
+  /** Why the last error happened, so the UI can frame it. */
+  errorKind: ErrorKind | null;
   sendMove(move: unknown): void;
   requestRematch(): void;
   dismissError(): void;
@@ -74,12 +93,15 @@ export function useRoom(opts: {
   code: string | null;
   create: boolean;
   gameId: string;
+  /** How many seats to lay out, honoured only when this client opens the room. */
+  players: number;
 }): UseRoom {
-  const { active, name, code, create, gameId } = opts;
+  const { active, name, code, create, gameId, players } = opts;
   const [room, setRoom] = useState<RoomView | null>(null);
   const [seat, setSeat] = useState<number | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   // Only the very first join may create the room. Reconnects must not silently
@@ -113,11 +135,18 @@ export function useRoom(opts: {
         setStatus('open');
         const hello: ClientMessage = {
           t: 'hello',
+          v: PROTOCOL_VERSION,
           playerId: getPlayerId(),
           name,
           code,
           create: createRef.current,
-          gameId,
+          // Only a client opening a room gets to say what it is playing.
+          // Someone arriving on a link is joining whatever is already there,
+          // and their lobby still has its own default selected — asserting it
+          // here is how a perfectly good invitation gets refused for "playing
+          // Connect Four" at a room that is not.
+          gameId: createRef.current ? gameId : '',
+          players,
         };
         socket.send(JSON.stringify(hello));
       };
@@ -141,11 +170,21 @@ export function useRoom(opts: {
           setRoom(msg.room);
         } else if (msg.t === 'error') {
           setError(msg.message);
+          setErrorKind(msg.kind);
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (cancelled) return;
+        // The server closed us because this player said hello on another
+        // socket. Retrying would evict that one, which would retry and evict
+        // this one — two tabs trading the seat about once a second, forever,
+        // with the room never allowed to hibernate.
+        if (event.code === TAKEN_OVER) {
+          cancelled = true;
+          setStatus('superseded');
+          return;
+        }
         setStatus('closed');
         retries += 1;
         const delay = Math.min(1000 * 2 ** (retries - 1), 10_000);
@@ -165,12 +204,15 @@ export function useRoom(opts: {
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [active, name, code, gameId]);
+  }, [active, name, code, gameId, players]);
 
   const post = useCallback((msg: ClientMessage) => {
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
-    else setError('Not connected — reconnecting…');
+    else {
+      setError('Not connected — reconnecting…');
+      setErrorKind('rejected');
+    }
   }, []);
 
   return {
@@ -178,8 +220,12 @@ export function useRoom(opts: {
     seat,
     status,
     error,
+    errorKind,
     sendMove: useCallback((move: unknown) => post({ t: 'move', move }), [post]),
     requestRematch: useCallback(() => post({ t: 'rematch' }), [post]),
-    dismissError: useCallback(() => setError(null), []),
+    dismissError: useCallback(() => {
+      setError(null);
+      setErrorKind(null);
+    }, []),
   };
 }

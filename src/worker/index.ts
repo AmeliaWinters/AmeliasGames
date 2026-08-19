@@ -1,16 +1,41 @@
 /// <reference types="@cloudflare/workers-types" />
 import { RoomEngine, isRoomCode, type RoomSnapshot } from '../shared/room.js';
-import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
+import { getGame } from '../shared/games/index.js';
+import {
+  PROTOCOL_VERSION,
+  type ClientMessage,
+  type ErrorKind,
+  type ServerMessage,
+} from '../shared/protocol.js';
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
   ASSETS: Fetcher;
 }
 
-/** Per-socket identity, kept across hibernation via serializeAttachment. */
+/** A socket that connects and never says hello is closed after this long. */
+const HELLO_TIMEOUT_MS = 30 * 1000;
+/** A room with nobody in it is deleted after this long. */
+const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
+/** How often the housekeeping alarm runs while there is anything to watch. */
+const IDLE_TICK_MS = 5 * 60 * 1000;
+const PENDING_TICK_MS = 30 * 1000;
+
+/**
+ * Per-socket identity, kept across hibernation via serializeAttachment.
+ *
+ * Set at accept time rather than at join, so a socket that never says hello is
+ * still visible to the sweeper. An empty `playerId` means "connected but not
+ * yet seated" — use `isSeated` rather than testing the attachment itself.
+ */
 interface SocketMeta {
   playerId: string;
   seat: number;
+  since: number;
+}
+
+function isSeated(meta: SocketMeta | null): boolean {
+  return meta !== null && meta.playerId !== '';
 }
 
 /**
@@ -36,29 +61,39 @@ export class GameRoom implements DurableObject {
   private async loadEngine(): Promise<RoomEngine | null> {
     if (this.engine) return this.engine;
     const stored = await this.state.storage.get<RoomSnapshot>('room');
-    if (stored) this.engine = RoomEngine.restore(stored);
-    return this.engine;
-  }
-
-  private async engineFor(gameId: string, code: string, create: boolean): Promise<RoomEngine | null> {
-    const existing = await this.loadEngine();
-    if (existing) return existing;
-    if (!create) return null;
-    this.engine = RoomEngine.create(code, gameId);
-    await this.persist();
+    if (!stored) return null;
+    const engine = RoomEngine.restore(stored);
+    if (!engine) {
+      // A snapshot we can no longer read — an older shape, or a game that has
+      // been removed. Discard it, rather than failing to restore it on every
+      // message from now until the end of time.
+      await this.state.storage.deleteAll();
+      return null;
+    }
+    this.engine = engine;
     return this.engine;
   }
 
   private async persist(): Promise<void> {
-    if (this.engine) await this.state.storage.put('room', this.engine.snapshot());
+    if (!this.engine) return;
+    await this.state.storage.put('room', this.engine.snapshot());
+    await this.ensureAlarm(IDLE_TICK_MS);
+  }
+
+  /** Arrange for `alarm()` to run within `delay`, without pushing it later. */
+  private async ensureAlarm(delay: number): Promise<void> {
+    const wanted = Date.now() + delay;
+    const current = await this.state.storage.getAlarm();
+    if (current === null || current > wanted) await this.state.storage.setAlarm(wanted);
   }
 
   /** Seats with a live socket right now. */
-  private connectedSeats(): Set<number> {
+  private connectedSeats(exclude?: WebSocket): Set<number> {
     const seats = new Set<number>();
     for (const ws of this.state.getWebSockets()) {
+      if (ws === exclude) continue;
       const meta = ws.deserializeAttachment() as SocketMeta | null;
-      if (meta) seats.add(meta.seat);
+      if (meta && meta.playerId !== '') seats.add(meta.seat);
     }
     return seats;
   }
@@ -71,12 +106,26 @@ export class GameRoom implements DurableObject {
     }
   }
 
-  private broadcast(): void {
+  private fail(ws: WebSocket, kind: ErrorKind, message: string): void {
+    this.post(ws, { t: 'error', kind, message });
+  }
+
+  /**
+   * `exclude` is the socket that is currently closing. It is still listed by
+   * getWebSockets() while its close handler runs, so without this the
+   * broadcast that exists to raise the "away" badge would report the departing
+   * player as still connected — and then the room hibernates, so nothing
+   * corrects it until the next move.
+   */
+  private broadcast(exclude?: WebSocket): void {
     if (!this.engine) return;
-    const connected = this.connectedSeats();
+    const connected = this.connectedSeats(exclude);
     for (const ws of this.state.getWebSockets()) {
+      if (ws === exclude) continue;
       const meta = ws.deserializeAttachment() as SocketMeta | null;
-      if (meta) this.post(ws, { t: 'room', room: this.engine.viewFor(meta.seat, connected) });
+      if (meta && meta.playerId !== '') {
+        this.post(ws, { t: 'room', room: this.engine.viewFor(meta.seat, connected) });
+      }
     }
   }
 
@@ -84,10 +133,21 @@ export class GameRoom implements DurableObject {
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket upgrade.', { status: 426 });
     }
+    const code = (new URL(request.url).searchParams.get('code') ?? '').toUpperCase();
+    if (!isRoomCode(code)) return new Response('Invalid room code.', { status: 400 });
+
+    // The code that routed us here is the room's real identity. Remembering it
+    // is what lets a `hello` be checked against it.
+    if ((await this.state.storage.get<string>('code')) !== code) {
+      await this.state.storage.put('code', code);
+    }
+
     const pair = new WebSocketPair();
     // acceptWebSocket (rather than ws.accept) opts into hibernation: an idle
     // room is evicted from memory and costs nothing until the next message.
     this.state.acceptWebSocket(pair[1]);
+    pair[1].serializeAttachment({ playerId: '', seat: -1, since: Date.now() } satisfies SocketMeta);
+    await this.ensureAlarm(PENDING_TICK_MS);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -96,72 +156,185 @@ export class GameRoom implements DurableObject {
     try {
       msg = JSON.parse(typeof raw === 'string' ? raw : new TextDecoder().decode(raw));
     } catch {
-      return this.post(ws, { t: 'error', message: 'Malformed message.' });
+      return this.fail(ws, 'protocol', 'Malformed message.');
+    }
+    // JSON.parse of the four bytes `null` succeeds and yields null, and
+    // reading `.t` off that throws.
+    if (typeof msg !== 'object' || msg === null) {
+      return this.fail(ws, 'protocol', 'Malformed message.');
     }
 
     const meta = ws.deserializeAttachment() as SocketMeta | null;
+    // Kept from the original attachment so the pending-socket sweep still
+    // measures from when the socket actually connected.
+    const since = meta?.since ?? Date.now();
 
     if (msg.t === 'hello') {
-      if (meta) return;
+      if (isSeated(meta)) return;
+
+      if (msg.v !== PROTOCOL_VERSION) {
+        return this.fail(ws, 'protocol', 'This page is out of date — please refresh.');
+      }
 
       const name = String(msg.name ?? '').trim().slice(0, 20) || 'Player';
       const playerId = String(msg.playerId ?? '');
       const code = String(msg.code ?? '').toUpperCase();
-      if (!playerId) return this.post(ws, { t: 'error', message: 'Missing player id.' });
-      if (!isRoomCode(code)) return this.post(ws, { t: 'error', message: 'Invalid room code.' });
+      if (!playerId) return this.fail(ws, 'protocol', 'Missing player id.');
+      if (!isRoomCode(code)) return this.fail(ws, 'protocol', 'Invalid room code.');
 
-      const engine = await this.engineFor(msg.gameId, code, msg.create === true);
-      if (!engine) return this.post(ws, { t: 'error', message: 'No room with that code.' });
+      // The socket was routed to this object by the code in the URL; a `hello`
+      // naming a different room would otherwise be welcomed into this one.
+      const routingCode = await this.state.storage.get<string>('code');
+      if (routingCode && code !== routingCode) {
+        return this.fail(ws, 'protocol', 'That code does not match this room.');
+      }
+
+      const found = await this.engineFor(
+        String(msg.gameId ?? ''),
+        code,
+        msg.create === true,
+        playerId,
+        msg.players,
+      );
+      if (!found.ok) return this.fail(ws, found.kind, found.error);
+      const engine = found.engine;
 
       const result = engine.join(playerId, name);
-      if (!result.ok) return this.post(ws, { t: 'error', message: result.error });
+      if (!result.ok) return this.fail(ws, 'full', result.error);
 
-      // Drop any earlier socket for this same player so it stops receiving updates.
+      // Drop any earlier socket for this same player so it stops receiving
+      // updates. 4000 tells that client the close was deliberate, so it stops
+      // retrying rather than racing this one for the seat forever.
       for (const other of this.state.getWebSockets()) {
         if (other === ws) continue;
         const otherMeta = other.deserializeAttachment() as SocketMeta | null;
         if (otherMeta?.playerId === playerId) other.close(4000, 'Reconnected elsewhere');
       }
 
-      ws.serializeAttachment({ playerId, seat: result.seat } satisfies SocketMeta);
+      ws.serializeAttachment({ playerId, seat: result.seat, since } satisfies SocketMeta);
+      await this.state.storage.delete('emptySince');
       await this.persist();
 
-      this.post(ws, { t: 'welcome', seat: result.seat, room: engine.viewFor(result.seat, this.connectedSeats()) });
+      this.post(ws, {
+        t: 'welcome',
+        seat: result.seat,
+        room: engine.viewFor(result.seat, this.connectedSeats()),
+      });
       this.broadcast();
       return;
     }
 
-    if (!meta) return this.post(ws, { t: 'error', message: 'Join a room first.' });
+    if (!meta || meta.playerId === '') return this.fail(ws, 'rejected', 'Join a room first.');
 
     const engine = await this.loadEngine();
-    if (!engine) return this.post(ws, { t: 'error', message: 'This room no longer exists.' });
+    if (!engine) return this.fail(ws, 'no-room', 'This room no longer exists.');
 
-    if (msg.t === 'move') {
-      const result = engine.move(meta.seat, msg.move);
-      if (!result.ok) return this.post(ws, { t: 'error', message: result.error });
-      await this.persist();
-      this.broadcast();
-      return;
-    }
-
-    if (msg.t === 'rematch') {
-      const result = engine.rematch();
-      if (!result.ok) return this.post(ws, { t: 'error', message: result.error });
+    if (msg.t === 'move' || msg.t === 'rematch') {
+      // A reducer is not supposed to throw, and the fuzzing says none of them
+      // does — but an exception escaping here aborts the Durable Object and
+      // takes the other player's game down with it.
+      let result;
+      try {
+        result = msg.t === 'move' ? engine.move(meta.seat, msg.move) : engine.rematch();
+      } catch {
+        return this.fail(ws, 'rejected', 'That move could not be played.');
+      }
+      if (!result.ok) return this.fail(ws, 'rejected', result.error);
       await this.persist();
       this.broadcast();
       return;
     }
   }
 
-  async webSocketClose(): Promise<void> {
+  /**
+   * Find or create the room. Returns a reason rather than throwing, because
+   * every caller is holding a socket that deserves an answer.
+   */
+  private async engineFor(
+    gameId: string,
+    code: string,
+    create: boolean,
+    playerId: string,
+    players: number | undefined,
+  ): Promise<{ ok: true; engine: RoomEngine } | { ok: false; kind: ErrorKind; error: string }> {
+    const existing = await this.loadEngine();
+
+    if (existing) {
+      // Starting a "new" game on a code that is already someone else's room
+      // would silently seat you as player two of their game.
+      //
+      // Two rooms are not someone else's: one nobody has sat in yet, and one
+      // where this player already has a seat. That second case is ordinary —
+      // a create-flagged hello arriving twice, from a retry or a remount — and
+      // refusing it would lock the host out of the room they just made.
+      const mine = existing.seatOf(playerId) !== -1;
+      if (create && !existing.isFresh() && !mine) {
+        return {
+          ok: false,
+          kind: 'full',
+          error: 'That code is already in use. Try starting again.',
+        };
+      }
+      if (gameId && gameId !== existing.def.id) {
+        return { ok: false, kind: 'rejected', error: `That room is playing ${existing.def.name}.` };
+      }
+      return { ok: true, engine: existing };
+    }
+
+    if (!create) return { ok: false, kind: 'no-room', error: 'No room with that code.' };
+    if (!getGame(gameId)) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
+
+    // Only the creating client's request is honoured; the room's size is
+    // settled before anyone else can ask for a different one.
+    const engine = RoomEngine.create(code, gameId, undefined, players);
+    if (!engine) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
+    this.engine = engine;
+    await this.persist();
+    return { ok: true, engine };
+  }
+
+  async webSocketClose(ws: WebSocket): Promise<void> {
     // The seat itself is kept in storage, so the player can reclaim it later.
     await this.loadEngine();
-    this.broadcast();
+    if (this.connectedSeats(ws).size === 0) {
+      await this.state.storage.put('emptySince', Date.now());
+      await this.ensureAlarm(EMPTY_ROOM_TTL_MS);
+    }
+    this.broadcast(ws);
   }
 
-  async webSocketError(): Promise<void> {
+  async webSocketError(ws: WebSocket): Promise<void> {
     await this.loadEngine();
-    this.broadcast();
+    this.broadcast(ws);
+  }
+
+  /**
+   * Housekeeping. Without this a room lives in storage forever, so the
+   * collision space grows with every game ever played rather than with the
+   * games being played now. An alarm on an idle object does not keep it awake.
+   */
+  async alarm(): Promise<void> {
+    const now = Date.now();
+
+    let pending = false;
+    for (const ws of this.state.getWebSockets()) {
+      const meta = ws.deserializeAttachment() as SocketMeta | null;
+      if (!meta || meta.playerId !== '') continue;
+      if (now - meta.since > HELLO_TIMEOUT_MS) ws.close(4001, 'Never said hello');
+      else pending = true;
+    }
+
+    if (this.connectedSeats().size === 0) {
+      const emptySince = (await this.state.storage.get<number>('emptySince')) ?? now;
+      if (now - emptySince >= EMPTY_ROOM_TTL_MS) {
+        await this.state.storage.deleteAll();
+        this.engine = null;
+        return; // nothing left to watch
+      }
+      await this.state.storage.put('emptySince', emptySince);
+    }
+
+    await this.state.storage.setAlarm(now + (pending ? PENDING_TICK_MS : IDLE_TICK_MS));
   }
 }
 

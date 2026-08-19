@@ -10,7 +10,9 @@ export function Connect4Board({ state, myTurn, onDrop }: Props) {
   const winning = new Set((state.winningLine ?? []).map(([r, c]) => `${r},${c}`));
 
   return (
-    <div className="board" role="grid" aria-label="Connect Four board">
+    // Not role="grid": that pattern requires row and gridcell descendants, and
+    // these are seven column buttons. A labelled group is what this actually is.
+    <div className="board" role="group" aria-label="Connect Four board">
       {Array.from({ length: COLS }, (_, col) => {
         const full = landingRow(state.board, col) === -1;
         const playable = myTurn && !full;

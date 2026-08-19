@@ -1,0 +1,20 @@
+{
+  // Shared compiler settings. Each surface — browser, Node, workerd — extends
+  // this and adds only the globals it actually has. One program spanning all
+  // three left `src/shared` free to reach for `document` or `process` and still
+  // typecheck, which made the "shared code runs everywhere" rule a convention
+  // rather than something the compiler enforced.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
+  }
+}

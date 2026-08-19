@@ -91,22 +91,57 @@ Backgammon needs dice, which is why `GameDefinition` takes an `Rng`. It only
 ever runs on the server — the client renders the state it is sent and never
 applies moves locally, so nobody can re-roll until they like the answer.
 
+**Wheel of Fortune** — two to four players, three rounds, most money wins.
+Spin and name a consonant, buy a vowel for $250 out of what you have won this
+round, or solve. Bankrupt takes the round's money but never what you have
+already banked; solving pays at least $500. Rounds rotate who opens, so taking
+one does not compound into the first spin of the next.
+
+It is the game that proves out `view()`. The phrase lives in `state.answer` on
+the server and is masked on the way out to every client, letter by letter, as
+letters are called — because the client is *sent* the state, so an answer that
+reaches it is an answer anyone can read out of devtools. Masking preserves
+length and punctuation, since knowing the shape of the phrase is the game.
+
+The forty-seven puzzles are the other half of the same problem: masking the
+current answer achieves nothing if the browser is holding the list it came
+from, since the shape would pick it out. They stay out of the bundle because
+nothing in the client's import graph reaches the reducer — the board takes
+only types and display helpers, and the lobby reads `manifest.js` rather than
+the registry. That is load-bearing rather than incidental, and worth a
+`grep` of `dist/` after any change to those imports.
+
 ## Adding a game
 
-1. Write `src/shared/games/<name>.ts` implementing `GameDefinition`. Take the
-   `rng` argument if the game needs chance; ignore it otherwise.
-2. Write its tests. Do this before touching any UI — it's the cheap place to
+1. Add it to `src/shared/games/manifest.ts` — id, name, and how many can play.
+   The manifest deliberately imports no reducer, which is what lets the lobby
+   list the games without pulling every rule into the browser.
+2. Write `src/shared/games/<name>.ts` implementing `GameDefinition`, reading
+   its id, name and seat range back from the manifest. Take the `rng` argument
+   if the game needs chance; ignore it otherwise.
+3. Write its tests. Do this before touching any UI — it's the cheap place to
    get rules right.
-3. Register it in `src/shared/games/index.ts`.
-4. Write a board component in `src/client/games/`.
+4. Register it in `src/shared/games/index.ts`.
+5. Add a case to `GameBoard` in `App.tsx` and a board component in
+   `src/client/games/`.
 
 The lobby, rooms, join links, reconnection, turn handling and rematch are all
 game-agnostic and come for free.
 
+**Player counts are per room, not per game.** A game declares a range
+(`minPlayers`–`maxPlayers`); whoever opens the room picks a number inside it,
+and that is fixed for the room's life. `setup(playerCount, rng)` is told which
+it got, seats are sized to it, and a rematch replays at the same table. Games
+with no range never show the picker. Write the reducer for the count it is
+handed rather than for two — Wheel of Fortune's turn walks `% seats`, and its
+`bank` is as long as there are players.
+
 For hidden-information games (Hearts, poker), implement the optional
 `view(state, seat)` to redact state per player. The server already calls it
 before sending — that's why each player gets their own payload rather than a
-shared broadcast.
+shared broadcast. Wheel of Fortune is the worked example, and its tests
+include the assertion worth copying: that the redaction is *applied by the
+room*, not merely available to be.
 
 ## Design
 
@@ -128,10 +163,19 @@ may be fetched at runtime.
 **Layout** is one primitive repeated: a hairline-ruled panel at 3px radius.
 The board is the only thing given real room.
 
-**Motion** is two animations, both carrying information — a counter falling so
-you can see where it landed, and a ring closing on the winning line. On the
-winning counter they run in sequence. Everything decorative was deleted, and
-`prefers-reduced-motion` disables both.
+**Motion** is three animations, each carrying information — a counter falling
+so you can see where it landed, a ring closing on the winning line, and a
+puzzle tile turning over as a letter is revealed. On the winning counter the
+first two run in sequence. The third earns its place the same way: one called
+letter can land in four places at once, and without it you are left comparing
+the board to your memory of it. Everything decorative was deleted, and
+`prefers-reduced-motion` disables all three.
+
+**Seat colours** run to four, because Wheel of Fortune seats up to four. The
+third and fourth are teal and burnt amber in Plum & Rose, violet and bronze in
+Paper & Ink. Every chip sits beside a name, so at those table sizes colour
+reinforces identity rather than carrying it alone — which is not true of the
+Connect Four board, and is why the counters there also differ by ring.
 
 This was built against `anti-slop-design-guide.md`. The previous build tripped
 four of the sixteen patterns — indigo accent, dark-by-default, all-caps labels,
@@ -291,14 +335,15 @@ of every handler. Load from storage, don't assume.
 
 ## Status
 
-Connect Four is complete and tested end to end on both transports. Chess and
-Hearts are the intended next games — chess as a pure-rules exercise, Hearts to
-prove out `view()`.
+Connect Four, Backgammon and Wheel of Fortune are all complete and tested end
+to end on both transports. Chess is the intended next game, as a pure-rules
+exercise; Wheel of Fortune has since taken Hearts' job of proving out `view()`.
 
 Live at https://amelias-games.anonylunt.workers.dev and shipping as a
-sideloadable Android APK. Connect Four and Backgammon both complete, with 83
-tests — including forty full random games of backgammon played to completion
-with checker-conservation checked on every move.
+sideloadable Android APK, with 224 tests — including forty full random games
+of backgammon played to completion with checker-conservation checked on every
+move, and a hundred and twenty random Wheel of Fortune matches across tables
+of two, three and four.
 
 Not done yet: no PWA manifest, so the browser version won't install to the home
 screen with its own icon (the APK covers that need for now). The app also uses

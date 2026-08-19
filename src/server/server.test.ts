@@ -1,8 +1,22 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { WebSocket, type WebSocketServer } from 'ws';
 import { startServer } from './index.js';
-import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
-import { makeRoomCode } from '../shared/room.js';
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../shared/protocol.js';
+import { isRoomCode, makeRoomCode } from '../shared/room.js';
+
+/** A well-formed hello, so a test only has to say what it is varying. */
+function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): ClientMessage {
+  return {
+    t: 'hello',
+    v: PROTOCOL_VERSION,
+    playerId: `p-${Math.random()}`,
+    name: 'Player',
+    code: makeRoomCode(),
+    create: false,
+    gameId: 'connect4',
+    ...over,
+  };
+}
 
 const PORT = 8899;
 let wss: WebSocketServer;
@@ -44,6 +58,15 @@ class TestClient {
     this.socket.send(JSON.stringify(msg));
   }
 
+  /** Bypasses the type system entirely — the point is what a hostile client sends. */
+  sendRaw(text: string): void {
+    this.socket.send(text);
+  }
+
+  get open(): boolean {
+    return this.socket.readyState === WebSocket.OPEN;
+  }
+
   next(timeoutMs = 1500): Promise<ServerMessage> {
     const queued = this.inbox.shift();
     if (queued) return Promise.resolve(queued);
@@ -78,14 +101,14 @@ class TestClient {
 async function seatTwoPlayers() {
   const code = makeRoomCode();
   const host = await TestClient.connect();
-  host.send({ t: 'hello', playerId: `host-${Math.random()}`, name: 'Host', code, create: true, gameId: 'connect4' });
+  host.send(hello({ name: 'Host', code, create: true }));
   const welcome = await host.nextOf('welcome');
   expect(welcome.room.code).toBe(code);
   // Drop the solo-host broadcast so the next 'room' a test sees is the join.
   host.drain();
 
   const guest = await TestClient.connect();
-  guest.send({ t: 'hello', playerId: `guest-${Math.random()}`, name: 'Guest', code, create: false, gameId: 'connect4' });
+  guest.send(hello({ name: 'Guest', code }));
   await guest.nextOf('welcome');
 
   return { host, guest, code, hostSeat: welcome.seat };
@@ -94,7 +117,7 @@ async function seatTwoPlayers() {
 describe('room lifecycle', () => {
   it('seats the creator at 0 and the joiner at 1', async () => {
     const { host, guest, code } = await seatTwoPlayers();
-    expect(code).toMatch(/^[A-Z0-9]{4}$/);
+    expect(isRoomCode(code)).toBe(true);
     const room = (await host.nextOf('room')).room;
     expect(room.players.map((p) => p.name)).toEqual(['Host', 'Guest']);
     expect(room.waiting).toBe(false);
@@ -104,7 +127,7 @@ describe('room lifecycle', () => {
 
   it('rejects an unknown room code', async () => {
     const client = await TestClient.connect();
-    client.send({ t: 'hello', playerId: 'x', name: 'X', code: 'ZZZZ', create: false, gameId: 'connect4' });
+    client.send(hello({ playerId: 'x', name: 'X', code: 'ZZZZZZ' }));
     const msg = await client.next();
     expect(msg.t).toBe('error');
     expect(msg.t === 'error' && msg.message).toMatch(/no room/i);
@@ -114,7 +137,7 @@ describe('room lifecycle', () => {
   it('refuses a third player', async () => {
     const { host, guest, code } = await seatTwoPlayers();
     const third = await TestClient.connect();
-    third.send({ t: 'hello', playerId: 'third', name: 'Third', code, create: false, gameId: 'connect4' });
+    third.send(hello({ playerId: 'third', name: 'Third', code }));
     const msg = await third.nextOf('error');
     expect(msg.message).toMatch(/full/i);
     host.close();
@@ -125,12 +148,12 @@ describe('room lifecycle', () => {
   it('gives a reconnecting player their original seat back', async () => {
     const code = makeRoomCode();
     const host = await TestClient.connect();
-    host.send({ t: 'hello', playerId: 'stable-id', name: 'Host', code, create: true, gameId: 'connect4' });
+    host.send(hello({ playerId: 'stable-id', name: 'Host', code, create: true }));
     const first = await host.nextOf('welcome');
     host.close();
 
     const again = await TestClient.connect();
-    again.send({ t: 'hello', playerId: 'stable-id', name: 'Host', code, create: false, gameId: 'connect4' });
+    again.send(hello({ playerId: 'stable-id', name: 'Host', code }));
     const second = await again.nextOf('welcome');
     expect(second.seat).toBe(first.seat);
     expect(second.room.code).toBe(first.room.code);
@@ -139,15 +162,104 @@ describe('room lifecycle', () => {
 
   it('refuses to join a code that was never created', async () => {
     const client = await TestClient.connect();
-    client.send({ t: 'hello', playerId: 'y', name: 'Y', code: makeRoomCode(), create: false, gameId: 'connect4' });
+    client.send(hello({ playerId: 'y', name: 'Y' }));
     expect((await client.nextOf('error')).message).toMatch(/no room/i);
     client.close();
   });
 
   it('rejects a malformed room code', async () => {
     const client = await TestClient.connect();
-    client.send({ t: 'hello', playerId: 'z', name: 'Z', code: 'nope!', create: true, gameId: 'connect4' });
+    client.send(hello({ playerId: 'z', name: 'Z', code: 'nope!', create: true }));
     expect((await client.nextOf('error')).message).toMatch(/invalid room code/i);
+    client.close();
+  });
+});
+
+describe('hostile input', () => {
+  it('survives a payload that parses to null', async () => {
+    // JSON.parse('null') succeeds, and reading .t off the result throws. `ws`
+    // does not trap listener exceptions, so this used to reach
+    // uncaughtException and take every room on the server down with it.
+    const client = await TestClient.connect();
+    client.sendRaw('null');
+    expect((await client.nextOf('error')).message).toMatch(/malformed/i);
+
+    // The process — and everyone else's game — is still here.
+    const { host, guest } = await seatTwoPlayers();
+    expect(host.open).toBe(true);
+    client.close();
+    host.close();
+    guest.close();
+  });
+
+  it('survives payloads that parse to other non-objects', async () => {
+    const client = await TestClient.connect();
+    for (const raw of ['42', '"hello"', 'true', '[]']) {
+      client.sendRaw(raw);
+      expect((await client.nextOf('error')).message).toMatch(/malformed|join a room/i);
+    }
+    client.close();
+  });
+
+  it('turns away a client built against a different protocol version', async () => {
+    const client = await TestClient.connect();
+    client.send(hello({ v: PROTOCOL_VERSION + 1, create: true }));
+    const msg = await client.nextOf('error');
+    expect(msg.kind).toBe('protocol');
+    expect(msg.message).toMatch(/refresh/i);
+    client.close();
+  });
+
+  it('refuses to create over a room that is already being played', async () => {
+    // Codes are picked by the client. A collision used to seat the "creator"
+    // silently as player two of a stranger's game.
+    const { host, guest, code } = await seatTwoPlayers();
+    const collider = await TestClient.connect();
+    collider.send(hello({ playerId: 'collider', code, create: true }));
+    const msg = await collider.nextOf('error');
+    expect(msg.message).toMatch(/already in use/i);
+    collider.close();
+    host.close();
+    guest.close();
+  });
+
+  it('lets the host re-send a create-flagged hello for their own room', async () => {
+    // A retry, or a remount in development, sends create twice. Treating that
+    // as a collision locked the host out of the room they had just made.
+    const code = makeRoomCode();
+    const first = await TestClient.connect();
+    first.send(hello({ playerId: 'owner', code, create: true }));
+    await first.nextOf('welcome');
+    first.close();
+
+    const again = await TestClient.connect();
+    again.send(hello({ playerId: 'owner', code, create: true }));
+    const welcome = await again.nextOf('welcome');
+    expect(welcome.seat).toBe(0);
+    again.close();
+  });
+
+  it('refuses to join a room that is playing a different game', async () => {
+    const { host, guest, code } = await seatTwoPlayers();
+    const confused = await TestClient.connect();
+    confused.send(hello({ playerId: 'confused', code, gameId: 'backgammon' }));
+    expect((await confused.nextOf('error')).message).toMatch(/connect four/i);
+    confused.close();
+    host.close();
+    guest.close();
+  });
+
+  it('refuses to create a game that does not exist', async () => {
+    const client = await TestClient.connect();
+    client.send(hello({ gameId: 'chess', create: true }));
+    expect((await client.nextOf('error')).message).toMatch(/could not create/i);
+    client.close();
+  });
+
+  it('tells a rejected client why, not just that', async () => {
+    const client = await TestClient.connect();
+    client.send(hello({ playerId: 'kinds' }));
+    expect((await client.nextOf('error')).kind).toBe('no-room');
     client.close();
   });
 });

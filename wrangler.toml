@@ -8,6 +8,10 @@ compatibility_date = "2025-01-01"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+# Explicit rather than relying on asset-router precedence: /ws matches no file
+# today, but "the whole game breaks" is too large a consequence to leave to the
+# order two subsystems happen to run in.
+run_worker_first = ["/ws"]
 
 [[durable_objects.bindings]]
 name = "ROOMS"

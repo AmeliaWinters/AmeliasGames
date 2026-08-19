@@ -1,4 +1,5 @@
-import type { GameDefinition, MoveResult } from "../types.js";
+import type { GameDefinition, MoveResult, Rng } from "../types.js";
+import { GAME_MANIFEST } from "./manifest.js";
 
 /**
  * Backgammon.
@@ -85,6 +86,10 @@ function clone(state: BgState): BgState {
     bar: [...state.bar] as [number, number],
     off: [...state.off] as [number, number],
     dice: state.dice.slice(),
+    // `roll` is a tuple too. Leaving it aliased means a derived state shares it
+    // with the state it came from, which is one careless write away from
+    // corrupting a stored snapshot.
+    roll: state.roll ? ([...state.roll] as [number, number]) : null,
   };
 }
 
@@ -253,8 +258,22 @@ function scoreFor(state: BgState, winner: number): 1 | 2 | 3 {
   return 2;
 }
 
+/**
+ * One die. `Rng` is documented as returning [0, 1), and Math.random does — but
+ * a hand-written test rng returning exactly 1 would otherwise roll a 7, and one
+ * returning NaN would poison the state silently.
+ */
+function die(rng: Rng): number {
+  const raw = rng();
+  const clamped = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), 0.999999) : 0;
+  return 1 + Math.floor(clamped * 6);
+}
+
 function endTurn(state: BgState): void {
   state.dice = [];
+  // `roll` means "the pair the player to move rolled". Once the turn flips it
+  // would otherwise still hold the *previous* player's dice.
+  state.roll = null;
   state.phase = "roll";
   state.turn = (1 - state.turn) as 0 | 1;
 }
@@ -274,8 +293,8 @@ function startingPoints(): number[] {
 }
 
 export const backgammon: GameDefinition<BgState, BgMove> = {
-  id: "backgammon",
-  name: "Backgammon",
+  id: GAME_MANIFEST.backgammon.id,
+  name: GAME_MANIFEST.backgammon.name,
   minPlayers: 2,
   maxPlayers: 2,
 
@@ -301,8 +320,8 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
 
     if (move.type === "roll") {
       if (state.phase !== "roll") return { ok: false, error: "You have already rolled." };
-      const a = 1 + Math.floor(rng() * 6);
-      const b = 1 + Math.floor(rng() * 6);
+      const a = die(rng);
+      const b = die(rng);
       return {
         ok: true,
         state: {

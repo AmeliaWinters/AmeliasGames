@@ -35,6 +35,14 @@ function loadedDice(...faces: number[]): () => number {
 
 const never = () => 0;
 
+/** A lone seat-0 checker with a made enemy point three pips ahead of it. */
+function blockedSolo(): number[] {
+  const points = Array<number>(POINTS).fill(0);
+  points[12] = 1;
+  points[9] = -2;
+  return points;
+}
+
 describe("setup", () => {
   it("lays out the standard opening position", () => {
     const s = backgammon.setup(2, never);
@@ -497,6 +505,193 @@ describe("full games", () => {
       );
       if (!result.ok) return;
       state = result.state;
+    }
+  });
+});
+
+describe("immutability", () => {
+  it("never mutates the state it is given, including the roll", () => {
+    // `roll` is a tuple, and a shallow spread leaves it shared with the state
+    // it came from — one careless write away from corrupting a snapshot that
+    // has already been persisted.
+    const before = position({ points: withChecker(10, 1), dice: [4], roll: [4, 2] });
+    const after = applyOne(before, 0, 10, 4)!;
+    expect(after).not.toBeNull();
+
+    after.roll![0] = 99;
+    after.points[10] = 99;
+    after.bar[0] = 99;
+    after.off[0] = 99;
+    after.dice.push(99);
+
+    expect(before.roll).toEqual([4, 2]);
+    expect(before.points[10]).toBe(1);
+    expect(before.bar[0]).toBe(0);
+    expect(before.off[0]).toBe(0);
+    expect(before.dice).toEqual([4]);
+  });
+
+  it("does not leave the previous player's dice lying around after the turn flips", () => {
+    // `roll` means "what the player to move rolled". Once the turn changes it
+    // would otherwise still describe the player who just finished.
+    const stuck = position({ points: blockedSolo(), dice: [3, 3], roll: [3, 3], turn: 0 });
+    const passed = backgammon.applyMove(stuck, { type: "pass" }, 0, never);
+    expect(passed.ok).toBe(true);
+    if (!passed.ok) return;
+    expect(passed.state.turn).toBe(1);
+    expect(passed.state.roll).toBeNull();
+  });
+});
+
+describe("scoring for seat 1", () => {
+  // Every other win test in this file has seat 0 winning, so a mirrored bug in
+  // scoreFor would go unseen.
+  function seatOneBearingOff(seatZeroPoints: Record<number, number>): BgState {
+    const points = Array<number>(POINTS).fill(0);
+    points[23] = -1; // seat 1's last checker, one pip from off
+    for (const [point, count] of Object.entries(seatZeroPoints)) points[Number(point)] = count;
+    return position({ points, off: [0, 14], dice: [1], turn: 1, phase: "move" });
+  }
+
+  const finish = (state: BgState) => {
+    const result = backgammon.applyMove(state, { type: "move", from: 23, die: 1 }, 1, never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    return result.state;
+  };
+
+  it("awards a single game when the loser has borne one off", () => {
+    const state = finish(position({
+      points: (() => {
+        const p = Array<number>(POINTS).fill(0);
+        p[23] = -1;
+        p[5] = 14;
+        return p;
+      })(),
+      off: [1, 14],
+      dice: [1],
+      turn: 1,
+      phase: "move",
+    }));
+    expect(state.winner).toBe(1);
+    expect(state.result).toBe(1);
+  });
+
+  it("awards a gammon when the loser has borne nothing off", () => {
+    const state = finish(seatOneBearingOff({ 5: 15 }));
+    expect(state.winner).toBe(1);
+    expect(state.result).toBe(2);
+  });
+
+  it("awards a backgammon when the loser still sits in the winner's home", () => {
+    const state = finish(seatOneBearingOff({ 5: 14, 20: 1 }));
+    expect(state.winner).toBe(1);
+    expect(state.result).toBe(3);
+  });
+
+  it("awards a backgammon when the loser is still on the bar", () => {
+    const points = Array<number>(POINTS).fill(0);
+    points[23] = -1;
+    points[5] = 14;
+    const state = finish(position({
+      points,
+      bar: [1, 0],
+      off: [0, 14],
+      dice: [1],
+      turn: 1,
+      phase: "move",
+    }));
+    expect(state.result).toBe(3);
+  });
+});
+
+describe("doubles played only in part", () => {
+  it("accepts a turn that uses two of the four dice and then has nowhere to go", () => {
+    // A lone checker walking 12 -> 9 -> 6, with 3 blocked by a made point.
+    const points = Array<number>(POINTS).fill(0);
+    points[12] = 1;
+    points[3] = -2;
+    let state = position({ points, dice: [3, 3, 3, 3], turn: 0, phase: "move" });
+
+    expect(legalMoves(state).map((m) => m.from)).toEqual([12]);
+    state = applyOne(state, 0, 12, 3)!;
+    expect(state).not.toBeNull();
+    state = applyOne(state, 0, 9, 3)!;
+    expect(state).not.toBeNull();
+
+    expect(state.dice).toEqual([3, 3]);
+    expect(legalMoves(state)).toEqual([]);
+
+    const passed = backgammon.applyMove(state, { type: "pass" }, 0, never);
+    expect(passed.ok).toBe(true);
+    if (!passed.ok) return;
+    expect(passed.state.turn).toBe(1);
+  });
+
+  it("does not apply the higher-die rule to doubles", () => {
+    // Vacuously true while all four dice are equal — pinned because it is
+    // exactly the condition a refactor breaks silently.
+    const points = Array<number>(POINTS).fill(0);
+    points[12] = 1;
+    points[3] = -2;
+    const state = position({ points, dice: [3, 3, 3, 3], turn: 0, phase: "move" });
+    expect(legalMoves(state).length).toBeGreaterThan(0);
+  });
+});
+
+describe("refusals", () => {
+  it("refuses a pass before the dice have been rolled", () => {
+    const state = position({ points: withChecker(10, 1), dice: [], phase: "roll", turn: 0 });
+    const result = backgammon.applyMove(state, { type: "pass" }, 0, never);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/roll/i);
+  });
+
+  it("refuses every malformed move without throwing", () => {
+    const state = position({ points: withChecker(10, 1), dice: [3], turn: 0, phase: "move" });
+    const shapes: unknown[] = [
+      null,
+      undefined,
+      "move",
+      [],
+      42,
+      { type: "move" },
+      { type: "move", from: 1.5, die: 3 },
+      { type: "move", from: NaN, die: 3 },
+      { type: "move", from: -1, die: 3 },
+      { type: "move", from: POINTS, die: 3 },
+      { type: "move", from: 1e9, die: 3 },
+      { type: "move", from: {}, die: 3 },
+      { type: "move", from: "10", die: 3 },
+      { type: "move", from: 10, die: "3" },
+      { type: "move", from: 10, die: 0 },
+      { type: "move", from: 10, die: -1 },
+      { type: "move", from: 10, die: Infinity },
+      { type: "teleport" },
+    ];
+
+    for (const shape of shapes) {
+      const attempt = () => backgammon.applyMove(state, shape as never, 0, never);
+      expect(attempt, `threw on ${JSON.stringify(shape)}`).not.toThrow();
+      expect(attempt().ok, `accepted ${JSON.stringify(shape)}`).toBe(false);
+    }
+  });
+});
+
+describe("the dice themselves", () => {
+  it("never rolls outside 1-6, even for an rng that breaks its contract", () => {
+    // Math.random cannot return 1, but a hand-written test rng can — and that
+    // would otherwise roll a 7.
+    for (const broken of [() => 1, () => 0.9999999999, () => NaN, () => -0.5, () => 2]) {
+      const state = position({ points: withChecker(10, 1), dice: [], phase: "roll", turn: 0 });
+      const result = backgammon.applyMove(state, { type: "roll" }, 0, broken);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      for (const value of result.state.dice) {
+        expect(Number.isInteger(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(1);
+        expect(value).toBeLessThanOrEqual(6);
+      }
     }
   });
 });

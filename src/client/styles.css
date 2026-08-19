@@ -20,8 +20,10 @@
   --muted: #6e4460;
   --rule: #e0c4d0;
 
-  --seat-0: #c42a62; /* raspberry */
+  --seat-0: #b02154; /* raspberry */
   --seat-1: #5e3a87; /* violet */
+  --seat-2: #14666e; /* teal */
+  --seat-3: #8a5000; /* burnt amber */
 
   --point-dark: #d7a8c0;
   --point-light: #faf2f5;
@@ -31,6 +33,7 @@
   --action-text: #fdf7f9;
   --alert: #8e1f3c;
   --live: #2f6f4f;
+  --pending: #9a6a12;
 
   color-scheme: light;
 }
@@ -45,8 +48,10 @@
   --muted: #5a5249;
   --rule: #d8cdb8;
 
-  --seat-0: #c6432e; /* vermilion */
+  --seat-0: #b83a27; /* vermilion */
   --seat-1: #1b6b72; /* deep teal */
+  --seat-2: #5b3a8a; /* violet */
+  --seat-3: #7a5410; /* bronze */
 
   --point-dark: #d3c09c;
   --point-light: #f8f4ea;
@@ -56,6 +61,7 @@
   --action-text: #fbf8f2;
   --alert: #8f3520;
   --live: #2f6f4f;
+  --pending: #8a6516;
 
   color-scheme: light;
 }
@@ -86,9 +92,23 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ── The one layout primitive: a hairline-ruled panel, repeated ─────── */
-.panel {
-  background: var(--surface);
+/* ── The one layout primitive: a hairline-ruled panel, repeated ───────
+   Applied rather than described. Backgrounds stay per-site (chrome sits on
+   --surface, the playing surfaces on --board); the rule and the radius are the
+   shared part, and live here once so a change to either lands everywhere. */
+.panel,
+.code,
+.banner,
+.player,
+.board,
+.bg-board,
+.game,
+.wof-puzzle,
+.wof-purse,
+.wof-wheel,
+.wof-tile,
+button,
+input {
   border: 1px solid var(--rule);
   border-radius: var(--panel-radius);
 }
@@ -130,9 +150,10 @@ body {
   letter-spacing: 0.14em;
   color: var(--muted);
   background: none;
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
-  padding: 6px 9px;
+  /* The single most important action in the waiting state — sharing the room —
+     so it gets a real touch target rather than the size of its label. */
+  min-height: 44px;
+  padding: 6px 11px;
   cursor: pointer;
 }
 
@@ -160,7 +181,9 @@ body {
 .dot.open {
   background: var(--live);
 }
-.dot.connecting,
+.dot.connecting {
+  background: var(--pending);
+}
 .dot.closed {
   background: var(--alert);
 }
@@ -171,39 +194,49 @@ body {
   font-size: 0.88rem;
   color: var(--muted);
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
 }
 .banner.error {
   color: var(--alert);
   border-color: var(--alert);
-  cursor: pointer;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
+/* A real button: the banner used to be a div with a click handler, which left
+   it unreachable and unnameable for anyone not using a mouse. */
 .dismiss {
+  flex: none;
+  color: var(--alert);
+  background: none;
+  border: 0;
+  border-radius: var(--panel-radius);
+  font-size: 0.88rem;
+  padding: 8px 6px;
+  min-height: 44px;
+  cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
-  flex: none;
 }
 
 /* ── Players ───────────────────────────────────────────────────────── */
 .players {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
+/* Two to a row rather than however many are playing. Four seats sharing one
+   row of a phone leaves ~80px each, which the name loses to the "you" badge —
+   at four players the strip was rendering "A…" for Ann. */
 .player {
-  flex: 1;
+  flex: 1 1 42%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 9px 11px;
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
   font-size: 0.88rem;
 }
 /* Whose turn it is gets weight, not a colour wash. */
@@ -223,6 +256,14 @@ body {
 }
 .player.p1 .chip {
   background: var(--seat-1);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+}
+.player.p2 .chip {
+  background: var(--seat-2);
+}
+.player.p3 .chip {
+  background: var(--seat-3);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
 }
 
 .player .who {
@@ -262,8 +303,6 @@ body {
   gap: 5px;
   padding: 6px;
   background: var(--board);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
 }
 .board.placeholder {
   aspect-ratio: 7 / 6;
@@ -277,7 +316,7 @@ body {
   background: none;
   border: 0;
   padding: 0;
-  border-radius: 2px;
+  border-radius: var(--panel-radius);
   cursor: pointer;
 }
 .column:disabled {
@@ -290,17 +329,30 @@ body {
   background: var(--hole);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.12);
 }
+/* Seat 0 is a plain disc, seat 1 carries a ring. Colour alone would leave the
+   board unreadable to anyone who cannot separate the two hues — and the palette
+   swap only helps someone who has found the palette swap. */
 .cell.p0 {
   background: var(--seat-0);
   box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.16);
 }
 .cell.p1 {
   background: var(--seat-1);
-  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.16);
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.16),
+    inset 0 0 0 3px rgb(255 255 255 / 0.62);
 }
 .cell.winning {
   box-shadow:
     inset 0 -2px 3px rgb(0 0 0 / 0.16),
+    0 0 0 2px var(--ink);
+}
+/* The winning outline must not cost seat 1 its ring — that is the cue telling
+   a player which of the four counters are theirs. */
+.cell.p1.winning {
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.16),
+    inset 0 0 0 3px rgb(255 255 255 / 0.62),
     0 0 0 2px var(--ink);
 }
 
@@ -361,7 +413,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .cell.landed,
   .cell.winning,
-  .cell.landed.winning {
+  .cell.landed.winning,
+  .wof-tile.just {
     animation: none;
   }
 }
@@ -372,15 +425,13 @@ button {
   font-size: 0.95rem;
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
   padding: 11px 16px;
   cursor: pointer;
 }
 /* Board columns are buttons too, but a column being unplayable says nothing
    about whether its counters should be legible — fading them washes out the
    whole board on the opponent's turn and after the game ends. */
-button:disabled:not(.column):not(.point):not(.bg-bar) {
+button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key) {
   opacity: 0.45;
   cursor: default;
 }
@@ -430,8 +481,6 @@ input {
   font-size: 1rem;
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
   padding: 11px 12px;
 }
 input::placeholder {
@@ -514,8 +563,6 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   background: var(--board);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
   padding: 4px;
 }
 
@@ -536,8 +583,6 @@ input:focus-visible {
   width: 26px;
   padding: 0;
   background: var(--tray);
-  border: 1px solid var(--rule);
-  border-radius: 2px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -630,6 +675,10 @@ input:focus-visible {
 .checker.s1 {
   background: var(--seat-1);
   color: var(--action-text);
+  /* Matches the Connect Four ring: seat 1's pieces are ringed in both games. */
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    inset 0 0 0 2px rgb(255 255 255 / 0.62);
 }
 .bar-stack .checker {
   width: 82%;
@@ -681,12 +730,226 @@ input:focus-visible {
   place-self: center;
 }
 
+/* ── Wheel of Fortune ────────────────────────────────────────
+   A tile per character, wrapped a whole word at a time — a word broken across
+   two rows is a word you cannot read the shape of, and the shape is the game.
+   Blanks and letters share a tile so the board does not shift as it fills in;
+   punctuation gets no box, because it was never hidden. */
+.wof {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wof-round {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wof-puzzle {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 5px 13px;
+  padding: 12px 10px;
+  background: var(--board);
+  /* Room for two rows, so a short puzzle and a long one sit in the same place
+     on the screen rather than shunting everything below them about. */
+  min-height: 108px;
+}
+
+.wof-word {
+  display: flex;
+  gap: 3px;
+}
+
+.wof-tile {
+  width: clamp(17px, 6.2vw, 28px);
+  height: clamp(24px, 8.6vw, 38px);
+  display: grid;
+  place-items: center;
+  background: var(--hole);
+  font-family: var(--display);
+  font-size: clamp(0.8rem, 3.4vw, 1.15rem);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.wof-tile.mark {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+/* The third animation in the app, and it carries the same kind of information
+   as the other two: which tiles just turned. One called letter can land in
+   four places at once, and without this you are left comparing the board to
+   your memory of it. The class follows the last letter called, so a reconnect
+   re-renders the same board without replaying it. */
+@keyframes turn-over {
+  from {
+    transform: rotateX(90deg);
+  }
+}
+
+.wof-tile.just {
+  animation: turn-over 260ms ease-out;
+}
+
+.wof-note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  /* Holds its line whether or not anything has happened yet, so the board
+     above does not jump the first time the note appears. */
+  min-height: 1.4em;
+}
+
+.wof-money {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wof-purse {
+  flex: 1 1 42%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 1px 7px;
+  padding: 8px 11px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+/* Whose turn it is gets weight, not a colour wash — the same as the players
+   strip above it. */
+.wof-purse.active {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.wof-purse .chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.wof-purse.p0 .chip {
+  background: var(--seat-0);
+}
+.wof-purse.p1 .chip {
+  background: var(--seat-1);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+}
+.wof-purse.p2 .chip {
+  background: var(--seat-2);
+}
+.wof-purse.p3 .chip {
+  background: var(--seat-3);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+}
+
+.wof-purse .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.wof-purse .round {
+  grid-column: 1 / -1;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.wof-purse .banked {
+  grid-column: 1 / -1;
+  font-variant-numeric: tabular-nums;
+}
+
+.wof-wheel {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 9px;
+  min-height: 54px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.wof-value {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wof-prompt {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.wof-keys {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.wof-key {
+  /* The same 44px the invite button gets: twenty-six of these are the main
+     way the game is played, and they are hit at speed. */
+  min-height: 44px;
+  padding: 9px 0;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 600;
+}
+.wof-key:disabled {
+  cursor: default;
+}
+/* A letter already called is spent, and says so — struck through rather than
+   faded, because you still need to read which ones have gone. */
+.wof-key.spent {
+  background: var(--ground);
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.wof-legend {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wof-solve {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wof-guess input {
+  text-transform: uppercase;
+}
+
+.wof-actions {
+  display: flex;
+  gap: 8px;
+}
+.wof-actions button {
+  flex: 1;
+}
+
+
 /* ── Game picker ───────────────────────────────────────────────────── */
 .games {
   border: 0;
   padding: 0;
   margin: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .games legend {
@@ -694,19 +957,27 @@ input:focus-visible {
   color: var(--muted);
   padding: 0 0 5px;
 }
+/* Grows to share the row, wraps to its own when the name needs more than a
+   third of a phone. */
 .game {
-  flex: 1;
+  flex: 1 1 8em;
+  min-width: 0;
   flex-direction: row;
   align-items: center;
   gap: 8px;
   padding: 11px 12px;
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
   color: var(--ink);
   font-size: 0.92rem;
   cursor: pointer;
 }
+/* The seat picker's options are single digits, so the basis that stops a game
+   name from being squeezed would instead wrap three numbers onto two rows. */
+.seats .game {
+  flex: 1 1 3em;
+  justify-content: center;
+}
+
 .game.picked {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);

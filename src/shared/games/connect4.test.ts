@@ -159,3 +159,100 @@ describe('status line', () => {
     expect(connect4.status(won, ['Amelia', 'Sam'])).toBe('Amelia wins');
   });
 });
+
+describe('seat 1', () => {
+  // Every other win test here has seat 0 winning, so `winner: seat` hardcoded
+  // to 0 would pass the whole file.
+  it('wins on its own four in a row', () => {
+    // Seat 0 stacks column 0; seat 1 builds a row along the bottom.
+    const state = play([0, 1, 0, 2, 0, 3, 6, 4]);
+    expect(state.winner).toBe(1);
+    expect(connect4.isOver(state)).toBe(true);
+    expect(connect4.turn(state)).toBeNull();
+    expect(state.winningLine).not.toBeNull();
+    for (const [row, col] of state.winningLine!) {
+      expect(state.board[row][col]).toBe(1);
+    }
+  });
+});
+
+describe('turn', () => {
+  it('returns null once the board is a draw', () => {
+    const drawn: C4State = { ...setup(), draw: true, moveCount: ROWS * COLS };
+    expect(connect4.isOver(drawn)).toBe(true);
+    expect(connect4.turn(drawn)).toBeNull();
+  });
+
+  it('survives being pulled off the definition', () => {
+    // GameDefinition promises nothing about method binding; a `this` in here
+    // would throw the moment anyone destructured it.
+    const { turn } = connect4;
+    expect(() => turn(setup())).not.toThrow();
+    expect(turn(setup())).toBe(0);
+  });
+});
+
+describe('full games', () => {
+  /** Small deterministic rng, so a failure is reproducible from its seed. */
+  function seeded(seed: number): () => number {
+    let value = seed >>> 0;
+    return () => {
+      value = (value * 1664525 + 1013904223) >>> 0;
+      return value / 2 ** 32;
+    };
+  }
+
+  it('plays 200 random games to completion without breaking an invariant', () => {
+    for (let game = 0; game < 200; game++) {
+      const rng = seeded(game * 2654435761 + 7);
+      let state = setup();
+      let moves = 0;
+
+      while (!connect4.isOver(state) && moves < ROWS * COLS) {
+        const open = Array.from({ length: COLS }, (_, col) => col).filter(
+          (col) => landingRow(state.board, col) !== -1,
+        );
+        expect(open.length, `game ${game}: no legal column but not over`).toBeGreaterThan(0);
+        const col = open[Math.floor(rng() * open.length)];
+
+        const result = apply(state, { type: 'drop', col }, state.turn);
+        expect(result.ok, `game ${game}: legal column ${col} was rejected`).toBe(true);
+        if (!result.ok) return;
+        state = result.state;
+        moves++;
+
+        const discs = state.board.flat().filter((cell) => cell !== null).length;
+        expect(discs, `game ${game}: moveCount and discs disagree`).toBe(state.moveCount);
+        expect(state.moveCount).toBe(moves);
+
+        // No column ever holds more than ROWS, and no disc ever floats.
+        for (let c = 0; c < COLS; c++) {
+          const column = Array.from({ length: ROWS }, (_, r) => state.board[r][c]);
+          const filled = column.filter((cell) => cell !== null).length;
+          expect(filled).toBeLessThanOrEqual(ROWS);
+          // Everything below the topmost disc must also be occupied.
+          for (let r = ROWS - filled; r < ROWS; r++) expect(column[r]).not.toBeNull();
+        }
+      }
+
+      expect(connect4.isOver(state), `game ${game} never finished`).toBe(true);
+      // Exactly one ending, never both.
+      expect(state.winner !== null).not.toBe(state.draw);
+      expect(connect4.turn(state)).toBeNull();
+
+      if (state.winner !== null) {
+        expect(state.winningLine).not.toBeNull();
+        // Five in a row is a win too, and the line reports the whole run.
+        expect(state.winningLine!.length).toBeGreaterThanOrEqual(4);
+        for (const [row, col] of state.winningLine!) {
+          expect(state.board[row][col], `game ${game}: winning line is not the winner's`).toBe(
+            state.winner,
+          );
+        }
+      } else {
+        expect(state.moveCount).toBe(ROWS * COLS);
+        expect(state.winningLine).toBeNull();
+      }
+    }
+  });
+});

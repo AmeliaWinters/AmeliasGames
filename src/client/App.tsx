@@ -1,11 +1,22 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_GAME_ID, gameList } from "../shared/games/index.js";
-import { makeRoomCode } from "../shared/room.js";
+// The manifest, not the registry: the lobby needs ids and names, and importing
+// the registry here would pull every reducer into the client bundle.
+import {
+  DEFAULT_GAME_ID,
+  clampSeats,
+  gameEntry,
+  gameList,
+  type GameEntry,
+} from "../shared/games/manifest.js";
+import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/room.js";
 import type { C4State } from "../shared/games/connect4.js";
 import type { BgState } from "../shared/games/backgammon.js";
+import type { WofState } from "../shared/games/wheel.js";
 import { Connect4Board } from "./games/Connect4Board.js";
 import { BackgammonBoard, BackgammonStatus } from "./games/BackgammonBoard.js";
+import { WheelBoard } from "./games/WheelBoard.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
+import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
   applyPalette,
   loadPalette,
@@ -16,7 +27,33 @@ import {
 
 function codeFromHash(): string | null {
   const raw = location.hash.slice(1).toUpperCase();
-  return /^[A-Z0-9]{4}$/.test(raw) ? raw : null;
+  return isRoomCode(raw) ? raw : null;
+}
+
+/**
+ * A hash that is present but unusable — a link truncated by a chat app, or
+ * mangled in the paste. Silently dropping it leaves someone staring at the
+ * setup screen wondering why their friend's link did nothing.
+ */
+function hashIsBroken(): boolean {
+  const raw = location.hash.slice(1);
+  return raw.length > 0 && !isRoomCode(raw.toUpperCase());
+}
+
+/** "Gone" is only right for one of these. */
+function joinFailureHeading(kind: ErrorKind | null): string {
+  if (kind === "no-room") return "That game has gone";
+  if (kind === "full") return "That game is full";
+  if (kind === "protocol") return "Time for a refresh";
+  return "Couldn't join that game";
+}
+
+/** Every table size a game will seat, smallest first. */
+function seatOptions(table: GameEntry): number[] {
+  return Array.from(
+    { length: table.maxPlayers - table.minPlayers + 1 },
+    (_, i) => table.minPlayers + i,
+  );
 }
 
 function usePalette(): [Palette, () => void] {
@@ -31,26 +68,38 @@ export function App() {
   const [intent, setIntent] = useState<"idle" | "play">(codeFromHash() ? "play" : "idle");
   const [create, setCreate] = useState(false);
   const [gameId, setGameId] = useState(DEFAULT_GAME_ID);
+  // A preference rather than a setting: it is remembered while you look at
+  // other games, and clamped to whatever the one you settle on can seat, so
+  // there is no stale value to keep in step with the picker.
+  const [preferredSeats, setPreferredSeats] = useState(2);
   const [copied, setCopied] = useState(false);
+  const [linkProblem, setLinkProblem] = useState(hashIsBroken);
   const [palette, swapPalette] = usePalette();
+
+  const table = gameEntry(gameId);
+  const seats = table ? clampSeats(table, preferredSeats) : preferredSeats;
 
   useEffect(() => {
     const onHash = () => {
       const next = codeFromHash();
       setCode(next);
       setCreate(false);
-      if (next) setIntent("play");
+      setLinkProblem(hashIsBroken());
+      // Without the else, a hash edited to something unusable leaves us with
+      // no code, no socket, and no route back to the setup screen.
+      setIntent(next ? "play" : "idle");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const { room, seat, status, error, sendMove, requestRematch, dismissError } = useRoom({
+  const { room, seat, status, error, errorKind, sendMove, requestRematch, dismissError } = useRoom({
     active: intent === "play" && Boolean(name),
     name,
     code,
     create,
     gameId,
+    players: seats,
   });
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
@@ -60,10 +109,14 @@ export function App() {
       <Setup
         initialName={name}
         pendingCode={code}
+        linkProblem={linkProblem}
         swapLabel={swapLabel}
         onSwapPalette={swapPalette}
         gameId={gameId}
         onPickGame={setGameId}
+        table={table}
+        seats={seats}
+        onPickSeats={setPreferredSeats}
         onStart={(chosenName, joinCode) => {
           saveName(chosenName);
           setName(chosenName);
@@ -72,10 +125,28 @@ export function App() {
           const target = joinCode ?? makeRoomCode();
           setCreate(joinCode === null);
           setCode(target);
+          setLinkProblem(false);
           history.replaceState(null, "", `#${target}${location.search}`);
           setIntent("play");
         }}
       />
+    );
+  }
+
+  // This seat is being played somewhere else. Retrying would take it back off
+  // whichever tab has it, which would take it back off us — so we stop, and
+  // make continuing here an explicit choice.
+  if (status === "superseded") {
+    return (
+      <main className="app setup">
+        <h1 className="wordmark">Playing in another window</h1>
+        <p className="tagline">
+          You opened this game somewhere else, so this window stopped to stay out of its way.
+        </p>
+        <button className="primary" onClick={() => location.reload()}>
+          Play here instead
+        </button>
+      </main>
     );
   }
 
@@ -84,7 +155,7 @@ export function App() {
   if (!room && error) {
     return (
       <main className="app setup">
-        <h1 className="wordmark">That game has gone</h1>
+        <h1 className="wordmark">{joinFailureHeading(errorKind)}</h1>
         <p className="tagline">{error}</p>
         <button
           className="primary"
@@ -102,13 +173,18 @@ export function App() {
     );
   }
 
-  const state = room?.gameId === "connect4" ? (room.state as C4State) : undefined;
+  // One source for the connection wording, so the banner and the status line
+  // can never disagree — and "connecting" is never dressed up as "reconnecting"
+  // to someone who has not been connected yet.
+  const connectionNote =
+    status === "open" ? null : room ? "Reconnecting…" : "Connecting…";
+
   const myTurn = room !== null && seat !== null && room.turn === seat && !room.waiting;
 
   return (
     <main className="app">
       <header className="topbar">
-        <h1>{room?.gameName ?? "Connect Four"}</h1>
+        <h1>{room?.gameName ?? "Amelia's Games"}</h1>
         <div className="room-meta">
           <button className="swap" onClick={swapPalette}>
             {swapLabel}
@@ -126,21 +202,20 @@ export function App() {
               {copied ? "Copied" : room.code}
             </button>
           )}
-          <span
-            className={`dot ${status}`}
-            title={status === "open" ? "Connected" : "Reconnecting"}
-          />
+          <span className={`dot ${status}`} title={connectionNote ?? "Connected"} />
         </div>
       </header>
 
       {error && (
-        <div className="banner error" onClick={dismissError} role="alert">
+        <div className="banner error" role="alert">
           <span>{error}</span>
-          <span className="dismiss">Dismiss</span>
+          <button type="button" className="dismiss" onClick={dismissError}>
+            Dismiss
+          </button>
         </div>
       )}
 
-      {status !== "open" && <div className="banner">Reconnecting…</div>}
+      {connectionNote && <div className="banner">{connectionNote}</div>}
 
       {room && (
         <div className="players">
@@ -164,9 +239,55 @@ export function App() {
         </div>
       )}
 
-      <p className="status">{room?.status ?? "Connecting…"}</p>
+      {/* Announced, not just shown: whose turn it is changes without the
+          player touching anything, and a turn-based game can sit for hours. */}
+      <p className="status" role="status" aria-live="polite">
+        {room?.status ?? connectionNote ?? ""}
+      </p>
 
-      {room?.gameId === "backgammon" && room.state ? (
+      {room ? (
+        <GameBoard room={room} seat={seat} myTurn={myTurn} sendMove={sendMove} />
+      ) : (
+        <div className="board placeholder" />
+      )}
+
+      {room?.waiting && (
+        <p className="hint">
+          Send the link, or read out the code{" "}
+          <span className="said-code">{room.code}</span>.
+        </p>
+      )}
+
+      {room?.over && (
+        <button className="primary" onClick={requestRematch}>
+          Play again
+        </button>
+      )}
+    </main>
+  );
+}
+
+/**
+ * The one place that knows which board goes with which game. Everything above
+ * it — the lobby, seating, reconnection, the rematch — is game-agnostic, so
+ * adding a game adds a case here and nothing else.
+ */
+function GameBoard({
+  room,
+  seat,
+  myTurn,
+  sendMove,
+}: {
+  room: RoomView;
+  seat: number | null;
+  myTurn: boolean;
+  sendMove(move: unknown): void;
+}) {
+  if (!room.state) return <div className="board placeholder" />;
+
+  switch (room.gameId) {
+    case "backgammon":
+      return (
         <>
           <BackgammonBoard
             state={room.state as BgState}
@@ -182,47 +303,55 @@ export function App() {
             onPass={() => sendMove({ type: "pass" })}
           />
         </>
-      ) : state ? (
+      );
+    case "wheel":
+      return (
+        <WheelBoard
+          state={room.state as WofState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          myTurn={myTurn}
+          onMove={sendMove}
+        />
+      );
+    case "connect4":
+      return (
         <Connect4Board
-          state={state}
+          state={room.state as C4State}
           myTurn={myTurn}
           onDrop={(col) => sendMove({ type: "drop", col })}
         />
-      ) : (
-        <div className="board placeholder" />
-      )}
-
-      {room?.waiting && (
-        <p className="hint">
-          Send them the link, or read out the code{" "}
-          <span className="said-code">{room.code}</span>.
-        </p>
-      )}
-
-      {room?.over && (
-        <button className="primary" onClick={requestRematch}>
-          Play again
-        </button>
-      )}
-    </main>
-  );
+      );
+    // A room for a game this build has no board for — an old tab against a
+    // newer server. The status line still reads, so it is not a dead end.
+    default:
+      return <div className="board placeholder" />;
+  }
 }
 
 function Setup({
   initialName,
   pendingCode,
+  linkProblem,
   swapLabel,
   onSwapPalette,
   gameId,
   onPickGame,
+  table,
+  seats,
+  onPickSeats,
   onStart,
 }: {
   initialName: string;
   pendingCode: string | null;
+  linkProblem: boolean;
   swapLabel: string;
   onSwapPalette(): void;
   gameId: string;
   onPickGame(id: string): void;
+  table: GameEntry | undefined;
+  seats: number;
+  onPickSeats(count: number): void;
   onStart(name: string, code: string | null): void;
 }) {
   const [name, setName] = useState(initialName);
@@ -232,7 +361,13 @@ function Setup({
   return (
     <main className="app setup">
       <h1 className="wordmark">Amelia's Games</h1>
-      <p className="tagline">Two players, one link. No ads, no accounts.</p>
+      <p className="tagline">Two to four players, one link. No ads, no accounts.</p>
+
+      {linkProblem && (
+        <p className="banner error" role="alert">
+          That link doesn't look complete — ask for it again, or type the room code below.
+        </p>
+      )}
 
       <label>
         Your name
@@ -261,6 +396,26 @@ function Setup({
         ))}
       </fieldset>
 
+      {/* Only for the games that play a range — a picker offering one choice
+          is a decision the player does not have. */}
+      {table && table.maxPlayers > table.minPlayers && (
+        <fieldset className="games seats">
+          <legend>Players</legend>
+          {seatOptions(table).map((count) => (
+            <label key={count} className={count === seats ? "game picked" : "game"}>
+              <input
+                type="radio"
+                name="players"
+                value={count}
+                checked={count === seats}
+                onChange={() => onPickSeats(count)}
+              />
+              {count}
+            </label>
+          ))}
+        </fieldset>
+      )}
+
       <button className="primary" disabled={!trimmed} onClick={() => onStart(trimmed, null)}>
         Start a new game
       </button>
@@ -273,13 +428,21 @@ function Setup({
         Room code
         <input
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 4))}
-          placeholder="ABCD"
+          onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
+          placeholder="ABCDEF"
           className="code-input"
+          maxLength={CODE_LENGTH}
+          aria-describedby="code-hint"
         />
       </label>
+      <p className="hint" id="code-hint">
+        {CODE_LENGTH} letters and numbers, from the link or read out to you.
+      </p>
 
-      <button disabled={!trimmed || code.length !== 4} onClick={() => onStart(trimmed, code)}>
+      <button
+        disabled={!trimmed || code.length !== CODE_LENGTH}
+        onClick={() => onStart(trimmed, code)}
+      >
         Join game
       </button>
 

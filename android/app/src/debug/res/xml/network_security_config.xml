@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. Gradle picks this file over the one in src/main for the
+  debug variant, which is what lets `npm run apk` talk to a plain-http dev
+  server on the LAN without weakening the shipped app.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
