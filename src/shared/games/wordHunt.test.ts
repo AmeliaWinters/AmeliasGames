@@ -2,17 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   CELL_COUNT,
   GRID_SIZE,
-  HIDDEN,
-  WORD_LENGTH,
+  MAX_WORD,
+  MIN_WORD,
   areAdjacent,
   canAct,
   canExtend,
+  countOf,
   isLegalPath,
+  isMasked,
   makeGrid,
+  maskWord,
   scoreOf,
   solve,
   spell,
   wordHunt,
+  wordScore,
 } from './wordHunt.js';
 import type { WhState } from './wordHunt.js';
 import { isWord } from './words.js';
@@ -97,12 +101,17 @@ describe('the grid', () => {
     expect(makeGrid(seeded(99))).not.toEqual(makeGrid(seeded(100)));
   });
 
-  it('always holds words to find', () => {
-    // The whole point of planting: a grid with nothing in it is a grid the
-    // player cannot tell apart from a grid they are stuck on.
+  it('always holds words to find, including long ones', () => {
+    // The whole point of planting and then checking the result: a grid with
+    // nothing in it is a grid the player cannot tell apart from one they are
+    // stuck on, and a grid of nothing but three-letter words is a typing test.
     for (let seed = 1; seed <= 20; seed++) {
       const words = solve(makeGrid(seeded(seed)));
-      expect(words.length, `seed ${seed}`).toBeGreaterThanOrEqual(5);
+      expect(words.length, `seed ${seed}`).toBeGreaterThanOrEqual(40);
+      expect(
+        words.filter((word) => word.length >= 6).length,
+        `seed ${seed}`,
+      ).toBeGreaterThanOrEqual(5);
       expect(words.every(isWord), `seed ${seed}`).toBe(true);
     }
   });
@@ -110,14 +119,29 @@ describe('the grid', () => {
   it('finds every word on a grid and nothing that is not there', () => {
     const found = solve(onGrid(GRID).grid);
     expect(found).toContain('CRANE');
+    // A word inside a longer one is still a word: the search takes CRAN on its
+    // way to CRANE rather than instead of it.
+    expect(found).toContain('CRAN');
+    expect(found.every(isWord)).toBe(true);
     expect(new Set(found).size).toBe(found.length);
     expect(found).toEqual([...found].sort());
+  });
+
+  it('finds nothing longer than a trace is allowed to be', () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      for (const word of solve(makeGrid(seeded(seed)))) {
+        expect(word.length).toBeGreaterThanOrEqual(MIN_WORD);
+        expect(word.length).toBeLessThanOrEqual(MAX_WORD);
+      }
+    }
   });
 });
 
 describe('tracing a path', () => {
-  it('accepts a run of touching cells, each used once', () => {
+  it('accepts touching cells, each used once, at any workable length', () => {
+    expect(isLegalPath([0, 1, 2])).toBe(true);
     expect(isLegalPath([0, 1, 2, 3, 7])).toBe(true);
+    expect(isLegalPath([0, 1, 2, 3, 7, 6, 5, 4])).toBe(true);
     // Diagonals count — that is what makes this a hunt, not a word search.
     expect(isLegalPath([0, 5, 10, 15, 14])).toBe(true);
   });
@@ -126,8 +150,8 @@ describe('tracing a path', () => {
     expect(isLegalPath([0, 2, 3, 7, 11])).toBe(false); // 0 and 2 do not touch
     expect(isLegalPath([0, 1, 0, 1, 2])).toBe(false); // a cell used twice
     expect(isLegalPath([0, 1, 2, 3, 16])).toBe(false); // off the board
-    expect(isLegalPath([0, 1, 2, 3])).toBe(false); // too short
-    expect(isLegalPath([0, 1, 2, 3, 7, 11])).toBe(false); // too long
+    expect(isLegalPath([0, 1])).toBe(false); // too short
+    expect(isLegalPath([0, 1, 2, 3, 7, 6, 5, 4, 8])).toBe(false); // too long
   });
 
   it('knows the ends of two rows do not touch', () => {
@@ -142,26 +166,55 @@ describe('tracing a path', () => {
     expect(canExtend([0, 1], 2)).toBe(true);
     expect(canExtend([0, 1], 0)).toBe(false);
     expect(canExtend([0, 1], 3)).toBe(false);
-    expect(canExtend([0, 1, 2, 3, 7], 11)).toBe(false); // already a full word
+    // Eight is as long as a trace goes, so a ninth cell is refused however
+    // legal the step itself would be.
+    expect(canExtend([0, 1, 2, 3, 7, 6, 5, 4], 8)).toBe(false);
   });
 
   it('spells what the cells say', () => {
     expect(spell(onGrid(GRID).grid, [0, 1, 2, 3, 7])).toBe('CRANE');
+    expect(spell(onGrid(GRID).grid, [0, 1, 2])).toBe('CRA');
+  });
+});
+
+describe('what a word is worth', () => {
+  it('climbs faster than length does', () => {
+    const scores = [3, 4, 5, 6, 7, 8].map((n) => wordScore('A'.repeat(n)));
+    expect(scores).toEqual([100, 400, 800, 1400, 1800, 2200]);
+    // Two threes must not beat a five, or the game rewards typing over hunting.
+    expect(scores[0] * 2).toBeLessThan(scores[2]);
+  });
+
+  it('is worth nothing outside the range, which the reducer never allows', () => {
+    expect(wordScore('AB')).toBe(0);
+    expect(wordScore('A'.repeat(9))).toBe(0);
   });
 });
 
 describe('finding a word', () => {
-  it('takes a real word and scores it', () => {
+  it('takes a real word and scores it by length', () => {
     let state = onGrid(GRID);
     state = play(state, { type: 'found', path: pathFor(state, 'CRANE') }, 0);
     expect(state.found[0]).toEqual(['CRANE']);
-    expect(scoreOf(state, 0)).toBe(1);
+    expect(scoreOf(state, 0)).toBe(800);
+    expect(countOf(state, 0)).toBe(1);
     expect(scoreOf(state, 1)).toBe(0);
+  });
+
+  it('takes a short word too, for less', () => {
+    let state = onGrid(GRID);
+    state = play(state, { type: 'found', path: pathFor(state, 'CRAN') }, 0);
+    state = play(state, { type: 'found', path: pathFor(state, 'RAN') }, 0);
+    expect(state.found[0]).toEqual(['CRAN', 'RAN']);
+    expect(scoreOf(state, 0)).toBe(500);
   });
 
   it('refuses letters that spell nothing', () => {
     const state = onGrid(GRID);
     expect(refuse(state, { type: 'found', path: [12, 13, 14, 15, 11] }, 0)).toMatch(
+      /not in the word list/,
+    );
+    expect(refuse(state, { type: 'found', path: [15, 14, 13] }, 0)).toMatch(
       /not in the word list/,
     );
   });
@@ -185,7 +238,7 @@ describe('finding a word', () => {
 
   it('refuses a path that is not a path', () => {
     const state = onGrid(GRID);
-    for (const path of [[0, 2, 4, 6, 8], 'CRANE', null, [0, 1, 2, 3], [1.5, 2, 3, 4, 5]]) {
+    for (const path of [[0, 2, 4, 6, 8], 'CRANE', null, [0, 1], [1.5, 2, 3, 4, 5]]) {
       expect(refuse(state, { type: 'found', path }, 0)).toMatch(/touching letters/);
     }
   });
@@ -235,7 +288,19 @@ describe('finishing', () => {
     expect(wordHunt.turn(state)).toBeNull();
     expect(state.winner).toBe(0);
     expect(state.draw).toBe(false);
-    expect(wordHunt.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins with 1 word');
+    expect(wordHunt.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins on 800 — 1 word');
+  });
+
+  it('hands it to the better words, not to the most of them', () => {
+    // Two short words against one longer one: the point of scoring by length.
+    let state = onGrid(GRID, 2);
+    state = play(state, { type: 'found', path: pathFor(state, 'CRAN') }, 0);
+    state = play(state, { type: 'found', path: pathFor(state, 'RAN') }, 0);
+    state = play(state, { type: 'found', path: pathFor(state, 'CRANE') }, 1);
+    state = play(state, { type: 'done' }, 0);
+    state = play(state, { type: 'done' }, 1);
+    expect(countOf(state, 0)).toBeGreaterThan(countOf(state, 1));
+    expect(state.winner).toBe(1);
   });
 
   it('calls a level score a draw, however many are level', () => {
@@ -269,14 +334,17 @@ describe('finishing', () => {
 });
 
 describe('what each seat is shown', () => {
-  it('hides the words other people have found, but not how many', () => {
+  it('hides the words other people have found, but not the score', () => {
     let state = onGrid(GRID);
     state = play(state, { type: 'found', path: pathFor(state, 'CRANE') }, 0);
 
     const seen = wordHunt.view!(state, 1);
-    expect(seen.found[0]).toEqual([HIDDEN]);
-    expect(seen.found[0][0]).toHaveLength(WORD_LENGTH);
-    expect(scoreOf(seen, 0)).toBe(1);
+    expect(seen.found[0]).toEqual([maskWord('CRANE')]);
+    expect(seen.found[0].every(isMasked)).toBe(true);
+    // Masked to the same length, so the score survives redaction — which is
+    // the point: you watch their total climb without learning their words.
+    expect(scoreOf(seen, 0)).toBe(scoreOf(state, 0));
+    expect(countOf(seen, 0)).toBe(1);
     // Their own list is untouched, and the grid is everybody's.
     expect(wordHunt.view!(state, 0).found[0]).toEqual(['CRANE']);
     expect(seen.grid).toEqual(state.grid);

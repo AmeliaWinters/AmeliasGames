@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-// Values from wordHuntDisplay.js, which reaches no further than wordleDisplay.js
-// — the board must never pull the reducer (and the word list with it) into the
-// client bundle. The types below are type-only, so they are erased.
+// Values from wordHuntDisplay.js, which imports nothing — the board must never
+// pull the reducer (and the word list with it) into the client bundle. The
+// types below are type-only, so they are erased and carry no runtime import.
 import {
   GRID_SIZE,
-  HIDDEN,
-  WORD_LENGTH,
+  MIN_WORD,
   canAct,
   canExtend,
+  countOf,
+  isMasked,
   scoreOf,
   spell,
+  wordScore,
 } from "../../shared/games/wordHuntDisplay.js";
 import type { WhMove, WhState } from "../../shared/games/wordHuntDisplay.js";
 
@@ -26,10 +28,11 @@ interface Props {
  *
  * The one interaction here is tracing a word, and it has to work three ways:
  * dragging a finger, dragging a mouse, and tapping cell by cell. They are the
- * same gesture underneath — cells are appended to a path, and the word is sent
- * the moment the path is long enough — so tapping is not a lesser fallback but
- * the same move made slowly, which is also what makes the grid usable from a
- * keyboard.
+ * same gesture underneath — cells are appended to a path — and they end the
+ * same way too: lifting a finger submits, and so does the button the tapping
+ * player presses, which is also the one a keyboard reaches. Words run from
+ * three letters to eight, so there is no length at which a trace can submit
+ * itself; something has to say "that is the word", and that is the lift.
  */
 
 /** The cell under a point, for touch: pointerenter does not fire mid-drag. */
@@ -69,12 +72,6 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
   const nameFor = (index: number) =>
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
 
-  /**
-   * Add a cell, and send the word the moment there is one. Submitting on the
-   * fifth letter rather than on release is what lets tapping and dragging be
-   * the same gesture — and it costs nothing, because five letters is the only
-   * length there is.
-   */
   function extend(cell: number) {
     if (!myMove) return;
     setPath((current) => {
@@ -83,33 +80,44 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
       if (current.length >= 2 && cell === current[current.length - 2]) {
         return current.slice(0, -1);
       }
-      if (!canExtend(current, cell)) return current;
+      return canExtend(current, cell) ? current.concat(cell) : current;
+    });
+  }
 
-      const next = current.concat(cell);
-      if (next.length === WORD_LENGTH) {
-        onMove({ type: "found", path: next });
-        return [];
-      }
-      return next;
+  /**
+   * Send the traced word, if it is long enough to be one. A trace too short to
+   * be a word is dropped rather than refused: it is almost always a tap that
+   * landed on the grid on the way to somewhere else, and an error for that
+   * would be the app telling the player off for touching it.
+   */
+  function submit() {
+    setPath((current) => {
+      if (current.length >= MIN_WORD) onMove({ type: "found", path: current });
+      return [];
     });
   }
 
   const word = spell(state.grid, path);
+  const worth = word.length >= MIN_WORD ? wordScore(word) : 0;
 
   return (
     <div className="board wh-board">
-      <div className="wh-scores" role="list" aria-label="Words found">
-        {state.found.map((words, side) => (
-          <span
-            className={side === seat ? "wh-score mine" : "wh-score"}
-            role="listitem"
-            key={side}
-          >
-            <span className="wh-who">{nameFor(side)}</span>
-            <span className="wh-tally">{scoreOf(state, side)}</span>
-            {state.done[side] && !over && <span className="wh-flag">done</span>}
-          </span>
-        ))}
+      <div className="wh-scores" role="list" aria-label="Scores">
+        {state.found.map((words, side) => {
+          const count = countOf(state, side);
+          return (
+            <span
+              className={side === seat ? "wh-score mine" : "wh-score"}
+              role="listitem"
+              key={side}
+            >
+              <span className="wh-who">{nameFor(side)}</span>
+              <span className="wh-tally">{scoreOf(state, side)}</span>
+              <span className="wh-words">{count === 1 ? "1 word" : `${count} words`}</span>
+              {state.done[side] && !over && <span className="wh-flag">done</span>}
+            </span>
+          );
+        })}
       </div>
 
       {/*
@@ -138,7 +146,9 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
           if (cell !== null) extend(cell);
         }}
         onPointerUp={() => {
+          if (!dragging.current) return;
           dragging.current = false;
+          submit();
         }}
         onPointerCancel={() => {
           dragging.current = false;
@@ -174,13 +184,22 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
       {myMove && (
         <div className="wh-tray">
           {/*
-            The letters so far, in a box that is always there. A word that
-            appeared and vanished would move the grid up and down under a
-            finger that is mid-trace.
+            The letters so far and what they are worth, in a box that is always
+            there. A line that appeared and vanished would shove the grid up and
+            down under a finger that is mid-trace.
           */}
           <p className="wh-draft" aria-live="polite">
-            {word || "Trace a five-letter word"}
+            {word || `Trace a word — ${MIN_WORD} letters or more`}
+            {worth > 0 && <span className="wh-worth">{worth}</span>}
           </p>
+          <button
+            type="button"
+            className="wh-take"
+            disabled={path.length < MIN_WORD}
+            onClick={submit}
+          >
+            Take it
+          </button>
           <button
             type="button"
             className="wh-clear"
@@ -207,8 +226,9 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
 
       {/*
         Your own words while the game runs; everyone's once it ends. An
-        opponent's arrive as HIDDEN until then — you can watch the count climb,
-        which is the tension, without being handed the words themselves.
+        opponent's arrive masked until then — as long as the word was, so you
+        can watch their score climb, which is the tension, without being handed
+        the words themselves.
       */}
       <div className="wh-lists">
         {state.found.map((words, side) =>
@@ -220,7 +240,9 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
               ) : (
                 <ul>
                   {words.map((found, i) => (
-                    <li key={`${found}-${i}`}>{found === HIDDEN ? "•••••" : found}</li>
+                    <li key={`${found}-${i}`}>
+                      {isMasked(found) ? "•".repeat(found.length) : found}
+                    </li>
                   ))}
                 </ul>
               )}
@@ -229,18 +251,30 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
         )}
       </div>
 
-      {over && state.solutions.length > 0 && (
-        <details className="wh-key">
-          <summary>
-            Everything that was in there ({state.solutions.length})
-          </summary>
-          <ul>
-            {state.solutions.map((found) => (
-              <li key={found}>{found}</li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {over && state.solutions.length > 0 && <AnswerKey words={state.solutions} />}
     </div>
+  );
+}
+
+/**
+ * Everything that was in the grid, longest first — which is the order to read
+ * it in, because the eight-letter word you walked straight past is the one
+ * worth seeing, and alphabetical order buries it among three hundred threes.
+ *
+ * Folded away, because the first thing you want after a game is the score, not
+ * an inventory of what you missed.
+ */
+function AnswerKey({ words }: { words: string[] }) {
+  const sorted = [...words].sort((a, b) => b.length - a.length || a.localeCompare(b));
+
+  return (
+    <details className="wh-key">
+      <summary>Everything that was in there ({words.length})</summary>
+      <ul>
+        {sorted.map((word) => (
+          <li key={word}>{word}</li>
+        ))}
+      </ul>
+    </details>
   );
 }

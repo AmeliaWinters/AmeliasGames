@@ -2486,7 +2486,9 @@ input:focus-visible {
 }
 
 /* The tallies. Every seat, always, because watching someone else's number
-   climb while you are stuck is most of what this game is. */
+   climb while you are stuck is most of what this game is. The score leads and
+   the word count follows it in small type: length is what scores here, so
+   "4,200" and "6 words" are two different facts and only one of them wins. */
 .wh-scores {
   display: flex;
   flex-wrap: wrap;
@@ -2515,6 +2517,13 @@ input:focus-visible {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
+}
+
+.wh-words {
+  font-family: var(--body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 /* "Done" is a state, not an alarm: it says the seat has stopped, and the only
@@ -2592,6 +2601,19 @@ input:focus-visible {
   color: var(--ink);
 }
 
+/* What the word under the finger is worth, alongside the letters. It is the
+   whole of the scoring, so it is worth seeing before you commit to the word. */
+.wh-worth {
+  margin-left: 10px;
+  font-family: var(--body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Take it, clear, done. "Take it" is the one you press most, so it is the one
+   that reads as a button rather than as a way out of one. */
+.wh-take,
 .wh-clear,
 .wh-done {
   flex: none;
@@ -2603,6 +2625,21 @@ input:focus-visible {
   font-size: 0.85rem;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.wh-take:not(:disabled) {
+  border-color: transparent;
+  background: var(--mark-hit);
+  color: var(--mark-text);
+}
+
+/* Three buttons and a word do not fit across a narrow phone, so the tray wraps
+   and the draft line keeps the row above to itself. */
+.wh-tray {
+  flex-wrap: wrap;
+}
+.wh-draft {
+  flex-basis: 100%;
 }
 
 .wh-lists {

@@ -3,11 +3,13 @@ import { GAME_MANIFEST } from './manifest.js';
 import { WORDS, isWord } from './words.js';
 import {
   CELL_COUNT,
-  HIDDEN,
-  WORD_LENGTH,
+  MAX_WORD,
+  MIN_WORD,
   areAdjacent,
   canAct,
+  countOf,
   isLegalPath,
+  maskWord,
   scoreOf,
   spell,
 } from './wordHuntDisplay.js';
@@ -19,21 +21,26 @@ import type { WhMove, WhState } from './wordHuntDisplay.js';
 export {
   CELL_COUNT,
   GRID_SIZE,
-  HIDDEN,
-  WORD_LENGTH,
+  MASK_CHAR,
+  MAX_WORD,
+  MIN_WORD,
   areAdjacent,
   canAct,
   canExtend,
   cellAt,
+  countOf,
   isLegalPath,
+  isMasked,
+  maskWord,
   scoreOf,
   spell,
+  wordScore,
 } from './wordHuntDisplay.js';
 export type { WhMove, WhState } from './wordHuntDisplay.js';
 
 /**
  * Word Hunt. One 4x4 grid, everybody hunting it at once, tracing words through
- * touching letters. Most words wins.
+ * touching letters. Biggest score wins.
  *
  * Three things are worth knowing before reading on:
  *
@@ -42,11 +49,10 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *    as a hint for the status line — `applyMove` never consults it, and
  *    anything deciding whether a player may act must ask `canAct`.
  *
- * 2. **Every word is five letters**, because the dictionary this repo carries
- *    is the five-letter one Word Duel validates against. That is why a word is
- *    worth one point rather than a length-scaled score: with one length there
- *    is nothing for length to reward, and counting words is a score a player
- *    can keep in their head mid-hunt.
+ * 2. **Length is the whole of the scoring**, and it climbs faster than length
+ *    does — see `wordScore`. Words run from three letters to eight, which is
+ *    also exactly what the dictionary holds, so there is no trace a player can
+ *    draw that the list was never going to take.
  *
  * 3. **The grid is built to be beatable.** A random bag of letters is usually
  *    a grid with nothing in it, so `setup` plants real words along real paths
@@ -59,8 +65,9 @@ const WORD_LIST: readonly string[] = [...WORDS];
 
 /**
  * Every proper prefix of every word, so the solver can abandon a path the
- * moment it spells something no word starts with. Without it the search walks
- * every path on the grid; with it, a small fraction of them.
+ * moment it spells something no word starts with. This is what makes the
+ * search affordable at all: a 4x4 grid has millions of paths eight cells long,
+ * and almost none of them survive three letters.
  *
  * Built on first use rather than at import: it is only ever needed by a grid
  * being dealt or a game ending, and paying for it at module load would tax
@@ -150,11 +157,10 @@ export function solve(grid: readonly string[]): string[] {
 
   function walk(cell: number, sofar: string): void {
     const spelt = sofar + grid[cell];
-    if (spelt.length === WORD_LENGTH) {
-      if (WORDS.has(spelt)) found.add(spelt);
-      return;
-    }
-    if (!stems.has(spelt)) return;
+    if (spelt.length >= MIN_WORD && WORDS.has(spelt)) found.add(spelt);
+    // A word can carry on into a longer one — CAT into CATS — so this checks
+    // the prefix set after taking the word, not instead of taking it.
+    if (spelt.length === MAX_WORD || !stems.has(spelt)) return;
 
     path.push(cell);
     for (const neighbour of NEIGHBOURS[cell]) {
@@ -165,6 +171,20 @@ export function solve(grid: readonly string[]): string[] {
 
   for (let cell = 0; cell < CELL_COUNT; cell++) walk(cell, '');
   return [...found].sort();
+}
+
+/** A long word is six letters or more: the ones worth hunting *for*. */
+const LONG_WORD = 6;
+
+/**
+ * How good a grid is, in one number. Not the word count: three-letter words
+ * are dense enough on any grid that counting them measures very little, and a
+ * grid with three hundred of them and nothing longer is a grid that plays like
+ * a typing exercise. What a hunt needs is long words to be *found*, so those
+ * are what this weighs.
+ */
+function richness(words: readonly string[]): number {
+  return words.filter((word) => word.length >= LONG_WORD).length;
 }
 
 /**
@@ -178,26 +198,26 @@ export function solve(grid: readonly string[]): string[] {
  */
 export function makeGrid(rng: Rng): string[] {
   const PLANTS = 5;
-  const ENOUGH = 12;
-  const TRIES = 30;
+  const ENOUGH = 15;
+  const TRIES = 20;
 
   let best: string[] = [];
-  let bestCount = -1;
+  let bestScore = -1;
 
   for (let attempt = 0; attempt < TRIES; attempt++) {
     const grid: Array<string | null> = Array(CELL_COUNT).fill(null);
     for (let i = 0; i < PLANTS; i++) plant(grid, pick(WORD_LIST, rng), rng);
 
     const filled = grid.map((letter) => letter ?? pick(BAG, rng));
-    const count = solve(filled).length;
-    if (count > bestCount) {
+    const score = richness(solve(filled));
+    if (score > bestScore) {
       best = filled;
-      bestCount = count;
+      bestScore = score;
     }
-    if (count >= ENOUGH) return filled;
+    if (score >= ENOUGH) return filled;
   }
 
-  // Thirty grids and none of them rich: play the best of them rather than
+  // Twenty grids and none of them rich: play the best of them rather than
   // looping forever. Every one of them still holds the words that were planted.
   return best;
 }
@@ -207,9 +227,11 @@ function isOver(state: WhState): boolean {
 }
 
 /**
- * Most words wins; a tie at the top is a draw, however many are in it. Nothing
- * breaks a tie by who finished first — under free-simultaneous play that would
- * hand the game to the faster typist rather than the better hunter.
+ * The biggest score wins; a tie at the top is a draw, however many are in it.
+ * Nothing breaks a tie by who finished first — under free-simultaneous play
+ * that would hand the game to the faster typist rather than the better hunter,
+ * and nothing breaks it on word count either, because a player who found one
+ * seven-letter word has not lost to one who found two threes.
  */
 function decide(state: WhState): { winner: number | null; draw: boolean } {
   const scores = state.found.map((_, seat) => scoreOf(state, seat));
@@ -236,7 +258,10 @@ function found(state: WhState, path: unknown, seat: number): MoveResult<WhState>
     };
   }
   if (!Array.isArray(path) || !isLegalPath(path)) {
-    return { ok: false, error: `Trace ${WORD_LENGTH} touching letters, using each one once.` };
+    return {
+      ok: false,
+      error: `Trace ${MIN_WORD} to ${MAX_WORD} touching letters, using each one once.`,
+    };
   }
 
   const word = spell(state.grid, path);
@@ -305,13 +330,16 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
 
     if (state.phase === 'over') {
       if (state.winner !== null) {
-        const count = scoreOf(state, state.winner);
-        return `${nameFor(state.winner)} wins with ${count} ${count === 1 ? 'word' : 'words'}`;
+        const score = scoreOf(state, state.winner);
+        const count = countOf(state, state.winner);
+        return `${nameFor(state.winner)} wins on ${score} — ${count} ${
+          count === 1 ? 'word' : 'words'
+        }`;
       }
-      const count = scoreOf(state, 0);
-      return count === 0
+      const score = scoreOf(state, 0);
+      return score === 0
         ? 'A draw. Nobody found a thing.'
-        : `A draw — ${count} ${count === 1 ? 'word' : 'words'} each`;
+        : `A draw — ${score} each`;
     }
 
     const hunting = state.done.flatMap((flag, seat) => (flag ? [] : [seat]));
@@ -326,9 +354,10 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
    * somebody else has already found, since a list of their words is a list of
    * yours for the copying.
    *
-   * They arrive as `HIDDEN` rather than being dropped, so the count survives.
-   * Watching an opponent's tally climb while you are stuck is most of the
-   * tension in this game, and it gives away nothing.
+   * They arrive masked rather than dropped, so the count and the score both
+   * survive — a mask is as long as the word it stands for, and length is what
+   * a word is worth. Watching an opponent's total climb while you are stuck is
+   * most of the tension in this game, and it gives away nothing but the shape.
    *
    * The answer key is empty until the game is over, by construction — nothing
    * computes it before then.
@@ -338,7 +367,7 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
     return {
       ...state,
       found: state.found.map((words, index) =>
-        index === seat ? words : words.map(() => HIDDEN),
+        index === seat ? words : words.map(maskWord),
       ),
     };
   },

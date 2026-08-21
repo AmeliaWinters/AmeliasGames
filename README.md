@@ -114,9 +114,11 @@ the registry. That is load-bearing rather than incidental, and worth a
 **Word Duel** — two players, head-to-head Wordle. Each sets a five-letter word
 for the other, then both hunt the word they were given. Six guesses; fewer
 guesses wins, the same count is a draw, and solving does not end the game —
-your opponent still plays out the guesses they have left. The word list is
-every five-letter word in dwyl/english-words, about sixteen thousand of them,
-plus a short hand-kept list of slang the dictionary predates. It is raw and
+your opponent still plays out the guesses they have left. Its word list is
+`DUEL_WORDS`: the five-letter half of the shared dictionary, about sixteen
+thousand words from dwyl/english-words plus a short hand-kept list of slang the
+dictionary predates. Split out as its own set rather than filtered at the call
+site, so a game played at one length cannot quietly start taking another. It is raw and
 unfiltered, slurs included -- a deliberate choice. A hand-written list was
 tried first and was not fit for purpose: it was missing `below`, `being` and
 `alias`, and a word game that rejects real words is one people argue with.
@@ -211,29 +213,54 @@ the next round is already dealt behind it.
 
 **Word Hunt** — two to four players, one 4x4 grid, everybody hunting it at
 once. Trace a word through touching letters — diagonals included, never the
-same cell twice — and it is yours. Most words wins; the same word is there for
-everybody, so nobody is racing anyone to it.
+same cell twice — and it is yours. Biggest score wins, and the same word is
+there for everybody, so nobody is racing anyone to it.
 
-Every word is five letters, because the dictionary this repo carries is the
-five-letter one Word Duel validates against. That is also why a word is worth
-one point rather than a length-scaled score: with a single length there is
-nothing for length to reward, and counting words is a score a player can keep
-in their head mid-hunt.
+Words run from three letters to eight, and length is the whole of the scoring:
+100, 400, 800, 1400, 1800, 2200. It climbs faster than length does on purpose,
+and those are the numbers the version everyone has already played on a phone
+uses — a player who knows them should not have to learn new ones. Two threes
+losing to one five is the game working.
+
+The dictionary is the one Word Duel validates against, cut to the same range:
+every three- to eight-letter entry in dwyl/english-words, slang, dialect and
+profanity included. Word Duel takes `DUEL_WORDS`, the five-letter subset and
+nothing else, so a game played at one length cannot start accepting another by
+accident. `words.test.ts` also holds the list's two ends against Word Hunt's,
+because the board draws paths to those limits and a dictionary that disagreed
+would mean traces a player can draw and the server will never take.
 
 The grid is dealt rather than drawn. Five real words are planted along real
-paths first and the gaps filled with a vowel-heavy bag afterwards, and the
-whole grid is thrown away and redealt until it holds a dozen words. That check
-is the point: "nothing left to find" and "nothing left that *I* can see" feel
-identical from the player's side, and only one of them is fair.
+paths first and the gaps filled from a vowel-heavy bag afterwards, and the
+whole grid is thrown away and redealt until it holds fifteen words of six
+letters or more. The measure is long words rather than any words, deliberately:
+three-letter words are dense enough on any sixteen letters that counting them
+measures nothing, and a grid with three hundred of them and nothing longer
+plays like a typing exercise.
 
-Like Word Duel it is free-simultaneous — `canAct`, never `turn` — and it hides
-one thing in `view()`: the words other people have already found, since a list
-of their words is a list of yours for the copying. They arrive as `HIDDEN`
-rather than being dropped, so the tally survives; watching someone else's climb
-while you are stuck is most of the tension. The answer key is not redacted but
-uncomputed: `solve()` runs when the last player stops, so there is never a
-complete list of the grid's words sitting in the state for a `view()` bug to
-leak.
+Like Word Duel it is free-simultaneous — `canAct`, never `turn` — and
+`wordHuntDisplay.ts` exists for the same reason `wordleDisplay.ts` does: the
+board has to know whether the letters under a dragging finger form a legal
+path, and routing that through the reducer would put the whole dictionary on
+every phone that opens the lobby. `bundle.test.ts` holds that line, and it
+matters more here than it did: the list is a megabyte.
+
+`view()` hides one thing: the words other people have already found, since a
+list of their words is a list of yours for the copying. They are masked rather
+than dropped, and the mask is as long as the word it stands for — length is
+what a word is worth, so the *score* survives redaction while the word does
+not. Watching an opponent's total climb while you are stuck is most of the
+tension. The answer key at the end is not redacted but uncomputed: `solve()`
+runs when the last player stops, so there is never a complete list of the
+grid's words sitting in the state for a `view()` bug to leak.
+
+Tracing works by drag or by tap and they are the same gesture underneath —
+cells are appended to a path, and lifting a finger submits, as does the button
+the tapping player presses, which is the one a keyboard reaches. There is no
+length at which a trace can submit itself, so something has to say "that is the
+word". A trace too short to be a word is dropped in silence rather than
+refused: it is nearly always a tap on the way to somewhere else, and an error
+for that is the app telling the player off for touching it.
 
 ## Adding a game
 

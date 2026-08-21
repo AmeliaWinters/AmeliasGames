@@ -1,6 +1,6 @@
 import type { GameDefinition, MoveResult } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
-import { WORDS, isWord } from './words.js';
+import { DUEL_WORDS, isDuelWord } from './words.js';
 import {
   HIDDEN,
   MAX_GUESSES,
@@ -111,7 +111,7 @@ function readWord(raw: unknown): MoveResult<string> {
   if (!/^[A-Z]+$/.test(word)) {
     return { ok: false, error: 'Letters only — no spaces, digits or punctuation.' };
   }
-  if (!isWord(word)) {
+  if (!isDuelWord(word)) {
     return { ok: false, error: `${word} is not in the word list.` };
   }
   return { ok: true, state: word };
@@ -270,5 +270,10 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
   },
 };
 
-/** Exported for the test that holds the word list to a usable size. */
-export const WORD_COUNT = WORDS.size;
+/**
+ * Exported for the test that holds the word list to a usable size. The
+ * five-letter subset, not the whole dictionary: this game plays at one length,
+ * and how many eight-letter words exist says nothing about whether a player
+ * here is fighting it.
+ */
+export const WORD_COUNT = DUEL_WORDS.size;
