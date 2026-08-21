@@ -1,94 +1,147 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Amelia's Games
+   Amelia's Games — Playbill
 
-   Two palettes, one design. Everything below the palette blocks — type,
+   One dark stage, four channels. Everything below the palette blocks — type,
    layout, motion — is shared, so switching palette changes only colour.
 
-   Plum & Rose is the default: aubergine ink on a blush ground, raspberry
-   against violet counters. Saturated rather than pastel, and deliberately
-   free of gradients, glows and glassmorphism.
+   Stage is the default: near-black ground, cream type, condensed caps. Four
+   signal colours do double duty — as seats they sit on pieces, and as channels
+   they identify a game — so the whole palette is five neutrals and four hues.
+   No gradients, no glows, no glassmorphism.
    ═══════════════════════════════════════════════════════════════════════ */
 
 :root,
-:root[data-palette="plum"] {
-  --ground: #f9eef1;
-  --surface: #fdf7f9;
-  --board: #ebd5de;
-  --hole: #fdf7f9;
+:root[data-palette="stage"] {
+  --ground: #0c0c0f;
+  --surface: #16161b;
+  --board: #1e1e24;
+  --hole: #08080a;
 
-  --ink: #32172b;
-  --muted: #6e4460;
-  --rule: #e0c4d0;
+  --ink: #f5f1e8;
+  --muted: #8e8e99;
+  --rule: #2b2b33;
+  /* One step brighter than --rule, for the borders that have to be found by
+     eye rather than merely separating two panels: secondary buttons, and the
+     dashed frame around a room code. */
+  --rule-hi: #3d3d47;
 
-  --seat-0: #b02154; /* raspberry */
-  --seat-1: #5e3a87; /* violet */
-  --seat-2: #14666e; /* teal */
-  --seat-3: #8a5000; /* burnt amber */
+  --seat-0: #ff5a47; /* ember */
+  --seat-1: #21c7f0; /* ice */
+  --seat-2: #8fde4c; /* lime */
+  --seat-3: #ffc24b; /* amber */
 
-  --point-dark: #d7a8c0;
-  --point-light: #faf2f5;
-  --tray: #d9b9c9;
+  /* Both points stay dark, so a bright checker reads on either one -- the
+     alternation is there to be counted, not to be the brightest thing on the
+     board. Pushed apart from the 1.4:1 they started at, which was invisible. */
+  --point-dark: #12161a;
+  --point-light: #3f4a52;
+  --tray: #08080a;
 
-  --action: #32172b;
-  --action-text: #fdf7f9;
-  --alert: #8e1f3c;
-  --live: #2f6f4f;
-  --pending: #9a6a12;
+  --action: var(--accent);
+  --action-text: #0c0c0f;
+  --alert: #ff5a47;
+  --live: #4fd67f;
+  --pending: #ffc24b;
 
-  /* Word Duel's three tile states. Deliberately not Wordle's own green and
-     yellow, which fight this palette; these are the greens and ambers already
-     in it, darkened until white type clears 4.5:1 on every one. */
-  --mark-hit: #2f6f4f;
-  --mark-near: #8a5f10;
-  --mark-miss: #7a6070;
-  --mark-text: #fdf7f9;
+  --mark-hit: #8fde4c;
+  --mark-near: #ffc24b;
+  --mark-miss: #2b2b33;
+  --mark-text: #0c0c0f;
+  /* A miss is the one mark that means "stop considering this", so unlike the
+     other two it reads as absence and keeps a muted ink -- but a *readable*
+     one: --muted itself only manages 4.3:1 on the miss ground, and the letter
+     on a spent tile is still the letter you have to read. */
+  --mark-miss-text: #9a9aa5;
+
+  /* Seat 1's pieces carry a ring as well as a hue, so the board still reads
+     for anyone who cannot separate the two colours. It has to sit *inside* a
+     bright disc here, and inside a dark one in daylight, so it is a token
+     rather than a literal. */
+  --ring: rgb(0 0 0 / 0.4);
+
+  color-scheme: dark;
+}
+
+:root[data-palette="daylight"] {
+  --ground: #f2f1ec;
+  --surface: #ffffff;
+  --board: #e4e2da;
+  --hole: #fbfaf7;
+
+  --ink: #14141a;
+  --muted: #62626d;
+  --rule: #d8d6cd;
+  --rule-hi: #b9b6ab;
+
+  /* The same four hues, not four different ones, so a player who learns "I'm
+     the red one" in one palette still is in the other. Darkened until each
+     clears 3:1 against both the ground and the board — these are counters and
+     chips, so they are coloured components rather than text, and the one place
+     an accent is set in type (the result heading, the wordmark tail) it is
+     large and bold enough for the same threshold. */
+  --seat-0: #cf3a24;
+  --seat-1: #0a7d9e;
+  --seat-2: #44861a;
+  --seat-3: #9a6a00;
+
+  /* The mirror of the stage's pair: both points stay light so the darker
+     checkers read on either one, pushed as far apart as that allows. */
+  --point-dark: #c6bfa7;
+  --point-light: #f8f5ef;
+  --tray: #d3cfc0;
+
+  --action: var(--accent);
+  --action-text: #ffffff;
+  --alert: #cf3a24;
+  --live: #2f7f4f;
+  --pending: #9a6a00;
+
+  /* These carry white letters at tile size, so unlike the seats they are held
+     to the 4.5:1 that normal text needs. */
+  --mark-hit: #3f7a14;
+  --mark-near: #9a6a00;
+  --mark-miss: #d8d6cd;
+  --mark-text: #ffffff;
+  --mark-miss-text: #55555f;
+
+  --ring: rgb(255 255 255 / 0.72);
 
   color-scheme: light;
 }
 
-:root[data-palette="paper"] {
-  --ground: #f4efe6;
-  --surface: #fbf8f2;
-  --board: #e8decb;
-  --hole: #f7f3ea;
-
-  --ink: #1a1714;
-  --muted: #5a5249;
-  --rule: #d8cdb8;
-
-  --seat-0: #b83a27; /* vermilion */
-  --seat-1: #1b6b72; /* deep teal */
-  --seat-2: #5b3a8a; /* violet */
-  --seat-3: #7a5410; /* bronze */
-
-  --point-dark: #d3c09c;
-  --point-light: #f8f4ea;
-  --tray: #d6c4a4;
-
-  --action: #1a1714;
-  --action-text: #fbf8f2;
-  --alert: #8f3520;
-  --live: #2f6f4f;
-  --pending: #8a6516;
-
-  /* Word Duel's three tile states -- see the note in the plum palette. */
-  --mark-hit: #2f6f4f;
-  --mark-near: #8a6516;
-  --mark-miss: #6f6960;
-  --mark-text: #fbf8f2;
-
-  color-scheme: light;
+/* ── Channels ──────────────────────────────────────────────────────────
+   The accent themes four things and no more: the game's card, the second
+   half of the wordmark, the emphasised word in the status line, and the
+   primary button. Let it onto borders and dividers and it stops meaning
+   anything. The default is plain ink, which is what an unrecognised game id
+   gets — unstyled rather than wrong. */
+:root {
+  --accent: var(--ink);
 }
+:root[data-game="connect4"] { --accent: var(--seat-0); }
+:root[data-game="backgammon"] { --accent: var(--seat-3); }
+:root[data-game="wheel"] { --accent: var(--seat-1); }
+:root[data-game="wordle"] { --accent: var(--seat-2); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
-   A deliberate three-role pairing, all system stacks so nothing is
-   fetched over the network — the Android build has to work offline. */
+   A condensed signage face for every name, title, status line and button, and
+   a plain sans for anything read in sentences. All system stacks so nothing is
+   fetched over the network — the Android build has to work offline.
+
+   Roboto Condensed is present on Android, which is the build that matters
+   most here; Avenir Next Condensed covers iOS and macOS, Arial Narrow covers
+   Windows. Where none of them land the stack falls back to the body face and
+   the design loses its condensation but nothing else. */
 :root {
-  --display: Georgia, "Noto Serif", "Times New Roman", serif;
+  --display: "Roboto Condensed", "Avenir Next Condensed", "Arial Narrow",
+    "Helvetica Neue Condensed", ui-sans-serif, system-ui, sans-serif;
   --body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  --panel-radius: 3px;
+  --panel-radius: 8px;
+  /* Playing surfaces get a rounder corner than chrome, which is half of what
+     makes them read as objects sitting on the stage rather than more panels. */
+  --board-radius: 10px;
 }
 
 * {
@@ -106,7 +159,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ── The one layout primitive: a hairline-ruled panel, repeated ───────
+/* ── The one layout primitive: a ruled panel, repeated ────────────────
    Named by the things that use it, not by a `.panel` class -- there was one,
    and nothing ever rendered it, so it described the primitive instead of
    applying it. Backgrounds stay per-site (chrome sits on --surface, the playing
@@ -115,8 +168,6 @@ body {
 .code,
 .banner,
 .player,
-.board,
-.bg-board,
 .game,
 .wof-puzzle,
 .wof-purse,
@@ -131,13 +182,29 @@ input {
   border-radius: var(--panel-radius);
 }
 
+/* Playing surfaces are the exception, and the only things that rise off the
+   stage: a rounder corner, and a border that can actually be seen. Chrome
+   stays flat. That one rule is where the hierarchy comes from. */
+.board,
+.bg-board,
+.wd-board {
+  border: 1px solid var(--rule);
+  border-radius: var(--board-radius);
+}
+/* Wide enough that the board grows on a desktop instead of the margins, and
+   still narrow enough that a two-row puzzle stays readable. The setup screen
+   keeps the old column width — a name field 640px wide is not a better name
+   field. */
 .app {
-  max-width: 480px;
+  max-width: 640px;
   margin: 0 auto;
   padding: 18px 16px calc(28px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.app.setup {
+  max-width: 480px;
 }
 
 /* ── Header ────────────────────────────────────────────────────────── */
@@ -148,12 +215,23 @@ input {
   gap: 10px;
 }
 
+/* The game's name, at the size a name deserves. The accent lands on the
+   second half of it, which is the wordmark's only job for the channel colour. */
 .topbar h1 {
   font-family: var(--display);
-  font-size: 1.2rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar h1 .tail {
+  color: var(--accent);
 }
 
 .room-meta {
@@ -178,9 +256,15 @@ input {
 .swap {
   font-family: var(--body);
   font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted);
   background: none;
   border: 0;
+  /* Now the only way to change palette, so it gets a real target rather than
+     the size of its own label. */
+  min-height: 44px;
   padding: 6px 4px;
   cursor: pointer;
   text-decoration: underline;
@@ -274,14 +358,14 @@ input {
 }
 .player.p1 .chip {
   background: var(--seat-1);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 .player.p2 .chip {
   background: var(--seat-2);
 }
 .player.p3 .chip {
   background: var(--seat-3);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 
 .player .who {
@@ -298,9 +382,15 @@ input {
 /* ── Status ────────────────────────────────────────────────────────── */
 .status {
   font-family: var(--display);
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   margin: 2px 0;
+  /* Holds its line before the first status arrives, so the board below does
+     not jump the moment the room connects. */
+  min-height: 1.4em;
 }
 
 .hint {
@@ -319,7 +409,7 @@ input {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 5px;
-  padding: 6px;
+  padding: 7px;
   background: var(--board);
 }
 .board.placeholder {
@@ -345,7 +435,7 @@ input {
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--hole);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.12);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.55);
 }
 /* Seat 0 is a plain disc, seat 1 carries a ring. Colour alone would leave the
    board unreadable to anyone who cannot separate the two hues — and the palette
@@ -358,7 +448,7 @@ input {
   background: var(--seat-1);
   box-shadow:
     inset 0 -2px 3px rgb(0 0 0 / 0.16),
-    inset 0 0 0 3px rgb(255 255 255 / 0.62);
+    inset 0 0 0 3px var(--ring);
 }
 .cell.winning {
   box-shadow:
@@ -370,7 +460,7 @@ input {
 .cell.p1.winning {
   box-shadow:
     inset 0 -2px 3px rgb(0 0 0 / 0.16),
-    inset 0 0 0 3px rgb(255 255 255 / 0.62),
+    inset 0 0 0 3px var(--ring),
     0 0 0 2px var(--ink);
 }
 
@@ -438,12 +528,22 @@ input {
 }
 
 /* ── Controls ──────────────────────────────────────────────────────── */
+/* Button labels are names, not sentences, so they take the condensed face in
+   caps like every other name in the app. The ones that are really surfaces
+   rather than labels -- board columns, points, keys -- override this below. */
 button {
-  font-family: var(--body);
-  font-size: 0.95rem;
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--ink);
-  background: var(--surface);
-  padding: 11px 16px;
+  background: transparent;
+  border-color: var(--rule-hi);
+  /* The floor the rest of the app already holds itself to. Padding alone left
+     these at 42px once the condensed face shortened the line box. */
+  min-height: 44px;
+  padding: 12px 16px;
   cursor: pointer;
 }
 /* Board columns are buttons too, but a column being unplayable says nothing
@@ -458,12 +558,18 @@ button.primary {
   background: var(--action);
   border-color: var(--action);
   color: var(--action-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 :focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+/* Reads on the stage and on a filled primary button alike, where a cream
+   outline on cream would vanish. */
+button.primary:focus-visible {
+  outline-color: var(--ink);
+  outline-offset: 3px;
 }
 
 /* ── Opening screen ────────────────────────────────────────────────── */
@@ -474,11 +580,15 @@ button.primary {
 
 .setup .wordmark {
   font-family: var(--display);
-  font-size: clamp(1.9rem, 8vw, 2.4rem);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
+  font-size: clamp(2.8rem, 13vw, 4rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 0.9;
+  text-transform: uppercase;
   margin: 0;
+}
+.setup .wordmark .tail {
+  color: var(--accent);
 }
 
 .tagline {
@@ -490,7 +600,10 @@ label {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 0.82rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -696,7 +809,7 @@ input:focus-visible {
   /* Matches the Connect Four ring: seat 1's pieces are ringed in both games. */
   box-shadow:
     inset 0 -2px 3px rgb(0 0 0 / 0.18),
-    inset 0 0 0 2px rgb(255 255 255 / 0.62);
+    inset 0 0 0 2px var(--ring);
 }
 .bar-stack .checker {
   width: 82%;
@@ -712,7 +825,10 @@ input:focus-visible {
 
 .borne,
 .race {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -728,23 +844,26 @@ input:focus-visible {
   gap: 6px;
 }
 
+/* Pips rather than numerals: a die reads as a die, and the count is legible
+   at a glance without being read. A cream face with ground-coloured pips is
+   the highest-contrast pair either palette has. */
 .die {
-  width: 28px;
-  height: 28px;
-  padding: 4px;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
-  background: var(--surface);
-  border: 1px solid var(--ink);
-  border-radius: 4px;
+  background: var(--ink);
+  border: 0;
+  border-radius: 6px;
 }
 
 .pip {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--ink);
+  background: var(--ground);
   place-self: center;
 }
 
@@ -783,6 +902,9 @@ input:focus-visible {
   gap: 3px;
 }
 
+/* An unturned tile is the board's dark ground; a turned one is cream, which
+   is the contrast a real Wheel board has and the reason a filled puzzle can be
+   read across a room. */
 .wof-tile {
   width: clamp(17px, 6.2vw, 28px);
   height: clamp(24px, 8.6vw, 38px);
@@ -790,9 +912,16 @@ input:focus-visible {
   place-items: center;
   background: var(--hole);
   font-family: var(--display);
-  font-size: clamp(0.8rem, 3.4vw, 1.15rem);
-  font-weight: 600;
+  font-size: clamp(0.95rem, 4vw, 1.35rem);
+  font-weight: 700;
   line-height: 1;
+}
+/* A tile carrying a called letter. `.blank` keeps the board's dark ground, so
+   the two states are the same contrast a real Wheel board has. */
+.wof-tile.letter {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ground);
 }
 
 .wof-tile.mark {
@@ -861,14 +990,14 @@ input:focus-visible {
 }
 .wof-purse.p1 .chip {
   background: var(--seat-1);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 .wof-purse.p2 .chip {
   background: var(--seat-2);
 }
 .wof-purse.p3 .chip {
   background: var(--seat-3);
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.62);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 
 .wof-purse .who {
@@ -879,8 +1008,9 @@ input:focus-visible {
 }
 .wof-purse .round {
   grid-column: 1 / -1;
-  font-size: 1.05rem;
-  font-weight: 650;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -899,11 +1029,15 @@ input:focus-visible {
   background: var(--surface);
 }
 
+/* A number, so it takes the numeral treatment rather than the display face:
+   body at 700, tabular, tightened, and sized well above its own label. */
 .wof-value {
-  font-family: var(--display);
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-family: var(--body);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 
 .wof-prompt {
@@ -922,9 +1056,12 @@ input:focus-visible {
      way the game is played, and they are hit at speed. */
   min-height: 44px;
   padding: 9px 0;
+  background: var(--surface);
+  border-color: var(--rule);
+  letter-spacing: 0;
   font-family: var(--display);
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 .wof-key:disabled {
   cursor: default;
@@ -932,7 +1069,8 @@ input:focus-visible {
 /* A letter already called is spent, and says so — struck through rather than
    faded, because you still need to read which ones have gone. */
 .wof-key.spent {
-  background: var(--ground);
+  background: transparent;
+  border-color: transparent;
   color: var(--muted);
   text-decoration: line-through;
 }
@@ -961,51 +1099,210 @@ input:focus-visible {
 }
 
 
-/* ── Game picker ───────────────────────────────────────────────────── */
+/* ── Game picker ───────────────────────────────────────────────────────
+   Cards, not radio buttons. The games are the product, so they get the
+   screen: each one carries its own colour, its own name and a motif built
+   from its own pieces. The radio input is still there underneath, moved out
+   of sight rather than removed -- the keyboard and screen-reader behaviour of
+   a real radio group is not worth reimplementing. */
 .games {
   border: 0;
   padding: 0;
   margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.games legend {
+  /* A legend inside a grid fieldset is a grid item like any other. */
+  grid-column: 1 / -1;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 0 1px;
+}
+
+.game {
+  position: relative;
+  min-width: 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  /* Each card is themed by its own channel rather than the chosen one, so the
+     grid reads as four games rather than four copies of the current pick. */
+  --accent: var(--ink);
+}
+.game[data-game="connect4"] { --accent: var(--seat-0); }
+.game[data-game="backgammon"] { --accent: var(--seat-3); }
+.game[data-game="wheel"] { --accent: var(--seat-1); }
+.game[data-game="wordle"] { --accent: var(--seat-2); }
+
+.game.picked {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Present, focusable and announced -- just not drawn. `appearance: none` on a
+   visible radio would have left the card with a stray dot in the corner. */
+.game input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.game:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.game .name {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+  padding: 10px 11px 3px;
+}
+.game .meta {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 11px 10px;
+}
+/* The channel colour, stated once per card along the bottom edge. */
+.game .stripe {
+  height: 3px;
+  background: var(--accent);
+}
+
+/* ── Card motifs ───────────────────────────────────────────────────────
+   Built from each game's own pieces in CSS rather than drawn as artwork: the
+   Android build ships offline with no image assets, and a disc grid says
+   "Connect Four" more honestly than an illustration would. */
+.art {
+  min-height: 66px;
+  display: grid;
+  place-items: center;
+  background: var(--board);
+  border-bottom: 1px solid var(--rule);
+}
+.art i {
+  display: block;
+  font-style: normal;
+}
+
+.art-connect4 {
+  grid-auto-flow: column;
+  grid-template-columns: repeat(4, 12px);
+  grid-template-rows: repeat(3, 12px);
+  gap: 4px;
+}
+.art-connect4 i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--hole);
+}
+.art-connect4 i:nth-child(1),
+.art-connect4 i:nth-child(6),
+.art-connect4 i:nth-child(8) {
+  background: var(--seat-0);
+}
+.art-connect4 i:nth-child(3),
+.art-connect4 i:nth-child(5),
+.art-connect4 i:nth-child(12) {
+  background: var(--seat-1);
+}
+
+.art-backgammon {
+  grid-auto-flow: column;
+  gap: 3px;
+  align-items: start;
+}
+.art-backgammon i {
+  width: 11px;
+  height: 36px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  background: var(--point-dark);
+}
+.art-backgammon i:nth-child(even) {
+  background: var(--seat-3);
+}
+
+.art-wheel {
+  grid-auto-flow: column;
+  gap: 3px;
+}
+.art-wheel i {
+  width: 14px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 2px;
+  background: var(--hole);
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.art-wheel i:not(:empty) {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.art-wordle {
+  grid-auto-flow: column;
+  gap: 3px;
+}
+.art-wordle i {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  background: var(--hole);
+}
+.art-wordle i:nth-child(1),
+.art-wordle i:nth-child(5) {
+  background: var(--mark-hit);
+}
+.art-wordle i:nth-child(3) {
+  background: var(--mark-near);
+}
+
+/* ── Seat picker ───────────────────────────────────────────────────────
+   Three single digits, which want a chip rather than a card: the card styles
+   above are undone rather than worked around. */
+.seats {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.games legend {
-  font-size: 0.82rem;
-  color: var(--muted);
-  padding: 0 0 5px;
+.seats legend {
+  flex-basis: 100%;
 }
-/* Grows to share the row, wraps to its own when the name needs more than a
-   third of a phone. */
-.game {
-  flex: 1 1 8em;
-  min-width: 0;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 12px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 0.92rem;
-  cursor: pointer;
-}
-/* The seat picker's options are single digits, so the basis that stops a game
-   name from being squeezed would instead wrap three numbers onto two rows. */
 .seats .game {
   flex: 1 1 3em;
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
-}
-
-.game.picked {
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
-}
-.game input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  padding: 0;
-  accent-color: var(--ink);
+  overflow: visible;
+  padding: 12px 10px;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  --accent: var(--ink);
 }
 
 /* ── Word Duel ─────────────────────────────────────────────────────────
@@ -1044,15 +1341,18 @@ input:focus-visible {
   gap: 6px;
   margin: 0;
   font-family: var(--display);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 /* The guess count is reference, not headline: same line, less weight. */
 .wd-count {
   flex: none;
   font-family: var(--body);
   font-size: 0.72rem;
-  font-weight: 400;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
@@ -1089,8 +1389,8 @@ input:focus-visible {
   min-width: 0;
   background: var(--hole);
   font-family: var(--display);
-  font-size: clamp(0.7rem, 3.2vw, 1rem);
-  font-weight: 600;
+  font-size: clamp(0.8rem, 3.6vw, 1.15rem);
+  font-weight: 700;
   line-height: 1;
   text-transform: uppercase;
 }
@@ -1109,6 +1409,7 @@ input:focus-visible {
 }
 .wd-tile.miss {
   background: var(--mark-miss);
+  color: var(--mark-miss-text);
 }
 
 .wd-entry {
@@ -1190,6 +1491,8 @@ input:focus-visible {
 
 .wd-key {
   flex: 1 1 auto;
+  letter-spacing: 0;
+  border-color: var(--rule);
   /* Thumbs, not cursors. 32px is the floor that still fits ten keys across
      the narrowest phone this app supports. */
   min-width: 0;
@@ -1229,6 +1532,7 @@ input:focus-visible {
   /* Tried and absent. Dimmed rather than recoloured -- it is the one state
      that means "stop considering this", and it should recede. */
   background: var(--mark-miss);
+  color: var(--mark-miss-text);
   opacity: 0.75;
 }
 
@@ -1236,4 +1540,68 @@ input:focus-visible {
    out), so this must not read as twenty-six individually broken buttons. */
 .wd-keys:has(.wd-key:disabled) {
   opacity: 0.55;
+}
+
+/* ── Winning ───────────────────────────────────────────────────────────
+   The end of a game was a status line and a button, which is the one moment
+   the app should raise its voice. The winner's name goes to hero size in the
+   channel colour, with one line underneath saying *why* they won -- the same
+   sentence the status line was already carrying. */
+.result {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--board-radius);
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.result .who {
+  font-family: var(--display);
+  font-size: clamp(1.9rem, 9vw, 2.6rem);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+.result .why {
+  margin: 7px 0 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── Waiting room ──────────────────────────────────────────────────────
+   Sharing the room is the only job on this screen, so the code stops being a
+   0.72rem button in the corner and becomes the thing you read out. The dashed
+   frame says "this is to be copied" without a second colour. */
+.bigcode {
+  background: var(--surface);
+  border: 1px dashed var(--rule-hi);
+  border-radius: var(--board-radius);
+  padding: 18px 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bigcode .label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bigcode .value {
+  font-family: var(--mono);
+  font-size: clamp(1.4rem, 7vw, 1.9rem);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--ink);
 }

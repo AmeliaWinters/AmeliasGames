@@ -21,12 +21,62 @@ import { WordleBoard } from "./games/WordleBoard.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
+  applyChannel,
   applyPalette,
   loadPalette,
   otherPalette,
   PALETTES,
   type Palette,
 } from "./palette.js";
+
+/**
+ * A name in two parts, so the channel colour can land on the second half.
+ *
+ * Splitting at the last space is what makes "Amelia's Games" and "Wheel of
+ * Fortune" read the way they should without a lookup table to keep in step
+ * with the manifest. A one-word name has no second half, so it takes the
+ * accent whole — which is the same rule, not an exception to it.
+ */
+function splitMark(name: string): [string, string] {
+  const cut = name.lastIndexOf(" ");
+  return cut === -1 ? ["", name] : [name.slice(0, cut + 1), name.slice(cut + 1)];
+}
+
+function Wordmark({ name }: { name: string }) {
+  const [head, tail] = splitMark(name);
+  return (
+    <>
+      {head}
+      <span className="tail">{tail}</span>
+    </>
+  );
+}
+
+/**
+ * The motif on a game's card: its own pieces, in CSS, rather than artwork.
+ * Only the Wheel's tiles carry text — the rest are coloured by nth-child in
+ * the stylesheet, so this is a count and nothing more.
+ */
+function CardArt({ gameId }: { gameId: string }) {
+  if (gameId === "wheel") {
+    return (
+      <span className="art art-wheel" aria-hidden="true">
+        <i>W</i>
+        <i />
+        <i>E</i>
+        <i />
+      </span>
+    );
+  }
+  const pieces = gameId === "connect4" ? 12 : gameId === "backgammon" ? 6 : 5;
+  return (
+    <span className={`art art-${gameId}`} aria-hidden="true">
+      {Array.from({ length: pieces }, (_, i) => (
+        <i key={i} />
+      ))}
+    </span>
+  );
+}
 
 function codeFromHash(): string | null {
   const raw = location.hash.slice(1).toUpperCase();
@@ -51,6 +101,13 @@ function joinFailureHeading(kind: ErrorKind | null): string {
   return "Couldn't join that game";
 }
 
+/** The card's second line: how many can play, in as few words as it takes. */
+function seatSummary(table: GameEntry): string {
+  return table.minPlayers === table.maxPlayers
+    ? `${table.minPlayers} players`
+    : `${table.minPlayers}–${table.maxPlayers} players`;
+}
+
 /** Every table size a game will seat, smallest first. */
 function seatOptions(table: GameEntry): number[] {
   return Array.from(
@@ -63,6 +120,19 @@ function usePalette(): [Palette, () => void] {
   const [palette, setPalette] = useState<Palette>(loadPalette);
   useEffect(() => applyPalette(palette), [palette]);
   return [palette, () => setPalette((current) => otherPalette(current))];
+}
+
+/**
+ * The channel colour, set on the root rather than passed down.
+ *
+ * The room's own game id wins where there is a room: the lobby's pick is only
+ * a preference until the server seats you, and joining someone else's link
+ * lands you in a game you never picked.
+ */
+function useChannel(gameId: string): void {
+  useEffect(() => {
+    applyChannel(gameId);
+  }, [gameId]);
 }
 
 export function App() {
@@ -104,6 +174,8 @@ export function App() {
     gameId,
     players: seats,
   });
+
+  useChannel(room?.gameId ?? gameId);
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
 
@@ -198,11 +270,10 @@ export function App() {
   return (
     <main className="app">
       <header className="topbar">
-        <h1>{room?.gameName ?? "Amelia's Games"}</h1>
+        <h1>
+          <Wordmark name={room?.gameName ?? "Amelia's Games"} />
+        </h1>
         <div className="room-meta">
-          <button className="swap" onClick={swapPalette}>
-            {swapLabel}
-          </button>
           {room && (
             <button
               className="code"
@@ -254,10 +325,19 @@ export function App() {
       )}
 
       {/* Announced, not just shown: whose turn it is changes without the
-          player touching anything, and a turn-based game can sit for hours. */}
+          player touching anything, and a turn-based game can sit for hours.
+          The live region stays mounted when the game ends — moving the same
+          sentence into the result block below would announce it twice, so the
+          result borrows it and this hides. */}
       <p className="status" role="status" aria-live="polite">
-        {room?.status ?? connectionNote ?? ""}
+        {room?.over ? "" : (room?.status ?? connectionNote ?? "")}
       </p>
+
+      {room?.over && (
+        <div className="result">
+          <p className="who">{room.status}</p>
+        </div>
+      )}
 
       {room ? (
         <GameBoard room={room} seat={seat} myTurn={myTurn} sendMove={sendMove} />
@@ -266,10 +346,16 @@ export function App() {
       )}
 
       {room?.waiting && (
-        <p className="hint">
-          Send the link, or read out the code{" "}
-          <span className="said-code">{room.code}</span>.
-        </p>
+        <>
+          <div className="bigcode">
+            <span className="label">Room code</span>
+            <span className="value">{room.code}</span>
+          </div>
+          <p className="hint">
+            Send the link, or read the code out. The game starts the moment they
+            arrive.
+          </p>
+        </>
       )}
 
       {room?.over && (
@@ -385,7 +471,9 @@ function Setup({
 
   return (
     <main className="app setup">
-      <h1 className="wordmark">Amelia's Games</h1>
+      <h1 className="wordmark">
+        <Wordmark name="Amelia's Games" />
+      </h1>
       <p className="tagline">Two to four players, one link. No ads, no accounts.</p>
 
       {linkProblem && (
@@ -408,7 +496,11 @@ function Setup({
       <fieldset className="games">
         <legend>Game</legend>
         {gameList().map((game) => (
-          <label key={game.id} className={game.id === gameId ? "game picked" : "game"}>
+          <label
+            key={game.id}
+            className={game.id === gameId ? "game picked" : "game"}
+            data-game={game.id}
+          >
             <input
               type="radio"
               name="game"
@@ -416,7 +508,10 @@ function Setup({
               checked={game.id === gameId}
               onChange={() => onPickGame(game.id)}
             />
-            {game.name}
+            <CardArt gameId={game.id} />
+            <span className="name">{game.name}</span>
+            <span className="meta">{seatSummary(game)}</span>
+            <span className="stripe" />
           </label>
         ))}
       </fieldset>
@@ -441,8 +536,10 @@ function Setup({
         </fieldset>
       )}
 
+      {/* Names the game you are about to start, so the card you picked and the
+          button you press say the same thing. */}
       <button className="primary" disabled={!trimmed} onClick={() => onStart(trimmed, null)}>
-        Start a new game
+        {table ? `Start ${table.name}` : "Start a new game"}
       </button>
 
       <div className="divider">
