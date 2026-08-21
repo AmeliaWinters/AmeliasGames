@@ -384,7 +384,7 @@ describe('a whole game', () => {
 
 describe('in a room', () => {
   it('seats the table the room was opened for and refuses the other players', () => {
-    const room = RoomEngine.create('TESTER', 'yahtzee', () => 0.5, 3)!;
+    const room = RoomEngine.create('TEST', 'yahtzee', () => 0.5, 3)!;
     room.join('a', 'Ann');
     room.join('b', 'Bo');
     room.join('c', 'Cy');

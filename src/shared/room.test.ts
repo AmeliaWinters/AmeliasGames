@@ -12,7 +12,7 @@ import type { C4State } from './games/connect4.js';
 import { wheel } from './games/wheel.js';
 
 /** `create` returns null for an unknown game; every test here names a real one. */
-function newRoom(code = 'TESTER', gameId = 'connect4'): RoomEngine {
+function newRoom(code = 'TEST', gameId = 'connect4'): RoomEngine {
   const room = RoomEngine.create(code, gameId);
   if (!room) throw new Error(`could not create ${gameId}`);
   return room;
@@ -30,27 +30,29 @@ describe('room codes', () => {
   it('omits glyphs that are ambiguous when read aloud', () => {
     const seen = new Set<string>();
     for (let i = 0; i < 2000; i++) for (const ch of makeRoomCode()) seen.add(ch);
-    for (const ambiguous of ['O', '0', 'I', '1']) expect(seen.has(ambiguous)).toBe(false);
+    for (const ambiguous of ['O', 'I']) expect(seen.has(ambiguous)).toBe(false);
+    for (const digit of '0123456789') expect(seen.has(digit)).toBe(false);
   });
 
   it('rejects malformed codes', () => {
-    for (const bad of ['', 'ABC', 'ABCDEFG', 'ab!def', 'AB CDE']) {
+    for (const bad of ['', 'AB', 'ABCDE', 'ab!d', 'AB C']) {
       expect(isRoomCode(bad)).toBe(false);
     }
   });
 
   it('rejects glyphs the generator never emits, rather than sending them off to fail', () => {
-    // O/0 and I/1 are not in the alphabet, so a code containing one is always a
-    // typo — better to say so at once than to come back with "no room".
-    for (const bad of ['ABCDEO', 'ABCDE0', 'ABCDEI', 'ABCDE1']) {
+    // Digits, O and I are not in the alphabet, so a code containing one is
+    // always a typo — better to say so at once than to come back with "no room".
+    for (const bad of ['ABCO', 'ABC0', 'ABCI', 'ABC1', 'AB12']) {
       expect(isRoomCode(bad)).toBe(false);
     }
   });
 
   it('normalises typed input to something the server could accept', () => {
-    expect(normalizeRoomCode('  abc-def  ')).toBe('ABCDEF');
+    expect(normalizeRoomCode('  ab-cd  ')).toBe('ABCD');
+    expect(normalizeRoomCode('a1b2c3d4')).toBe('ABCD');
     expect(normalizeRoomCode('ABCDEFGHIJ')).toHaveLength(CODE_LENGTH);
-    expect(isRoomCode(normalizeRoomCode('abcdef'))).toBe(true);
+    expect(isRoomCode(normalizeRoomCode('abcd'))).toBe(true);
   });
 });
 
@@ -58,8 +60,8 @@ describe('creating', () => {
   it('refuses an unknown game rather than throwing at the caller', () => {
     // Every caller is holding a socket that needs an answer; a throw here
     // aborts the Durable Object and drops everyone else in the room.
-    expect(RoomEngine.create('TESTER', 'chess')).toBeNull();
-    expect(() => RoomEngine.create('TESTER', 'chess')).not.toThrow();
+    expect(RoomEngine.create('TEST', 'chess')).toBeNull();
+    expect(() => RoomEngine.create('TEST', 'chess')).not.toThrow();
   });
 });
 
@@ -103,7 +105,7 @@ describe('snapshot round-trip', () => {
     const revived = RoomEngine.restore(JSON.parse(JSON.stringify(room.snapshot())));
     if (!revived) throw new Error('snapshot should have restored');
 
-    expect(revived.code).toBe('TESTER');
+    expect(revived.code).toBe('TEST');
     expect(revived.seatOf('a')).toBe(0);
     expect(revived.seatOf('b')).toBe(1);
 
@@ -135,7 +137,7 @@ describe('snapshot versioning', () => {
   });
 
   it('refuses a snapshot with no version at all', () => {
-    const ancient = { code: 'TESTER', gameId: 'connect4', state: {}, seats: [null, null] };
+    const ancient = { code: 'TEST', gameId: 'connect4', state: {}, seats: [null, null] };
     expect(RoomEngine.restore(ancient as RoomSnapshot)).toBeNull();
   });
 
@@ -158,7 +160,7 @@ describe('view', () => {
 describe('table size', () => {
   /** A four-handed room, seated but for the count given. */
   function table(count: number, filled = count): RoomEngine {
-    const room = RoomEngine.create('TESTER', 'wheel', undefined, count);
+    const room = RoomEngine.create('TEST', 'wheel', undefined, count);
     if (!room) throw new Error('could not create wheel');
     for (let i = 0; i < filled; i++) room.join(`p${i}`, `P${i}`);
     return room;
@@ -174,7 +176,7 @@ describe('table size', () => {
     expect(table(99, 0).size).toBe(4);
     expect(table(1, 0).size).toBe(2);
     // And a game with no range is unaffected by being asked for one.
-    expect(newRoom('TESTER', 'connect4').size).toBe(2);
+    expect(newRoom('TEST', 'connect4').size).toBe(2);
   });
 
   it('tells the game how big its table is', () => {
@@ -214,7 +216,7 @@ describe('table size', () => {
     // redacted from every view by design.
     const room = RoomEngine.restore({
       version: SNAPSHOT_VERSION,
-      code: 'TESTER',
+      code: 'TEST',
       gameId: 'wheel',
       state: { ...wheel.setup(2, () => 0.5), roundOver: true, over: true },
       seats: [

@@ -100,7 +100,7 @@ function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): stri
     v: PROTOCOL_VERSION,
     playerId: 'p1',
     name: 'Player',
-    code: 'TESTER',
+    code: 'TEST',
     create: false,
     gameId: 'connect4',
     ...over,
@@ -112,7 +112,7 @@ function newRoom() {
   const state = new FakeState();
   let room = new GameRoom(state as unknown as DurableObjectState);
   // The code normally lands in storage during fetch(), which we cannot call.
-  state.store.set('code', 'TESTER');
+  state.store.set('code', 'TEST');
   return {
     state,
     get room() {
@@ -238,7 +238,7 @@ describe('hostile and malformed input', () => {
   it('refuses a hello for a different room than the one that routed it', async () => {
     const ctx = newRoom();
     const ws = ctx.socket();
-    await ctx.room.webSocketMessage(ws as unknown as WebSocket, hello({ code: 'ZZZZZZ', create: true }));
+    await ctx.room.webSocketMessage(ws as unknown as WebSocket, hello({ code: 'ZZZZ', create: true }));
     expect(ws.last('error').message).toMatch(/does not match/i);
   });
 

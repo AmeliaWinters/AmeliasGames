@@ -211,7 +211,7 @@ describe('hiding the answer', () => {
   it('is redacted by the room, not merely available to be', () => {
     // `view` only protects anything if the room actually calls it on the way
     // out. This is the assertion that the wiring is real.
-    const room = RoomEngine.create('TESTER', 'wheel', seeded(5), 2)!;
+    const room = RoomEngine.create('TEST', 'wheel', seeded(5), 2)!;
     room.join('a', 'Ann');
     room.join('b', 'Bo');
     const sent = room.viewFor(0, new Set([0, 1])).state as WofState;

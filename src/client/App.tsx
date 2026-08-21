@@ -597,14 +597,14 @@ function Setup({
         <input
           value={code}
           onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
-          placeholder="ABCDEF"
+          placeholder="ABCD"
           className="code-input"
           maxLength={CODE_LENGTH}
           aria-describedby="code-hint"
         />
       </label>
       <p className="hint" id="code-hint">
-        {CODE_LENGTH} letters and numbers, from the link or read out to you.
+        {CODE_LENGTH} letters, from the link or read out to you.
       </p>
 
       <button

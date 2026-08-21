@@ -133,7 +133,7 @@ describe('room lifecycle', () => {
 
   it('rejects an unknown room code', async () => {
     const client = await TestClient.connect();
-    client.send(hello({ playerId: 'x', name: 'X', code: 'ZZZZZZ' }));
+    client.send(hello({ playerId: 'x', name: 'X', code: 'ZZZZ' }));
     const msg = await client.next();
     expect(msg.t).toBe('error');
     expect(msg.t === 'error' && msg.message).toMatch(/no room/i);

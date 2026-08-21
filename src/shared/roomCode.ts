@@ -12,17 +12,18 @@
  * `room.ts` re-exports these so the adapters can carry on importing one thing.
  */
 
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
 /**
- * Six characters, not four. The whole code space is walkable by anyone who
- * wants to — there is no rate limiting, by choice — and the only thing that
- * makes walking it pointless is its size. Four characters is 923k codes; six
- * is 887 million, for two more characters to read out.
+ * Four letters, for a code that is easy to read out and easy to type. The
+ * whole code space is walkable by anyone who wants to — there is no rate
+ * limiting, by choice — so the space is the only defence: 23 letters to the
+ * fourth is 280k codes, well down from the 887 million six mixed characters
+ * gave. Short codes are the trade that was asked for.
  */
-export const CODE_LENGTH = 6;
+export const CODE_LENGTH = 4;
 
-/** Room codes skip O/0 and I/1 so they survive being read aloud. */
+/** Room codes are letters only, and skip O and I so they survive being read aloud. */
 export function makeRoomCode(random: () => number = Math.random): string {
   let code = '';
   for (let i = 0; i < CODE_LENGTH; i++) {
@@ -34,9 +35,9 @@ export function makeRoomCode(random: () => number = Math.random): string {
 const CODE_PATTERN = new RegExp(`^[${CODE_ALPHABET}]{${CODE_LENGTH}}$`);
 
 /**
- * Validated against the generator's own alphabet, not merely [A-Z0-9]. O/0 and
- * I/1 are never generated, so a code containing one is always a typo — better
- * to say so at once than to send it off and come back with "no room".
+ * Validated against the generator's own alphabet, not merely [A-Z]. Digits, O
+ * and I are never generated, so a code containing one is always a typo —
+ * better to say so at once than to send it off and come back with "no room".
  */
 export function isRoomCode(value: string): boolean {
   return CODE_PATTERN.test(value);
