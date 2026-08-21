@@ -122,6 +122,12 @@
 :root[data-game="backgammon"] { --accent: var(--seat-3); }
 :root[data-game="wheel"] { --accent: var(--seat-1); }
 :root[data-game="wordle"] { --accent: var(--seat-2); }
+/* Past the fourth game the channels double up by family rather than adding a
+   hue: you are never looking at two games at once. Amber is the dice, ice
+   blue is the sea. */
+:root[data-game="yahtzee"] { --accent: var(--seat-3); }
+:root[data-game="battleship"] { --accent: var(--seat-1); }
+:root[data-game="liarsdice"] { --accent: var(--seat-3); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
    A condensed signage face for every name, title, status line and button, and
@@ -173,6 +179,8 @@ body {
 .wof-purse,
 .wof-wheel,
 .wof-tile,
+.ld-hand,
+.ld-table,
 .wd-panel,
 .wd-tile,
 .wd-key,
@@ -353,17 +361,21 @@ input {
   border-radius: 50%;
   flex: none;
 }
-.player.p0 .chip {
+.player.p0 .chip,
+.ld-hand.p0 .chip {
   background: var(--seat-0);
 }
-.player.p1 .chip {
+.player.p1 .chip,
+.ld-hand.p1 .chip {
   background: var(--seat-1);
   box-shadow: inset 0 0 0 2px var(--ring);
 }
-.player.p2 .chip {
+.player.p2 .chip,
+.ld-hand.p2 .chip {
   background: var(--seat-2);
 }
-.player.p3 .chip {
+.player.p3 .chip,
+.ld-hand.p3 .chip {
   background: var(--seat-3);
   box-shadow: inset 0 0 0 2px var(--ring);
 }
@@ -677,6 +689,12 @@ input:focus-visible {
   button.primary:hover:not(:disabled) {
     opacity: 0.88;
   }
+
+  /* Which square the guns are on. The cells carry no border, so the usual
+     hover rule above does nothing for them. */
+  .bs-cell:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
 }
 
 /* ── Backgammon ────────────────────────────────────────────────────────
@@ -857,6 +875,22 @@ input:focus-visible {
   background: var(--ink);
   border: 0;
   border-radius: 6px;
+}
+
+/* A die whose face is somebody else's business. It has to read as a die with
+   nothing on it rather than as a gap in the row, so it keeps the shape and
+   gives up the cream. */
+.die.down {
+  background: var(--board);
+  border: 1px solid var(--rule-hi);
+}
+/* The dice a call turned out to be counting — the same green that marks a
+   letter in the right place, doing the same job. */
+.die.match {
+  background: var(--mark-hit);
+}
+.die.match .pip {
+  background: var(--mark-text);
 }
 
 .pip {
@@ -1142,6 +1176,9 @@ input:focus-visible {
 .game[data-game="backgammon"] { --accent: var(--seat-3); }
 .game[data-game="wheel"] { --accent: var(--seat-1); }
 .game[data-game="wordle"] { --accent: var(--seat-2); }
+.game[data-game="yahtzee"] { --accent: var(--seat-3); }
+.game[data-game="battleship"] { --accent: var(--seat-1); }
+.game[data-game="liarsdice"] { --accent: var(--seat-3); }
 
 .game.picked {
   border-color: var(--accent);
@@ -1279,6 +1316,55 @@ input:focus-visible {
 }
 .art-wordle i:nth-child(3) {
   background: var(--mark-near);
+}
+
+.art-yahtzee,
+.art-liarsdice {
+  grid-auto-flow: column;
+  gap: 4px;
+}
+.art-yahtzee i,
+.art-liarsdice i {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--ink);
+  /* The pip. One inset ring rather than a drawn face, because at 13px a five
+     is a smudge and a single dot still reads as a die. */
+  box-shadow: inset 0 0 0 5px var(--ink), inset 0 0 0 6px var(--ground);
+}
+.art-yahtzee i:nth-child(3) {
+  background: var(--seat-3);
+  box-shadow: inset 0 0 0 5px var(--seat-3), inset 0 0 0 6px var(--ground);
+}
+
+/* Two dice you can see and one you cannot, which is the game in three shapes.
+   The face-down one borrows the board's own colour, exactly as it does on the
+   table. */
+.art-liarsdice i:nth-child(3) {
+  background: var(--board);
+  box-shadow: inset 0 0 0 1px var(--rule-hi);
+}
+
+/* Ten squares of sea with a ship laid across them, which is the game in one
+   glance and needs no letters to say so. */
+.art-battleship {
+  grid-template-columns: repeat(3, 15px);
+  grid-auto-rows: 15px;
+  gap: 3px;
+}
+.art-battleship i {
+  border-radius: 2px;
+  background: var(--hole);
+}
+.art-battleship i:nth-child(4),
+.art-battleship i:nth-child(5),
+.art-battleship i:nth-child(6) {
+  background: var(--seat-1);
+}
+.art-battleship i:nth-child(2),
+.art-battleship i:nth-child(9) {
+  background: var(--alert);
 }
 
 /* ── Seat picker ───────────────────────────────────────────────────────
@@ -1540,6 +1626,648 @@ input:focus-visible {
    out), so this must not read as twenty-six individually broken buttons. */
 .wd-keys:has(.wd-key:disabled) {
   opacity: 0.55;
+}
+
+/* ── Battleships ───────────────────────────────────────────────────────
+   Two seas of a hundred squares each on a phone, which is the constraint the
+   whole section is written around. They sit side by side rather than stacking
+   for the same reason Word Duel's grids do: theirs is where you shoot and
+   yours is where you are being shot, and losing sight of either one is losing
+   half the game. The squares shrink; the layout does not change. */
+.bs-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+.bs-seas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.bs-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: var(--surface);
+}
+
+.bs-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+/* How many ships are left is reference, not headline — the same treatment the
+   guess count gets in Word Duel. */
+.bs-count {
+  flex: none;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.bs-sea {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bs-sea-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+}
+
+/* A square of open water. Buttons, because every one of them is somewhere you
+   can fire — including for a keyboard, which walks them in reading order. */
+.bs-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: var(--hole);
+}
+.bs-cell:disabled {
+  /* Water you cannot shoot at is still water: no dimming, because half this
+     grid is deliberately inert and a faded board would read as broken. */
+  opacity: 1;
+}
+
+/* Your own ships, on your own sea. Never drawn on theirs — what shows there
+   is a wreck, and only once it has been sunk. */
+.bs-cell.ship {
+  background: var(--point-light);
+}
+
+/* A hit and a miss have to be told apart at a glance and at four millimetres,
+   so they differ in colour AND in shape: a filled square against a dot. */
+.bs-cell.hit {
+  background: var(--alert);
+}
+.bs-cell.miss {
+  background: radial-gradient(circle at 50% 50%, var(--muted) 0 22%, transparent 23%);
+}
+
+/* A ship the server has revealed: sunk, or the game is over. Outlined rather
+   than filled, so the hits that sank her still read through it. */
+.bs-cell.wreck {
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* Where the ship in hand would land. Green enough to mean "yes", and the
+   alert red — the same red as a hit — for "not there". */
+.bs-cell.ghost {
+  background: var(--mark-hit);
+}
+.bs-cell.ghost.bad {
+  background: var(--alert);
+  opacity: 0.55;
+}
+
+/* ── Battleships: the harbour ─────────────────────────────────────────
+   Placing gets one sea at a readable size, because it is the only thing
+   happening. */
+.bs-harbour .bs-sea {
+  max-width: 420px;
+  width: 100%;
+  align-self: center;
+  gap: 3px;
+}
+.bs-harbour .bs-sea-row {
+  gap: 3px;
+}
+
+.bs-brief,
+.bs-waiting {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.bs-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The fleet, as five things you can pick up. */
+.bs-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+}
+.bs-pick-size {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* The ship in hand is the one the next tap places, so it is stated rather
+   than merely highlighted. */
+.bs-pick.in-hand {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* One already at sea. Struck through, the same way a spent letter is on the
+   Wheel's board -- gone, not missing. */
+.bs-pick.out {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.bs-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bs-tool {
+  padding: 6px 12px;
+}
+
+/* ── Battleships: the roster ──────────────────────────────────────────
+   What is left of a fleet, which is the one thing a player tracks between
+   shots and the one thing counting wrecks off a hundred squares is bad at. */
+.bs-roster {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bs-ship {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.bs-ship-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-ship-note {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.bs-ship.sunk {
+  /* Struck through as well as dimmed: sunk is a state you should be able to
+     read without separating two greys. */
+  color: var(--rule-hi);
+  text-decoration: line-through;
+}
+
+/* One pip per square of hull, filled as she takes damage. Small, but it is
+   the difference between "hit twice" and "one more and she goes". */
+.bs-pips {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.bs-pips i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--rule-hi);
+}
+.bs-pips i.hit {
+  background: var(--alert);
+}
+
+/* ── Yahtzee ───────────────────────────────────────────────────────────
+   Five dice you tap, and a card with a column per player. The card is a real
+   `<table>` because it is one: thirteen labelled rows read down and up to
+   four columns read across, which is what row and column headers are for and
+   what a screen reader needs to say "Full house, Bo, 25".
+
+   Your own open boxes are buttons showing what the live hand is worth in
+   them. That preview is the interface -- Yahtzee's whole decision is which
+   box this hand goes in, and thirteen sums in your head on a phone is a
+   worse game. */
+.yz {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--board);
+}
+
+.yz-round {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.yz-dice {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* A die: a 3x3 grid of pip slots, filled by the face below. Cream with dark
+   pips in either palette -- dice are objects rather than interface, and one
+   that inverted with the theme would stop looking like a die. */
+.yz-die {
+  width: 48px;
+  height: 48px;
+  padding: 7px;
+  display: grid;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  gap: 2px;
+  background: #f5f1e8;
+  /* The brighter rule, not the plain one: in daylight a cream die sits on a
+     light board, and the edge is the only thing separating them. */
+  border: 1px solid var(--rule-hi);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.yz-die i {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #0c0c0f;
+}
+.yz-die.blank {
+  background: var(--hole);
+  border: 1px dashed var(--rule-hi);
+}
+
+/* Kept dice sit forward of the ones about to be thrown again: the ring is the
+   information, the lift is what makes it findable without reading it. */
+.yz-die.held {
+  box-shadow: 0 0 0 2px var(--accent);
+  transform: translateY(-3px);
+}
+.yz-die:disabled {
+  cursor: default;
+}
+
+/* Pip placement, one rule per face. The alternative -- an image per face --
+   would be six assets the offline APK has to carry. */
+.yz-die[data-face="1"] i:nth-child(1) { grid-area: 2 / 2; }
+
+.yz-die[data-face="2"] i:nth-child(1) { grid-area: 1 / 1; }
+.yz-die[data-face="2"] i:nth-child(2) { grid-area: 3 / 3; }
+
+.yz-die[data-face="3"] i:nth-child(1) { grid-area: 1 / 1; }
+.yz-die[data-face="3"] i:nth-child(2) { grid-area: 2 / 2; }
+.yz-die[data-face="3"] i:nth-child(3) { grid-area: 3 / 3; }
+
+.yz-die[data-face="4"] i:nth-child(1) { grid-area: 1 / 1; }
+.yz-die[data-face="4"] i:nth-child(2) { grid-area: 1 / 3; }
+.yz-die[data-face="4"] i:nth-child(3) { grid-area: 3 / 1; }
+.yz-die[data-face="4"] i:nth-child(4) { grid-area: 3 / 3; }
+
+.yz-die[data-face="5"] i:nth-child(1) { grid-area: 1 / 1; }
+.yz-die[data-face="5"] i:nth-child(2) { grid-area: 1 / 3; }
+.yz-die[data-face="5"] i:nth-child(3) { grid-area: 2 / 2; }
+.yz-die[data-face="5"] i:nth-child(4) { grid-area: 3 / 1; }
+.yz-die[data-face="5"] i:nth-child(5) { grid-area: 3 / 3; }
+
+.yz-die[data-face="6"] i:nth-child(1) { grid-area: 1 / 1; }
+.yz-die[data-face="6"] i:nth-child(2) { grid-area: 1 / 3; }
+.yz-die[data-face="6"] i:nth-child(3) { grid-area: 2 / 1; }
+.yz-die[data-face="6"] i:nth-child(4) { grid-area: 2 / 3; }
+.yz-die[data-face="6"] i:nth-child(5) { grid-area: 3 / 1; }
+.yz-die[data-face="6"] i:nth-child(6) { grid-area: 3 / 3; }
+
+.yz-note {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.yz-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.yz-actions .primary {
+  flex: none;
+}
+.yz-legend {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.yz-sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.yz-sheet th,
+.yz-sheet td {
+  padding: 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.yz-sheet tbody th {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  font-family: var(--body);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.yz-sheet td {
+  width: 3.4em;
+  height: 34px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+/* The player column headings, carrying the same seat colour as everywhere
+   else, with the seat to move marked the way the Wheel's purses are. */
+.yz-who {
+  padding: 0 0 6px;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 2px solid var(--rule);
+}
+.yz-who.p0 { color: var(--seat-0); }
+.yz-who.p1 { color: var(--seat-1); }
+.yz-who.p2 { color: var(--seat-2); }
+.yz-who.p3 { color: var(--seat-3); }
+.yz-who.active {
+  border-bottom-color: currentColor;
+}
+
+/* A box you may fill. The cell is the target rather than the number in it --
+   34px is short for a thumb, and the full width of the column is what makes
+   up for it. */
+.yz-pick {
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font-family: var(--body);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  cursor: pointer;
+}
+/* A box worth nothing is still a legal, sometimes correct, move -- so it is
+   offered rather than hidden, and only quieter. */
+.yz-pick.zero {
+  border-color: var(--rule-hi);
+  color: var(--muted);
+}
+
+/* A box crossed off for nothing. The zero is the information; it should not
+   shout as loudly as a score. */
+.yz-box.spent {
+  color: var(--muted);
+}
+
+.yz-sum th,
+.yz-sum td {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.yz-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.yz-total th,
+.yz-total td {
+  padding-top: 6px;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: none;
+}
+
+/* Read by a screen reader, drawn nowhere. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Liar's Dice ───────────────────────────────────────────────────────
+   The board is the hands: yours face up, everyone else's face down, and how
+   many each is holding — which is half of what any bid is reasoned from, so
+   they are drawn as dice to be counted rather than written out as a number.
+
+   A call turns every hand over in the rows they were already in. Nothing
+   moves; only the dice change, which is what makes the reveal readable as an
+   answer to the bid rather than as a new screen. */
+.ld {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ld-round {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ld-hands {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A seat, laid out like the players strip above the board — the same object,
+   with its dice on the end. Full width rather than two to a row: five dice and
+   a name do not share 42% of a phone. */
+.ld-hand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 11px;
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+/* Whose turn it is gets weight, not a colour wash — as everywhere else. */
+.ld-hand.active {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+/* Out of dice, out of the game, still at the table. */
+.ld-hand.out {
+  opacity: 0.55;
+}
+
+.ld-hand .chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ld-hand .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ld-hand .note {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ld-dice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-left: auto;
+}
+/* Smaller than the backgammon pair: five of them sit on one line beside a
+   name, and they are there to be counted rather than read one at a time. */
+.ld-hand .die {
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+}
+.ld-hand .pip {
+  width: 5px;
+  height: 5px;
+}
+
+/* The bid and what became of it, in one block: they are the same thing at two
+   moments, and swapping between them in place keeps the board still. */
+.ld-table {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 78px;
+  padding: 12px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.ld-call {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ld-outcome {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* How many, and of what. Two spinners rather than a text field: there are ten
+   legal quantities and six faces, and a number pad on a phone is a keyboard in
+   the way of a two-tap decision. */
+.ld-bid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ld-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ld-step {
+  width: 44px;
+  padding: 0;
+  font-size: 1.15rem;
+}
+
+.ld-quantity {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ld-faces {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* The face is the die itself. A row of numerals would be a row of numerals;
+   this is the thing you are about to claim there are four of. */
+.ld-face {
+  padding: 5px;
+  min-height: 44px;
+  line-height: 0;
+  background: var(--surface);
+}
+.ld-face.picked {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ld-actions button {
+  flex: 1 1 46%;
+}
+
+.ld-legend {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* ── Winning ───────────────────────────────────────────────────────────

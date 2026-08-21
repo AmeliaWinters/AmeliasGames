@@ -1,0 +1,173 @@
+/**
+ * The parts of Liar's Dice the board is allowed to know.
+ *
+ * Like `wheelDisplay.ts` and `wordleDisplay.ts`, this module deliberately
+ * imports nothing. The board has to say whose dice it may draw, whether a bid
+ * would be legal before the player commits to it, and how a bid reads as
+ * English — all real logic, and all of it needed on both sides. Routing it
+ * through `liarsDice.ts` would pull the reducer into the client bundle, which
+ * `bundle.test.ts` fails the build over.
+ *
+ * `liarsDice.ts` re-exports everything here, so the reducer and its tests carry
+ * on importing from one place.
+ */
+
+/** What everyone starts with. Lose one per call you get wrong. */
+export const DICE_PER_PLAYER = 5;
+
+/** An ordinary die. Ones are not wild here — see the note in `liarsDice.ts`. */
+export const FACES = 6;
+
+/**
+ * What `view()` leaves where somebody else's die is. Not a face, so a hand that
+ * reaches the wrong client cannot be counted even by accident, and any counting
+ * bug shows up as a zero rather than as a plausible wrong answer.
+ */
+export const HIDDEN_FACE = 0;
+
+export interface Bid {
+  /** Who said it, so the board can name them without a second lookup. */
+  seat: number;
+  quantity: number;
+  face: number;
+}
+
+/** A call, and everything it turned up. Public the moment it happens. */
+export interface Showdown {
+  /** The bid that was called. */
+  bid: Bid;
+  challenger: number;
+  /** How many of `bid.face` were actually on the table. */
+  actual: number;
+  loser: number;
+  /**
+   * Every hand as it stood when the call was made, revealed. This is the only
+   * place hands are ever public, and it is the whole point of the game — a call
+   * you cannot see the result of teaches nobody anything.
+   */
+  hands: number[][];
+  /** Seats that ran out of dice on this call. */
+  out: number[];
+}
+
+export interface LdState {
+  /** 1-based, counting up for as long as the game lasts. */
+  round: number;
+  /**
+   * `dice[s]` is seat `s`'s hand, empty once they are out. Redacted by `view()`
+   * for every seat but the one being sent it — the lengths survive, because how
+   * many dice a player holds is public and half the arithmetic in the game.
+   */
+  dice: number[][];
+  turn: number;
+  /** The bid on the table, or null at the top of a round. */
+  bid: Bid | null;
+  /** `reveal` means the dice are face up and the next round is owed a roll. */
+  phase: 'bid' | 'reveal' | 'over';
+  /** Who opened the current round. */
+  starter: number;
+  /** The last call and what it found, or null before anyone has called. */
+  showdown: Showdown | null;
+  winner: number | null;
+  over: boolean;
+}
+
+export type LdMove =
+  | { type: 'bid'; quantity: number; face: number }
+  | { type: 'challenge' }
+  | { type: 'next' };
+
+export function seatCount(state: LdState): number {
+  return state.dice.length;
+}
+
+/** Out of dice is out of the game — but still sitting at the table. */
+export function isOut(state: LdState, seat: number): boolean {
+  return (state.dice[seat]?.length ?? 0) === 0;
+}
+
+export function livePlayers(state: LdState): number[] {
+  return state.dice.flatMap((hand, seat) => (hand.length > 0 ? [seat] : []));
+}
+
+/**
+ * The next seat round the table with dice left. Falls back to `from` rather
+ * than looping forever if nobody has any, which cannot happen while a round is
+ * running and is not worth a hang if it ever does.
+ */
+export function nextLive(state: LdState, from: number): number {
+  const seats = seatCount(state);
+  for (let step = 1; step <= seats; step++) {
+    const seat = (from + step) % seats;
+    if (!isOut(state, seat)) return seat;
+  }
+  return from;
+}
+
+/** Every die still in play. The ceiling on any honest bid. */
+export function totalDice(state: LdState): number {
+  return state.dice.reduce((sum, hand) => sum + hand.length, 0);
+}
+
+/**
+ * How many of `face` are on the table. Only ever handed real hands — a redacted
+ * hand is all `HIDDEN_FACE`, which is not a face and so counts as nothing.
+ */
+export function countFace(hands: readonly (readonly number[])[], face: number): number {
+  let found = 0;
+  for (const hand of hands) for (const die of hand) if (die === face) found++;
+  return found;
+}
+
+/**
+ * Every bid must be strictly larger than the one before: more dice, or the same
+ * number of a higher face. That total order is what makes the round finite —
+ * the bids can only climb, so somebody eventually has to call.
+ */
+export function beats(bid: Bid, previous: Bid | null): boolean {
+  if (previous === null) return true;
+  if (bid.quantity !== previous.quantity) return bid.quantity > previous.quantity;
+  return bid.face > previous.face;
+}
+
+const NUMBERS = [
+  'no',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+];
+
+/** "three 4s" — the way it is said out loud at a table. */
+export function describeBid(bid: Bid): string {
+  const count = NUMBERS[bid.quantity] ?? String(bid.quantity);
+  return `${count} ${bid.face}${bid.quantity === 1 ? '' : 's'}`;
+}
+
+/** The same words for a count that is not a bid: "there were three 4s". */
+export function describeCount(quantity: number, face: number): string {
+  return describeBid({ seat: -1, quantity, face });
+}
+
+/**
+ * The smallest bid that would beat what is on the table, which is where the
+ * board's two spinners start. Rolls up to the next quantity once the faces run
+ * out, and stops climbing at the number of dice in play — past that there is
+ * nothing left to say but "liar".
+ */
+export function smallestRaise(state: LdState): Bid | null {
+  const total = totalDice(state);
+  const current = state.bid;
+  if (current === null) return { seat: state.turn, quantity: 1, face: 1 };
+  if (current.face < FACES) {
+    return { seat: state.turn, quantity: current.quantity, face: current.face + 1 };
+  }
+  if (current.quantity >= total) return null;
+  return { seat: state.turn, quantity: current.quantity + 1, face: 1 };
+}

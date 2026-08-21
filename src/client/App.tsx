@@ -14,10 +14,16 @@ import type { BgState } from "../shared/games/backgammon.js";
 import type { WofState } from "../shared/games/wheel.js";
 // Type-only, so no reducer and no word list follow it into the bundle.
 import type { WordleState } from "../shared/games/wordleDisplay.js";
+import type { YState } from "../shared/games/yahtzeeDisplay.js";
+import type { BsState } from "../shared/games/battleshipDisplay.js";
+import type { LdState } from "../shared/games/liarsDiceDisplay.js";
 import { Connect4Board } from "./games/Connect4Board.js";
 import { BackgammonBoard, BackgammonStatus } from "./games/BackgammonBoard.js";
 import { WheelBoard } from "./games/WheelBoard.js";
 import { WordleBoard } from "./games/WordleBoard.js";
+import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
+import { BattleshipBoard } from "./games/BattleshipBoard.js";
+import { LiarsDiceBoard } from "./games/LiarsDiceBoard.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
@@ -68,7 +74,16 @@ function CardArt({ gameId }: { gameId: string }) {
       </span>
     );
   }
-  const pieces = gameId === "connect4" ? 12 : gameId === "backgammon" ? 6 : 5;
+  const pieces =
+    gameId === "connect4"
+      ? 12
+      : gameId === "backgammon"
+        ? 6
+        : gameId === "battleship"
+          ? 9
+          : gameId === "liarsdice"
+            ? 3
+            : 5;
   return (
     <span className={`art art-${gameId}`} aria-hidden="true">
       {Array.from({ length: pieces }, (_, i) => (
@@ -422,6 +437,37 @@ function GameBoard({
           state={room.state as WordleState}
           seat={seat}
           names={room.players.map((p) => p.name)}
+          onMove={sendMove}
+        />
+      );
+    case "battleship":
+      // No `myTurn`: placing is free-simultaneous and firing alternates, so
+      // only the board's own `canAct` is right in both halves of the game.
+      return (
+        <BattleshipBoard
+          state={room.state as BsState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          onMove={sendMove}
+        />
+      );
+    case "yahtzee":
+      return (
+        <YahtzeeBoard
+          state={room.state as YState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          myTurn={myTurn}
+          onMove={sendMove}
+        />
+      );
+    case "liarsdice":
+      return (
+        <LiarsDiceBoard
+          state={room.state as LdState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          myTurn={myTurn}
           onMove={sendMove}
         />
       );

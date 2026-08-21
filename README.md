@@ -138,6 +138,58 @@ validated on the server, and one convenience import in the board would put a
 dictionary on every phone that opens the lobby. `bundle.test.ts` holds that
 line.
 
+**Yahtzee** — two to four players, thirteen rounds, highest total wins. Roll
+five dice, keep what you like, roll the rest up to twice more, then write the
+hand into one of your thirteen boxes. Every box takes one hand and no more,
+which is the game: a hand that fits nowhere useful still has to go somewhere.
+
+The full rules, including the two most implementations quietly drop:
+
+- **the Yahtzee bonus** — a second Yahtzee is worth 100 on top of whatever box
+  it fills, but only to a player whose Yahtzee box actually scored 50;
+- **the joker rules** — which constrain the *choice*, not only the score. A
+  Yahtzee rolled once that box is filled goes in its own upper box if that is
+  open, otherwise in any open lower box (where full house and the straights
+  pay face value, since five of a kind cannot form them), and only with the
+  lower section full may it cross off an upper box.
+
+The two are deliberately separate: crossing Yahtzee off for zero still puts
+you under the joker rules, it just earns you nothing for being there.
+
+`legalCategories` is therefore part of the rules rather than a convenience.
+The board greys out the boxes it excludes and `applyMove` refuses them, from
+the same function, so a hand-rolled client gains nothing by ignoring the grey.
+The scoring table lives in `yahtzeeDisplay.ts` because the board needs it: a
+player picking a box is shown what the hand is worth in each one, and thirteen
+sums in your head on a phone is a worse game than the one on the box.
+
+**Liar's Dice** — two to four players, five dice each, last player holding any
+wins. Everyone rolls behind their hand; round the table you either raise the
+bid — "four 3s" claims four 3s on the *whole table*, not in your hand — or call
+the last bid a lie. The dice come up, the face is counted, and whoever was
+wrong loses a die. A bid stands if the count reaches it, so "four 3s" against
+exactly four 3s costs the caller. Losing a die also hands you the next round,
+which is the merciful rule: the initiative goes to whoever is furthest behind.
+
+Ones are not wild. The Perudo variant everyone half-remembers from a film
+counts them for every face, which turns the arithmetic into a game of its own;
+this one counts what it says on the die, so a first-time player can be told the
+whole of the rules in a sentence and still be counting correctly on their
+first call.
+
+It is the second game to lean on `view()`, and it leans harder than the Wheel:
+there is not one secret but one per seat. Every hand but your own is replaced
+with `HIDDEN_FACE` dice — not a face, so a hand that reaches the wrong client
+cannot be counted even by accident, and a counting bug shows up as a zero
+rather than as a plausible wrong answer. The *lengths* survive the redaction,
+because how many dice each player is holding is public and is most of what any
+bid is reasoned from.
+
+Hands go public exactly once, in the `Showdown` a call produces. It is a
+snapshot rather than a flag, which is what lets the board keep showing the
+table as it stood — every hand face up, the dice that counted marked — while
+the next round is already dealt behind it.
+
 ## Adding a game
 
 1. Add it to `src/shared/games/manifest.ts` — id, name, and how many can play.

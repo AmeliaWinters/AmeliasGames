@@ -35,11 +35,16 @@ export function otherPalette(palette: Palette): Palette {
  * The channel colour, set on the root so every screen below can read it as
  * `--accent` without threading the game id through the tree.
  *
- * Each game owns one of the four signal colours. That accent themes the
+ * Each game takes one of the four signal colours. That accent themes the
  * game's card, the second half of the wordmark, the emphasised word in the
  * status line and the primary button — and nothing else. The colours are the
  * same four the seats use, deliberately: four hues doing two jobs is a palette
  * you can hold in your head, and a fifth set for "game identity" would not be.
+ *
+ * Past the fourth game they double up rather than growing, by family, since
+ * you are never looking at two games at once: Battleships takes the Wheel's
+ * ice blue, which is the sea, and Yahtzee takes Backgammon's amber, which is
+ * the dice.
  *
  * An unknown id leaves the attribute off, which falls back to plain ink. That
  * matters because the id can arrive from the server, and a game this build has
@@ -50,6 +55,9 @@ export const CHANNELS: Record<string, true> = {
   backgammon: true,
   wheel: true,
   wordle: true,
+  battleship: true,
+  yahtzee: true,
+  liarsdice: true,
 };
 
 export function applyChannel(gameId: string | null): void {

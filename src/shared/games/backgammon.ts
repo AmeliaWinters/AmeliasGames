@@ -1,5 +1,6 @@
-import type { GameDefinition, MoveResult, Rng } from "../types.js";
+import type { GameDefinition, MoveResult } from "../types.js";
 import { GAME_MANIFEST } from "./manifest.js";
+import { die } from "./random.js";
 
 /**
  * Backgammon.
@@ -256,17 +257,6 @@ function scoreFor(state: BgState, winner: number): 1 | 2 | 3 {
     if (countAt(state, i, loser) > 0 && isHome(winner, i)) return 3;
   }
   return 2;
-}
-
-/**
- * One die. `Rng` is documented as returning [0, 1), and Math.random does — but
- * a hand-written test rng returning exactly 1 would otherwise roll a 7, and one
- * returning NaN would poison the state silently.
- */
-function die(rng: Rng): number {
-  const raw = rng();
-  const clamped = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), 0.999999) : 0;
-  return 1 + Math.floor(clamped * 6);
 }
 
 function endTurn(state: BgState): void {

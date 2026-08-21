@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { pick } from './random.js';
 
 /**
  * Wheel of Fortune, for two to four.
@@ -385,18 +386,6 @@ export const PUZZLES: readonly Puzzle[] = [
 /** How many seats this game was set up for. Derived, so it cannot disagree. */
 export function seatCount(state: WofState): number {
   return state.bank.length;
-}
-
-/**
- * An index into `length`. `Rng` is documented as returning [0, 1), and
- * Math.random does — but a hand-written test rng returning exactly 1 would
- * otherwise index past the end of the wheel, and one returning NaN would
- * poison the state silently.
- */
-function pick(rng: Rng, length: number): number {
-  const raw = rng();
-  const clamped = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), 0.999999) : 0;
-  return Math.floor(clamped * length);
 }
 
 /** Replace every letter nobody has called with BLANK. Spaces and punctuation stay. */

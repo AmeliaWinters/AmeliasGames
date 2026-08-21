@@ -8,6 +8,9 @@ import {
   type BgState,
   type Source,
 } from "../../shared/games/backgammon.js";
+// The die is shared with Liar's Dice, so it lives in its own file rather than
+// being exported from this board.
+import { Die } from "./Die.js";
 
 interface Props {
   state: BgState;
@@ -35,26 +38,6 @@ function targetOf(seat: number, from: Source, die: number): number | "off" {
   if (from === "bar") return barEntry(seat, die);
   const landed = from + direction(seat) * die;
   return landed >= 0 && landed < POINTS ? landed : "off";
-}
-
-/** Pip positions on a die face, as [column, row] on a 3×3 grid. */
-const FACES: Record<number, Array<[number, number]>> = {
-  1: [[2, 2]],
-  2: [[1, 1], [3, 3]],
-  3: [[1, 1], [2, 2], [3, 3]],
-  4: [[1, 1], [3, 1], [1, 3], [3, 3]],
-  5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]],
-  6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]],
-};
-
-export function Die({ value }: { value: number }) {
-  return (
-    <span className="die" role="img" aria-label={`Die showing ${value}`}>
-      {(FACES[value] ?? []).map(([column, row], i) => (
-        <span key={i} className="pip" style={{ gridColumn: column, gridRow: row }} />
-      ))}
-    </span>
-  );
 }
 
 function Checkers({ count, seat }: { count: number; seat: 0 | 1 }) {

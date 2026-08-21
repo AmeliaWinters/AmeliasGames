@@ -4,6 +4,9 @@ import { connect4 } from './connect4.js';
 import { backgammon } from './backgammon.js';
 import { wheel } from './wheel.js';
 import { wordle } from './wordle.js';
+import { liarsDice } from './liarsDice.js';
+import { battleship } from './battleship.js';
+import { yahtzee } from './yahtzee.js';
 
 /**
  * Adding a game means writing one reducer, listing it in `manifest.ts`, and
@@ -18,6 +21,9 @@ export const GAMES: Record<string, GameDefinition<any, any>> = {
   [backgammon.id]: backgammon,
   [wheel.id]: wheel,
   [wordle.id]: wordle,
+  [liarsDice.id]: liarsDice,
+  [battleship.id]: battleship,
+  [yahtzee.id]: yahtzee,
 };
 
 export { DEFAULT_GAME_ID, GAME_MANIFEST, clampSeats, gameEntry, gameList } from './manifest.js';
