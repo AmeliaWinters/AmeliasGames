@@ -209,6 +209,32 @@ snapshot rather than a flag, which is what lets the board keep showing the
 table as it stood — every hand face up, the dice that counted marked — while
 the next round is already dealt behind it.
 
+**Word Hunt** — two to four players, one 4x4 grid, everybody hunting it at
+once. Trace a word through touching letters — diagonals included, never the
+same cell twice — and it is yours. Most words wins; the same word is there for
+everybody, so nobody is racing anyone to it.
+
+Every word is five letters, because the dictionary this repo carries is the
+five-letter one Word Duel validates against. That is also why a word is worth
+one point rather than a length-scaled score: with a single length there is
+nothing for length to reward, and counting words is a score a player can keep
+in their head mid-hunt.
+
+The grid is dealt rather than drawn. Five real words are planted along real
+paths first and the gaps filled with a vowel-heavy bag afterwards, and the
+whole grid is thrown away and redealt until it holds a dozen words. That check
+is the point: "nothing left to find" and "nothing left that *I* can see" feel
+identical from the player's side, and only one of them is fair.
+
+Like Word Duel it is free-simultaneous — `canAct`, never `turn` — and it hides
+one thing in `view()`: the words other people have already found, since a list
+of their words is a list of yours for the copying. They arrive as `HIDDEN`
+rather than being dropped, so the tally survives; watching someone else's climb
+while you are stuck is most of the tension. The answer key is not redacted but
+uncomputed: `solve()` runs when the last player stops, so there is never a
+complete list of the grid's words sitting in the state for a `view()` bug to
+leak.
+
 ## Adding a game
 
 1. Add it to `src/shared/games/manifest.ts` — id, name, and how many can play.

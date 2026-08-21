@@ -58,6 +58,7 @@ export const CHANNELS: Record<string, true> = {
   battleship: true,
   yahtzee: true,
   liarsdice: true,
+  wordhunt: true,
 };
 
 export function applyChannel(gameId: string | null): void {
