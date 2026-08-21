@@ -14,7 +14,7 @@ import {
   totalDice,
 } from './liarsDiceDisplay.js';
 
-import type { Bid, LdMove, LdState, Showdown } from './liarsDiceDisplay.js';
+import type { Bid, CallKind, LdMove, LdState, Showdown } from './liarsDiceDisplay.js';
 
 // Re-exported so the reducer, its tests and the board all name these in one
 // place, while only this file holds the rules.
@@ -24,6 +24,7 @@ export {
   HIDDEN_FACE,
   beats,
   countFace,
+  countInHand,
   describeBid,
   describeCount,
   isOut,
@@ -33,16 +34,30 @@ export {
   smallestRaise,
   totalDice,
 } from './liarsDiceDisplay.js';
-export type { Bid, LdMove, LdState, Showdown } from './liarsDiceDisplay.js';
+export type { Bid, CallKind, LdMove, LdState, Showdown } from './liarsDiceDisplay.js';
 
 /**
  * Liar's Dice, for two to four.
  *
  * Everyone rolls five dice behind their hand. Round the table, each player
  * either raises the bid — "four 3s" means there are at least four 3s on the
- * whole table, not just in your hand — or calls the last bid a lie. The dice
- * come up, the face is counted, and whoever was wrong loses a die. Out of dice
- * is out of the game; the last player still holding any wins.
+ * whole table, not just in your hand — or calls it. The dice come up, the face
+ * is counted, and whoever was wrong loses a die. Out of dice is out of the
+ * game; the last player still holding any wins.
+ *
+ * There are two calls, and the difference between them is the difference
+ * between the two ways a bid can be wrong:
+ *
+ * - **Liar** says the bid is too high. It is settled by "at least", so a bid
+ *   met exactly is the bidder being right, not a tie — call "four 3s" on
+ *   exactly four 3s and it costs you the die.
+ * - **Spot on** says the bid is neither too high nor too low: the count is the
+ *   quantity, to the die. Get it right and you take a die *back* (never past
+ *   the five you started with); get it wrong and you lose one like anybody
+ *   else. It is the only move in the game that costs nobody anything, and the
+ *   only one that can be right while the bidder is also right — which is what
+ *   makes the last player to be dragged into a bid worth watching rather than
+ *   worth pitying.
  *
  * **Ones are not wild.** The Perudo variant everyone half-remembers from a film
  * counts them for every face, which makes the arithmetic a game in itself. This
@@ -65,9 +80,6 @@ export type { Bid, LdMove, LdState, Showdown } from './liarsDiceDisplay.js';
  * the moment of the call while the next round is already being dealt.
  */
 
-/** A hostile client is not owed unbounded arithmetic. */
-const MAX_BID = 1000;
-
 /**
  * A fresh hand, sorted. Sorting gives away nothing — the owner already knows
  * what they rolled, and nobody else is shown it — and it makes a revealed hand
@@ -82,6 +94,7 @@ function clone(state: LdState): LdState {
     ...state,
     dice: state.dice.map((hand) => [...hand]),
     bid: state.bid === null ? null : { ...state.bid },
+    history: state.history.map((said) => ({ ...said })),
     // The showdown is replaced wholesale or left alone, never edited, so the
     // shared reference is safe — and copied anyway, because "safe as long as
     // nobody edits it" is a rule that outlives the person who knew it.
@@ -96,7 +109,10 @@ function clone(state: LdState): LdState {
 function readBid(move: { quantity: unknown; face: unknown }, seat: number): MoveResult<Bid> {
   const quantity = Math.trunc(Number(move.quantity));
   const face = Math.trunc(Number(move.face));
-  if (!Number.isFinite(quantity) || quantity < 1 || quantity > MAX_BID) {
+  // No ceiling here: `Math.trunc` turns any infinity or non-number into
+  // something this rejects, and every finite quantity above the table is
+  // refused by `bid()` in words that say how many dice there actually are.
+  if (!Number.isFinite(quantity) || quantity < 1) {
     return { ok: false, error: 'Bid at least one die.' };
   }
   if (!Number.isFinite(face) || face < 1 || face > FACES) {
@@ -118,48 +134,89 @@ function bid(state: LdState, next: Bid): MoveResult<LdState> {
 
   const after = clone(state);
   after.bid = next;
+  // Said out loud, so it stays said: the round's bidding is public, and the
+  // sequence is most of what the next player's call is reasoned from.
+  after.history = [...after.history, next];
   after.turn = nextLive(after, next.seat);
   return { ok: true, state: after };
 }
 
 /**
- * The call. Everything that decides the game happens in here: the face is
- * counted across every hand, the loser gives up a die, and anyone that empties
- * is out. The bid stands if the count *reaches* it — "four 3s" claims at least
- * four, so four is the bidder being right, not a tie.
+ * Who pays and who is paid, given the count that came up.
+ *
+ * Kept apart from the bookkeeping below because it is the whole of the rules
+ * either call is settled by, and it is worth being able to read the two side by
+ * side. A `liar` call is settled by "at least" — the bid stands the moment the
+ * count *reaches* it, so "four 3s" against exactly four 3s costs the caller. A
+ * spot-on call needs the count on the nose and pays a die back for it.
  */
-function challenge(state: LdState, challenger: number): MoveResult<LdState> {
+function settlement(
+  called: Bid,
+  call: CallKind,
+  challenger: number,
+  actual: number,
+): { loser: number | null; paid: number | null } {
+  if (call === 'liar') {
+    return { loser: actual >= called.quantity ? challenger : called.seat, paid: null };
+  }
+  if (actual === called.quantity) return { loser: null, paid: challenger };
+  return { loser: challenger, paid: null };
+}
+
+/**
+ * The call. Everything that decides the game happens in here: the face is
+ * counted across every hand, a die changes hands, and anyone that empties is
+ * out.
+ *
+ * The die a correct spot-on call earns is rolled rather than invented, so the
+ * hand is a hand of real dice at every moment — the face is nobody's business
+ * and is re-rolled with the rest at the top of the next round, but a state
+ * carrying a die that is not a die is a state every invariant in the game has
+ * to start apologising for.
+ */
+function callBid(
+  state: LdState,
+  challenger: number,
+  call: CallKind,
+  rng: Rng,
+): MoveResult<LdState> {
   const called = state.bid;
   if (called === null) return { ok: false, error: 'There is no bid to call yet.' };
 
   const actual = countFace(state.dice, called.face);
-  const loser = actual >= called.quantity ? challenger : called.seat;
+  const { loser, paid } = settlement(called, call, challenger, actual);
 
   const after = clone(state);
   const hands = state.dice.map((hand) => [...hand]);
-  after.dice[loser] = after.dice[loser].slice(1);
+  if (loser !== null) after.dice[loser] = after.dice[loser].slice(1);
+  // A full hand is the ceiling: winning the same die back twice would let two
+  // lucky calls undo a game's worth of them.
+  const gainer = paid !== null && after.dice[paid].length < DICE_PER_PLAYER ? paid : null;
+  if (gainer !== null) after.dice[gainer] = [...after.dice[gainer], die(rng)].sort((a, b) => a - b);
 
-  const out = isOut(after, loser) ? [loser] : [];
-  const showdown: Showdown = { bid: called, challenger, actual, loser, hands, out };
+  const out = loser !== null && isOut(after, loser) ? [loser] : [];
+  const showdown: Showdown = { bid: called, call, challenger, actual, loser, gainer, hands, out };
+
+  after.bid = null;
+  after.showdown = showdown;
 
   const left = livePlayers(after);
   if (left.length <= 1) {
     after.phase = 'over';
     after.over = true;
     after.winner = left[0] ?? null;
-    after.turn = after.winner ?? loser;
-    after.bid = null;
-    after.showdown = showdown;
+    after.turn = after.winner ?? challenger;
     return { ok: true, state: after };
   }
 
   after.phase = 'reveal';
-  after.bid = null;
-  after.showdown = showdown;
   // The player who lost the die opens the next round — the standard rule, and
   // the merciful one: it hands the initiative to whoever is furthest behind.
+  // A spot-on call that cost nobody anything has no such player, so it goes to
+  // whoever made it, who has earned the one seat with the least information.
   // Knocked out, and it passes to the next seat still holding dice.
-  after.turn = isOut(after, loser) ? nextLive(after, loser) : loser;
+  const opener = loser ?? challenger;
+  after.turn = isOut(after, opener) ? nextLive(after, opener) : opener;
   after.starter = after.turn;
   return { ok: true, state: after };
 }
@@ -169,6 +226,7 @@ function nextRound(state: LdState, rng: Rng): LdState {
   after.round = state.round + 1;
   after.dice = state.dice.map((hand) => (hand.length > 0 ? roll(hand.length, rng) : []));
   after.bid = null;
+  after.history = [];
   after.phase = 'bid';
   after.starter = state.turn;
   // The showdown stays until the dice are re-rolled and then goes: it describes
@@ -197,6 +255,7 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
       dice: Array.from({ length: seats }, () => roll(DICE_PER_PLAYER, rng)),
       turn: starter,
       bid: null,
+      history: [],
       phase: 'bid',
       starter,
       showdown: null,
@@ -224,7 +283,8 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
       return bid(state, read.state);
     }
 
-    if (move.type === 'challenge') return challenge(state, seat);
+    if (move.type === 'challenge') return callBid(state, seat, 'liar', rng);
+    if (move.type === 'exact') return callBid(state, seat, 'exact', rng);
 
     return { ok: false, error: 'Unknown move.' };
   },

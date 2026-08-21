@@ -28,6 +28,7 @@ function position(overrides: Partial<LdState> = {}): LdState {
     ],
     turn: 0,
     bid: null,
+    history: [],
     phase: 'bid',
     starter: 0,
     showdown: null,
@@ -149,6 +150,7 @@ describe('bidding', () => {
       { type: 'bid', quantity: 0, face: 3 },
       { type: 'bid', quantity: -2, face: 3 },
       { type: 'bid', quantity: NaN, face: 3 },
+      { type: 'bid', quantity: Infinity, face: 3 },
       { type: 'bid', quantity: 'lots', face: 3 },
     ]) {
       expect(rejection(apply(state, move, 0))).toBe('Bid at least one die.');
@@ -262,6 +264,144 @@ describe('calling', () => {
     expect(rejection(apply(after, { type: 'bid', quantity: 1, face: 1 }, 1))).toBe(
       'The game is already over.',
     );
+  });
+});
+
+describe('calling it spot on', () => {
+  it('has nothing to call before anyone has bid', () => {
+    expect(rejection(apply(position(), { type: 'exact' }, 0))).toBe(
+      'There is no bid to call yet.',
+    );
+  });
+
+  it('pays the caller a die back when the count is the bid to the die', () => {
+    // Three 2s on the table: one of seat 0's, two of seat 1's. Seat 1 is a die
+    // down already, which is the only state a die can be paid back into.
+    const state = position({
+      dice: [
+        [1, 2, 3, 4, 5],
+        [2, 2, 3, 6],
+      ],
+      bid: { seat: 0, quantity: 3, face: 2 },
+      turn: 1,
+    });
+    const after = ok(apply(state, { type: 'exact' }, 1, scripted([4])));
+
+    expect(after.showdown?.call).toBe('exact');
+    expect(after.showdown?.actual).toBe(3);
+    // The one call in the game that costs nobody anything.
+    expect(after.showdown?.loser).toBeNull();
+    expect(after.showdown?.gainer).toBe(1);
+    expect(after.showdown?.out).toEqual([]);
+    expect(after.dice[0]).toHaveLength(DICE_PER_PLAYER);
+    expect(after.dice[1]).toHaveLength(DICE_PER_PLAYER);
+    // The die it pays is a real die, rolled rather than invented.
+    expect(after.dice[1].every((face) => face >= 1 && face <= FACES)).toBe(true);
+  });
+
+  it('costs the caller a die when the count is anything else', () => {
+    // A bid that is a lie is still not spot on, and neither is one that is
+    // comfortably true: only the exact number pays.
+    for (const quantity of [2, 4]) {
+      const state = position({ bid: { seat: 0, quantity, face: 2 }, turn: 1 });
+      const after = ok(apply(state, { type: 'exact' }, 1));
+
+      expect(after.showdown?.loser).toBe(1);
+      expect(after.showdown?.gainer).toBeNull();
+      expect(after.dice[1]).toHaveLength(DICE_PER_PLAYER - 1);
+      // The bidder is untouched either way — a spot-on call is made against the
+      // number, not against them.
+      expect(after.dice[0]).toHaveLength(DICE_PER_PLAYER);
+    }
+  });
+
+  it('never pays a hand past the five it started with', () => {
+    // Both hands full, and the bid is spot on: the caller is right and there is
+    // simply nothing to pay them with.
+    const state = position({ bid: { seat: 0, quantity: 3, face: 2 }, turn: 1 });
+    const after = ok(apply(state, { type: 'exact' }, 1));
+
+    expect(after.dice[1]).toHaveLength(DICE_PER_PLAYER);
+    expect(after.showdown?.gainer).toBeNull();
+    // Still worth saying who was right, so the board can explain the shrug.
+    expect(after.showdown?.challenger).toBe(1);
+    expect(after.showdown?.loser).toBeNull();
+  });
+
+  it('hands the next round to the caller when nobody lost a die', () => {
+    const state = position({ bid: { seat: 0, quantity: 3, face: 2 }, turn: 1 });
+    const after = ok(apply(state, { type: 'exact' }, 1));
+
+    expect(after.phase).toBe('reveal');
+    expect(after.turn).toBe(1);
+    expect(after.starter).toBe(1);
+  });
+
+  it('can knock the caller out, and ends the game if it was the last of them', () => {
+    const state = position({
+      dice: [[2, 2, 3], [6]],
+      bid: { seat: 0, quantity: 1, face: 3 },
+      turn: 1,
+    });
+    const after = ok(apply(state, { type: 'exact' }, 1));
+
+    // Exactly one 3 was on the table, so the bid was spot on — but calling it
+    // spot on is a claim about the count, and this one was made by the player
+    // who could least afford to be wrong about it. It was right.
+    expect(after.showdown?.gainer).toBe(1);
+    expect(after.over).toBe(false);
+
+    // The same position, called on a face there is no exact count of.
+    const missed = ok(
+      apply(position({ dice: [[2, 2, 3], [6]], bid: { seat: 0, quantity: 3, face: 2 }, turn: 1 }), {
+        type: 'exact',
+      }, 1),
+    );
+    expect(missed.showdown?.loser).toBe(1);
+    expect(missed.showdown?.out).toEqual([1]);
+    expect(missed.over).toBe(true);
+    expect(missed.winner).toBe(0);
+  });
+});
+
+describe('the bidding history', () => {
+  it('keeps every bid of the round, in the order it was said', () => {
+    let state = ok(apply(position(), { type: 'bid', quantity: 2, face: 3 }, 0));
+    state = ok(apply(state, { type: 'bid', quantity: 3, face: 1 }, 1));
+    state = ok(apply(state, { type: 'bid', quantity: 3, face: 5 }, 0));
+
+    expect(state.history).toEqual([
+      { seat: 0, quantity: 2, face: 3 },
+      { seat: 1, quantity: 3, face: 1 },
+      { seat: 0, quantity: 3, face: 5 },
+    ]);
+    // The bid on the table is the last thing said, and is the same object's
+    // worth of information — the history is the run, not a second source.
+    expect(state.history[state.history.length - 1]).toEqual(state.bid);
+  });
+
+  it('survives the call, so the reveal can be read against the bidding', () => {
+    let state = ok(apply(position(), { type: 'bid', quantity: 9, face: 6 }, 0));
+    state = ok(apply(state, { type: 'challenge' }, 1));
+
+    expect(state.bid).toBeNull();
+    expect(state.history).toHaveLength(1);
+  });
+
+  it('is wiped by the next roll, which is a different round', () => {
+    let state = ok(apply(position(), { type: 'bid', quantity: 9, face: 6 }, 0));
+    state = ok(apply(state, { type: 'challenge' }, 1));
+    state = ok(apply(state, { type: 'next' }, 0, scripted([4])));
+
+    expect(state.history).toEqual([]);
+  });
+
+  it('is copied rather than shared with the state it came from', () => {
+    const state = position({ history: [{ seat: 0, quantity: 1, face: 1 }] });
+    const after = ok(apply(state, { type: 'bid', quantity: 2, face: 1 }, 0));
+
+    after.history[0].quantity = 99;
+    expect(state.history[0].quantity).toBe(1);
   });
 });
 
@@ -478,10 +618,18 @@ describe('full games', () => {
     if (state.phase === 'reveal') return { type: 'next' };
 
     const floor = smallestRaise(state);
-    // Nothing left to raise to means the only move is to call — which is the
-    // position the bid ceiling exists to force.
-    if (floor === null) return { type: 'challenge' };
-    if (state.bid !== null && rng() < 0.35) return { type: 'challenge' };
+    // Nothing left to raise to means the only moves are the two calls — which
+    // is the position the bid ceiling exists to force.
+    if (floor === null) return rng() < 0.5 ? { type: 'challenge' } : { type: 'exact' };
+    if (state.bid !== null) {
+      const roll = rng();
+      if (roll < 0.3) return { type: 'challenge' };
+      // Spot on is drawn as often as anything else here, which is far more
+      // often than anyone would call it: dice are paid back on a correct one,
+      // and a game that only terminates while nobody uses the move is not a
+      // game that terminates.
+      if (roll < 0.45) return { type: 'exact' };
+    }
 
     // A raise somewhere between the smallest legal one and the whole table.
     const room = totalDice(state) - floor.quantity;
@@ -514,6 +662,9 @@ describe('full games', () => {
         expect(state.dice.flat().every((die) => die >= 1 && die <= FACES)).toBe(true);
         expect(isOut(state, state.turn) && !state.over).toBe(false);
         expect(totalDice(state)).toBeGreaterThan(0);
+        // A die paid back never puts anyone above the hand they started with,
+        // so the table can never grow past the one that was dealt.
+        expect(state.dice.every((hand) => hand.length <= DICE_PER_PLAYER)).toBe(true);
       }
 
       // Every game ends, and ends with one player holding everything that is

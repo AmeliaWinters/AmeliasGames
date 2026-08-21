@@ -362,19 +362,23 @@ input {
   flex: none;
 }
 .player.p0 .chip,
+.ld-history li.p0 .chip,
 .ld-hand.p0 .chip {
   background: var(--seat-0);
 }
 .player.p1 .chip,
+.ld-history li.p1 .chip,
 .ld-hand.p1 .chip {
   background: var(--seat-1);
   box-shadow: inset 0 0 0 2px var(--ring);
 }
 .player.p2 .chip,
+.ld-history li.p2 .chip,
 .ld-hand.p2 .chip {
   background: var(--seat-2);
 }
 .player.p3 .chip,
+.ld-history li.p3 .chip,
 .ld-hand.p3 .chip {
   background: var(--seat-3);
   box-shadow: inset 0 0 0 2px var(--ring);
@@ -2202,6 +2206,70 @@ input:focus-visible {
   text-transform: uppercase;
 }
 
+/* What the call cost, under what it turned up. Separate from the count above
+   it because they answer different questions -- "how many were there" and "so
+   who pays" -- and a spot-on call can answer the second with nobody. */
+.ld-consequence {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The round's bidding, in the order it was said. A run of chips rather than a
+   list: it is read as a shape -- who climbed, who was dragged -- long before
+   any single bid in it is read as words. Scrolls sideways in its own box on a
+   long round rather than pushing the actions off the screen. */
+.ld-history {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 2px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ld-history::-webkit-scrollbar {
+  display: none;
+}
+.ld-history li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 4px 9px;
+  background: var(--surface);
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The bid actually on the table. It is already spelled out above; this only
+   has to say which end of the run it is. */
+.ld-history li.last {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* Smaller than a seat's own chip, and with a thinner ring: the two-pixel ring
+   the players strip uses would close over a chip this size. */
+.ld-history .chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.ld-history li.p1 .chip,
+.ld-history li.p3 .chip {
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+/* Your own count of the face on the spinner. The one part of the arithmetic a
+   player actually knows, and the one they would otherwise redo by eye off
+   their own row every time they moved the picker. */
+.ld-mine {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 /* How many, and of what. Two spinners rather than a text field: there are ten
    legal quantities and six faces, and a number pad on a phone is a keyboard in
    the way of a two-tap decision. */
@@ -2259,8 +2327,13 @@ input:focus-visible {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* Two calls now sit beside each other, so the thing you do most -- bid -- takes
+   its own line above them rather than becoming one of three equal buttons. */
 .ld-actions button {
   flex: 1 1 46%;
+}
+.ld-actions .ld-wide {
+  flex: 1 1 100%;
 }
 
 .ld-legend {

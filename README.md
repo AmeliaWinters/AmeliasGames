@@ -166,10 +166,29 @@ sums in your head on a phone is a worse game than the one on the box.
 **Liar's Dice** — two to four players, five dice each, last player holding any
 wins. Everyone rolls behind their hand; round the table you either raise the
 bid — "four 3s" claims four 3s on the *whole table*, not in your hand — or call
-the last bid a lie. The dice come up, the face is counted, and whoever was
-wrong loses a die. A bid stands if the count reaches it, so "four 3s" against
-exactly four 3s costs the caller. Losing a die also hands you the next round,
-which is the merciful rule: the initiative goes to whoever is furthest behind.
+it. The dice come up, the face is counted, and whoever was wrong loses a die.
+Losing a die also hands you the next round, which is the merciful rule: the
+initiative goes to whoever is furthest behind.
+
+There are two calls, and the difference between them is the difference between
+the two ways a bid can be wrong:
+
+- **liar** says the bid is too high, and is settled by "at least" — a bid stands
+  the moment the count *reaches* it, so "four 3s" against exactly four 3s costs
+  the caller rather than splitting a tie;
+- **spot on** says the count is the bid to the die. Right, and you take a die
+  *back* — never past the five you started with — and nobody pays anything,
+  which makes it the one move in the game that costs no one. Wrong, and you lose
+  one like anybody else.
+
+Spot on is why the last player to be dragged into a bid is worth watching rather
+than worth pitying, and it is the only call that can be right while the bidder
+is also right.
+
+The round's bidding stays on the board as a run rather than as whatever was said
+last, because that is most of what a call is reasoned from — who climbed eagerly
+and who was dragged — and it survives the call, so the reveal can be read
+against the bidding that led to it.
 
 Ones are not wild. The Perudo variant everyone half-remembers from a film
 counts them for every face, which turns the arithmetic into a game of its own;
