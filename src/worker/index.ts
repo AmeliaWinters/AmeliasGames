@@ -229,13 +229,18 @@ export class GameRoom implements DurableObject {
     const engine = await this.loadEngine();
     if (!engine) return this.fail(ws, 'no-room', 'This room no longer exists.');
 
-    if (msg.t === 'move' || msg.t === 'rematch') {
+    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch') {
       // A reducer is not supposed to throw, and the fuzzing says none of them
       // does — but an exception escaping here aborts the Durable Object and
       // takes the other player's game down with it.
       let result;
       try {
-        result = msg.t === 'move' ? engine.move(meta.seat, msg.move) : engine.rematch();
+        result =
+          msg.t === 'move'
+            ? engine.move(meta.seat, msg.move)
+            : msg.t === 'switch'
+              ? engine.switchGame(String(msg.gameId ?? ''))
+              : engine.rematch();
       } catch {
         return this.fail(ws, 'rejected', 'That move could not be played.');
       }

@@ -128,6 +128,9 @@
 :root[data-game="yahtzee"] { --accent: var(--seat-3); }
 :root[data-game="battleship"] { --accent: var(--seat-1); }
 :root[data-game="liarsdice"] { --accent: var(--seat-3); }
+/* Word Hunt is the other word game, so it takes Word Duel's hue: the family
+   is the point, and green already means letters here. */
+:root[data-game="wordhunt"] { --accent: var(--seat-2); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
    A condensed signage face for every name, title, status line and button, and
@@ -184,6 +187,8 @@ body {
 .wd-panel,
 .wd-tile,
 .wd-key,
+.wh-cell,
+.wh-list,
 button,
 input {
   border: 1px solid var(--rule);
@@ -195,7 +200,8 @@ input {
    stays flat. That one rule is where the hierarchy comes from. */
 .board,
 .bg-board,
-.wd-board {
+.wd-board,
+.wh-board {
   border: 1px solid var(--rule);
   border-radius: var(--board-radius);
 }
@@ -1371,6 +1377,24 @@ input:focus-visible {
   background: var(--alert);
 }
 
+/* Nine letter tiles with a word traced through them, which is the whole game
+   in one glance -- and the only art here that shares a shape with another
+   card, because Word Duel's tiles are the same tiles. */
+.art-wordhunt {
+  grid-template-columns: repeat(3, 15px);
+  grid-auto-rows: 15px;
+  gap: 3px;
+}
+.art-wordhunt i {
+  border-radius: 3px;
+  background: var(--hole);
+}
+.art-wordhunt i:nth-child(1),
+.art-wordhunt i:nth-child(5),
+.art-wordhunt i:nth-child(9) {
+  background: var(--seat-2);
+}
+
 /* ── Seat picker ───────────────────────────────────────────────────────
    Three single digits, which want a chip rather than a card: the card styles
    above are undone rather than worked around. */
@@ -2376,6 +2400,46 @@ input:focus-visible {
   color: var(--muted);
 }
 
+/* ── Changing game ─────────────────────────────────────────────────────
+   The same cards as the lobby, minus the motifs. At the end of a game the
+   question is "what next", not "what does Backgammon look like" -- everybody
+   here has just played, so the name and its channel stripe are the whole
+   card, and the row stays short enough that "Play again" is still the
+   obvious thing above it. */
+.next-game {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.next-game h2 {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* A button, not a radio: there is nothing to confirm afterwards, so pressing
+   one is the whole interaction. `.game` styles the card; this restores the
+   column layout a fieldset child got for free. */
+.next-game .game {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 66px;
+  padding: 0;
+  text-align: left;
+}
+.next-game .game .name {
+  padding: 12px 11px;
+}
+
+.next-game .hint {
+  text-align: center;
+}
+
 /* ── Waiting room ──────────────────────────────────────────────────────
    Sharing the room is the only job on this screen, so the code stops being a
    0.72rem button in the corner and becomes the thing you read out. The dashed
@@ -2405,4 +2469,206 @@ input:focus-visible {
   font-weight: 600;
   letter-spacing: 0.16em;
   color: var(--ink);
+}
+
+/* ── Word Hunt ─────────────────────────────────────────────────────────
+   One grid, everybody hunting it at once. The grid is the screen: it holds
+   the middle at any width, and everything else -- the tallies above, the word
+   under the finger below -- is a thin band around it. Nothing here may move
+   while a trace is in progress, which is why the draft line is a fixed-height
+   box rather than text that appears. */
+.wh-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* The tallies. Every seat, always, because watching someone else's number
+   climb while you are stuck is most of what this game is. */
+.wh-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+}
+
+.wh-score {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--display);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.wh-score.mine {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.wh-tally {
+  font-family: var(--body);
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* "Done" is a state, not an alarm: it says the seat has stopped, and the only
+   thing anyone does with that is wait. */
+.wh-flag {
+  font-family: var(--body);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wh-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--wh-size, 4), 1fr);
+  gap: 6px;
+  /* A finger drags across this; the browser must not read that as a scroll or
+     as a text selection, or half of every trace is lost to the page moving. */
+  touch-action: none;
+  user-select: none;
+}
+
+.wh-cell {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  /* Thumbs, not cursors -- and on the narrowest phone four of these still fit
+     across with room to spare. */
+  min-height: 56px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(1.1rem, 6vw, 1.7rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* A traced letter, in the channel's own green. The trace is the only thing on
+   this board that changes under the finger, so it is the only thing coloured. */
+.wh-cell.picked {
+  border-color: transparent;
+  background: var(--mark-hit);
+  color: var(--mark-text);
+}
+
+/* Every cell at once, when you have finished and the others have not. Dimmed
+   as a block so it does not read as sixteen individually broken buttons. */
+.wh-cell:disabled {
+  opacity: 0.55;
+}
+
+.wh-tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The letters so far. Fixed height and monospaced: it sits directly under the
+   grid, and a line that grew as you traced would shove the grid up under a
+   finger that is halfway through a word. */
+.wh-draft {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+
+.wh-clear,
+.wh-done {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.wh-lists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Your words while the game runs; everyone's once it is over, side by side so
+   the two hauls can be read against each other. */
+.wh-list {
+  flex: 1 1 8em;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.wh-list-head {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.wh-list ul,
+.wh-key ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.wh-empty,
+.wh-waiting {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* The answer key, and the reason the game is worth losing: every word that was
+   in there, once nobody can use it. Folded away, because the first thing you
+   want after a game is the score, not a list of what you missed. */
+.wh-key {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+
+.wh-key summary {
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wh-key ul {
+  margin-top: 8px;
+  color: var(--muted);
 }

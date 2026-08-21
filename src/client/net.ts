@@ -84,6 +84,8 @@ export interface UseRoom {
   errorKind: ErrorKind | null;
   sendMove(move: unknown): void;
   requestRematch(): void;
+  /** Play a different game with the people already in this room. */
+  switchGame(gameId: string): void;
   dismissError(): void;
 }
 
@@ -223,6 +225,10 @@ export function useRoom(opts: {
     errorKind,
     sendMove: useCallback((move: unknown) => post({ t: 'move', move }), [post]),
     requestRematch: useCallback(() => post({ t: 'rematch' }), [post]),
+    // No optimistic swap: the room's game comes back on the next `room`
+    // message, so the board only changes once the server agrees — which is
+    // also what keeps both players' boards changing at the same moment.
+    switchGame: useCallback((id: string) => post({ t: 'switch', gameId: id }), [post]),
     dismissError: useCallback(() => {
       setError(null);
       setErrorKind(null);

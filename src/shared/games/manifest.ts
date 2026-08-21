@@ -27,6 +27,7 @@ export const GAME_MANIFEST = {
   liarsdice: { id: 'liarsdice', name: "Liar's Dice", minPlayers: 2, maxPlayers: 4 },
   battleship: { id: 'battleship', name: 'Battleships', minPlayers: 2, maxPlayers: 2 },
   yahtzee: { id: 'yahtzee', name: 'Yahtzee', minPlayers: 2, maxPlayers: 4 },
+  wordhunt: { id: 'wordhunt', name: 'Word Hunt', minPlayers: 2, maxPlayers: 4 },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;
@@ -49,6 +50,19 @@ export function gameEntry(id: string): GameEntry | undefined {
 export interface SeatRange {
   minPlayers: number;
   maxPlayers: number;
+}
+
+/**
+ * Whether a game will seat exactly this many players. Used when an existing
+ * room changes game: the seats are already taken, so the only games on offer
+ * are the ones that play at the table that is already sitting there.
+ *
+ * Shared for the same reason `clampSeats` is — the client filters the list it
+ * offers and the room checks the request, and a disagreement is a button that
+ * always fails.
+ */
+export function canSeat(range: SeatRange, count: number): boolean {
+  return count >= range.minPlayers && count <= range.maxPlayers;
 }
 
 /**

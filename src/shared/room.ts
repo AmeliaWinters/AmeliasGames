@@ -1,4 +1,4 @@
-import { clampSeats, getGame } from './games/index.js';
+import { canSeat, clampSeats, getGame } from './games/index.js';
 // Re-exported so the adapters still import room helpers from one place, while
 // the client can import roomCode.js directly and never pull in a reducer.
 export { CODE_LENGTH, makeRoomCode, isRoomCode, normalizeRoomCode } from './roomCode.js';
@@ -39,7 +39,12 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
  */
 export class RoomEngine {
   readonly code: string;
-  readonly def: GameDefinition<any, any>;
+  /**
+   * Not readonly: a room outlives the game it was opened with. `switchGame`
+   * swaps the reducer under the same code and the same seats, which is the
+   * whole point of being able to play something else without regrouping.
+   */
+  def: GameDefinition<any, any>;
   private state: unknown;
   private seats: Array<SeatRecord | null>;
 
@@ -155,6 +160,33 @@ export class RoomEngine {
     // The same table, not the game's ceiling: a rematch in a three-handed room
     // is another three-handed game.
     this.state = this.def.setup(this.seats.length, rng);
+    return { ok: true };
+  }
+
+  /**
+   * Play a different game with the same people, at the same table.
+   *
+   * Gated on the current game being over for the same reason a rematch is:
+   * otherwise any seat could wipe a game in progress that the others were
+   * still playing. The table size is fixed — these players are already
+   * sitting down — so a game that cannot seat exactly this many is refused
+   * rather than silently dropping somebody or leaving a room short.
+   */
+  switchGame(gameId: string, rng: Rng = Math.random): ActionResult {
+    if (!this.def.isOver(this.state)) {
+      return { ok: false, error: 'That game is still in progress.' };
+    }
+    const next = getGame(gameId);
+    if (!next) return { ok: false, error: 'No such game.' };
+    if (next.id === this.def.id) return this.rematch(rng);
+    if (!canSeat(next, this.seats.length)) {
+      return {
+        ok: false,
+        error: `${next.name} doesn't play with ${this.seats.length}.`,
+      };
+    }
+    this.def = next;
+    this.state = next.setup(this.seats.length, rng);
     return { ok: true };
   }
 

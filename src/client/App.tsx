@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 // the registry here would pull every reducer into the client bundle.
 import {
   DEFAULT_GAME_ID,
+  canSeat,
   clampSeats,
   gameEntry,
   gameList,
@@ -17,6 +18,7 @@ import type { WordleState } from "../shared/games/wordleDisplay.js";
 import type { YState } from "../shared/games/yahtzeeDisplay.js";
 import type { BsState } from "../shared/games/battleshipDisplay.js";
 import type { LdState } from "../shared/games/liarsDiceDisplay.js";
+import type { WhState } from "../shared/games/wordHuntDisplay.js";
 import { Connect4Board } from "./games/Connect4Board.js";
 import { BackgammonBoard, BackgammonStatus } from "./games/BackgammonBoard.js";
 import { WheelBoard } from "./games/WheelBoard.js";
@@ -24,6 +26,7 @@ import { WordleBoard } from "./games/WordleBoard.js";
 import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
 import { BattleshipBoard } from "./games/BattleshipBoard.js";
 import { LiarsDiceBoard } from "./games/LiarsDiceBoard.js";
+import { WordHuntBoard } from "./games/WordHuntBoard.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
@@ -83,7 +86,9 @@ function CardArt({ gameId }: { gameId: string }) {
           ? 9
           : gameId === "liarsdice"
             ? 3
-            : 5;
+            : gameId === "wordhunt"
+              ? 9
+              : 5;
   return (
     <span className={`art art-${gameId}`} aria-hidden="true">
       {Array.from({ length: pieces }, (_, i) => (
@@ -181,14 +186,15 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const { room, seat, status, error, errorKind, sendMove, requestRematch, dismissError } = useRoom({
-    active: intent === "play" && Boolean(name),
-    name,
-    code,
-    create,
-    gameId,
-    players: seats,
-  });
+  const { room, seat, status, error, errorKind, sendMove, requestRematch, switchGame, dismissError } =
+    useRoom({
+      active: intent === "play" && Boolean(name),
+      name,
+      code,
+      create,
+      gameId,
+      players: seats,
+    });
 
   useChannel(room?.gameId ?? gameId);
 
@@ -374,11 +380,51 @@ export function App() {
       )}
 
       {room?.over && (
-        <button className="primary" onClick={requestRematch}>
-          Play again
-        </button>
+        <>
+          <button className="primary" onClick={requestRematch}>
+            Play again
+          </button>
+          <NextGame room={room} onPick={switchGame} />
+        </>
       )}
     </main>
+  );
+}
+
+/**
+ * The end of a game is the one moment a room can change what it is playing:
+ * everybody is here, nobody is mid-turn, and the alternative is swapping links
+ * to reassemble the same people around a different board.
+ *
+ * Only games that seat exactly this table are offered. The seats are already
+ * taken, so a two-handed game in a four-handed room would have to drop two
+ * people — better not to offer it than to explain that afterwards. Nothing is
+ * shown at all when that leaves no alternatives, rather than an empty shelf.
+ */
+function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): void }) {
+  const others = gameList().filter(
+    (game) => game.id !== room.gameId && canSeat(game, room.players.length),
+  );
+  if (others.length === 0) return null;
+
+  return (
+    <section className="next-game" aria-labelledby="next-game-heading">
+      <h2 id="next-game-heading">Or play something else</h2>
+      <div className="games">
+        {others.map((game) => (
+          <button
+            key={game.id}
+            className="game"
+            data-game={game.id}
+            onClick={() => onPick(game.id)}
+          >
+            <span className="name">{game.name}</span>
+            <span className="stripe" />
+          </button>
+        ))}
+      </div>
+      <p className="hint">Same room, same players — the code stays the same.</p>
+    </section>
   );
 }
 
@@ -435,6 +481,17 @@ function GameBoard({
       return (
         <WordleBoard
           state={room.state as WordleState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          onMove={sendMove}
+        />
+      );
+    case "wordhunt":
+      // No `myTurn`: everyone hunts the same grid at once, so only the
+      // board's own `canAct` knows whether this player may still trace.
+      return (
+        <WordHuntBoard
+          state={room.state as WhState}
           seat={seat}
           names={room.players.map((p) => p.name)}
           onMove={sendMove}

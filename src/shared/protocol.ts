@@ -63,7 +63,19 @@ export type ClientMessage =
       players?: number;
     }
   | { t: 'move'; move: unknown }
-  | { t: 'rematch' };
+  | { t: 'rematch' }
+  /**
+   * Play something else with the people already here, once the current game
+   * is over. The room, its code and its seats all survive — only the reducer
+   * changes — so nobody has to swap links to move from Connect Four to
+   * Yahtzee.
+   *
+   * The table size is not negotiable here: it was settled when the room was
+   * opened and the same players are still in their seats, so a game that
+   * cannot seat exactly this many is refused rather than quietly dropping
+   * somebody.
+   */
+  | { t: 'switch'; gameId: string };
 
 export type ServerMessage =
   | { t: 'welcome'; seat: number; room: RoomView }

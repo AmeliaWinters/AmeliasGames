@@ -134,14 +134,19 @@ function handleConnection(socket: WebSocket): void {
     if (!joined) return fail(socket, 'rejected', 'Join a room first.');
     const { room, seat } = joined;
 
-    if (msg.t === 'move' || msg.t === 'rematch') {
+    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch') {
       // The server runs the same reducer the client does, and its answer wins.
       // A reducer is not supposed to throw, but an exception escaping a `ws`
       // message handler is an uncaught exception, which is fatal to the
       // process and to every other room in it.
       let result;
       try {
-        result = msg.t === 'move' ? room.engine.move(seat, msg.move) : room.engine.rematch();
+        result =
+          msg.t === 'move'
+            ? room.engine.move(seat, msg.move)
+            : msg.t === 'switch'
+              ? room.engine.switchGame(String(msg.gameId ?? ''))
+              : room.engine.rematch();
       } catch {
         return fail(socket, 'rejected', 'That move could not be played.');
       }

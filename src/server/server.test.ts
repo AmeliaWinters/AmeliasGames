@@ -326,6 +326,50 @@ describe('server authority', () => {
     guest.close();
   });
 
+  it('changes the game for both players once one is over', async () => {
+    const { host, guest } = await seatTwoPlayers();
+    // Seat 0 takes column 0 four times over; seat 1 answers in column 1. One
+    // move at a time: two sockets sending at once arrive in whichever order
+    // the loopback feels like, and half of them would be rejected as out of
+    // turn. Every frame is read from the host, who is sent every broadcast —
+    // reading each mover's own copy would shift whichever stale frame was
+    // still queued on that socket instead.
+    let room = (await host.nextOf('room')).room; // the guest arriving
+    for (const col of [0, 1, 0, 1, 0, 1, 0]) {
+      (col === 0 ? host : guest).send({ t: 'move', move: { type: 'drop', col } });
+      room = (await host.nextOf('room')).room;
+    }
+    expect(room.over).toBe(true);
+
+    host.send({ t: 'switch', gameId: 'yahtzee' });
+
+    // Both sides are told, not just the one who asked — the other player's
+    // board has to change at the same moment, or they are left looking at a
+    // game nobody is playing.
+    for (const client of [host, guest]) {
+      let next = (await client.nextOf('room')).room;
+      // The guest's queue still holds every Connect Four frame it was sent.
+      for (let i = 0; i < 12 && next.gameId !== 'yahtzee'; i++) {
+        next = (await client.nextOf('room')).room;
+      }
+      expect(next.gameId).toBe('yahtzee');
+      expect(next.gameName).toBe('Yahtzee');
+      expect(next.over).toBe(false);
+      expect(next.waiting).toBe(false);
+      expect(next.players.map((p) => p.name)).toEqual(['Host', 'Guest']);
+    }
+    host.close();
+    guest.close();
+  });
+
+  it('refuses to change game while the current one is still running', async () => {
+    const { host, guest } = await seatTwoPlayers();
+    host.send({ t: 'switch', gameId: 'yahtzee' });
+    expect((await host.nextOf('error')).message).toMatch(/in progress/i);
+    host.close();
+    guest.close();
+  });
+
   it('ignores moves from a socket that never joined', async () => {
     const stranger = await TestClient.connect();
     stranger.send({ t: 'move', move: { type: 'drop', col: 0 } });

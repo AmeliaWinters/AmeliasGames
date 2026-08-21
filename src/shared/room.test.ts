@@ -232,3 +232,88 @@ describe('table size', () => {
     expect(room.size).toBe(2);
   });
 });
+
+describe('changing game', () => {
+  /**
+   * A finished room, built by restoring a snapshot: `switchGame` refuses until
+   * the current game is genuinely over, and finishing a Wheel properly needs
+   * the answer that every view redacts by design.
+   */
+  function finishedWheel(seats: number): RoomEngine {
+    const room = RoomEngine.restore({
+      version: SNAPSHOT_VERSION,
+      code: 'TEST',
+      gameId: 'wheel',
+      state: { ...wheel.setup(seats, () => 0.5), roundOver: true, over: true },
+      seats: Array.from({ length: seats }, (_, i) => ({
+        playerId: `p${i}`,
+        name: `P${i}`,
+      })),
+    });
+    if (!room) throw new Error('snapshot should have restored');
+    return room;
+  }
+
+  it('keeps the code and the players when it changes the game', () => {
+    const room = finishedWheel(2);
+    expect(room.switchGame('connect4').ok).toBe(true);
+
+    expect(room.def.id).toBe('connect4');
+    expect(room.code).toBe('TEST');
+    expect(room.size).toBe(2);
+    const view = room.viewFor(0, new Set([0, 1]));
+    expect(view.gameName).toBe('Connect Four');
+    expect(view.players.map((p) => p.name)).toEqual(['P0', 'P1']);
+    expect(view.over).toBe(false);
+    // Everyone keeps the seat they were already sitting in.
+    expect(room.seatOf('p1')).toBe(1);
+  });
+
+  it('deals the new game the table that is sitting there, not its maximum', () => {
+    const room = finishedWheel(3);
+    expect(room.switchGame('yahtzee').ok).toBe(true);
+    const state = room.viewFor(0, new Set()).state as { sheets: unknown[] };
+    expect(state.sheets).toHaveLength(3);
+  });
+
+  it('refuses while the current game is still in progress', () => {
+    const room = newRoom('TEST', 'connect4');
+    room.join('a', 'Ann');
+    room.join('b', 'Bo');
+    const result = room.switchGame('wheel');
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/in progress/i);
+    expect(room.def.id).toBe('connect4');
+  });
+
+  it('refuses a game that will not seat this table', () => {
+    // Connect Four is strictly two-handed, and these four are already seated:
+    // switching would have to deal two of them out of the room.
+    const room = finishedWheel(4);
+    const result = room.switchGame('connect4');
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/4/);
+    expect(room.def.id).toBe('wheel');
+  });
+
+  it('refuses a game that does not exist', () => {
+    const room = finishedWheel(2);
+    expect(room.switchGame('hopscotch').ok).toBe(false);
+    expect(room.def.id).toBe('wheel');
+  });
+
+  it('treats switching to the game already running as a rematch', () => {
+    const room = finishedWheel(2);
+    expect(room.switchGame('wheel').ok).toBe(true);
+    expect(room.def.id).toBe('wheel');
+    expect(room.viewFor(0, new Set()).over).toBe(false);
+  });
+
+  it('survives the round trip through a snapshot', () => {
+    const room = finishedWheel(2);
+    expect(room.switchGame('connect4').ok).toBe(true);
+    const restored = RoomEngine.restore(room.snapshot());
+    expect(restored?.def.id).toBe('connect4');
+    expect(restored?.viewFor(0, new Set()).gameName).toBe('Connect Four');
+  });
+});
