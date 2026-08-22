@@ -37,6 +37,17 @@
   --point-light: #3f4a52;
   --tray: #08080a;
 
+  /* A ship's hull, on your own sea. It borrowed --point-light for a while,
+     which is a backgammon token and only ever coincidentally a hull: in
+     daylight the two landed on #f8f5ef against #fbfaf7 water, 1.04:1, so your
+     own fleet was invisible on the board you were placing it on. It needs its
+     own value because it is measured against different things -- the water it
+     sits in and the board showing through the 2px gaps -- and clears 3:1 on
+     both here and in daylight. Neutral on purpose: a hit is already red and a
+     placement ghost already green, so the hull is the one thing on this board
+     that is not carrying a hue. */
+  --hull: #5d6b78;
+
   /* The unlit piece in a card motif: an empty hole, an unplayed tile, a point
      with nothing on it. The board-relative tokens above are all deliberately
      close to --board, because on a real board something bright sits on top of
@@ -97,6 +108,11 @@
   --point-dark: #c6bfa7;
   --point-light: #f8f5ef;
   --tray: #d3cfc0;
+
+  /* Darker than the water rather than lighter, which is the whole reason this
+     is a token: the stage hull reads by being brighter than the sea, and there
+     is nothing brighter than #fbfaf7 to be. */
+  --hull: #6f757e;
 
   --motif-off: #7d7a6b;
 
@@ -2144,12 +2160,13 @@ input:focus-visible {
   border-radius: calc(1 * var(--m));
   background: var(--hole);
 }
-/* The board paints an unhit ship --point-light, which is a pale slab against
-   the sea it sits in and 1.8:1 against --board here. A motif has no board
-   under it to be pale against, so the ship takes the unlit colour instead --
-   which is what --motif-off is for, and what backgammon's spare points use. */
+/* The same hull the board paints. This used to need --motif-off instead,
+   because the ship was drawn in --point-light and that managed 1.8:1 against
+   --board -- a pale slab that a motif, with no sea around it, could not carry.
+   --hull clears 3:1 against the board in both palettes, so the card can now
+   show the thing itself rather than a stand-in for it. */
 .art-battleship i:nth-child(26) {
-  background: var(--motif-off);
+  background: var(--hull);
   box-shadow: none;
 }
 .art-battleship i:nth-child(24),
@@ -2625,7 +2642,7 @@ input:focus-visible {
 /* Your own ships, on your own sea. Never drawn on theirs — what shows there
    is a wreck, and only once it has been sunk. */
 .bs-cell.ship {
-  background: var(--point-light);
+  background: var(--hull);
 }
 
 /* A hit and a miss have to be told apart at a glance and at four millimetres,
