@@ -70,7 +70,7 @@ them. The measured table is at the foot of this page.
 | Game | Owns | Told apart by |
 |---|---|---|
 | Connect Four | Circles in a grid | The only round pieces in a grid |
-| Backgammon | Opposed triangles | The only triangles |
+| Backgammon | Opposed triangles across a bar | The only triangles; the only bar |
 | Wheel of Fortune | A radial arc | The only curve |
 | Word Duel | Rows of unlettered marks | Marks without letters; rows, not a square |
 | Word Hunt | A lettered grid with a traced path | The only letters |
@@ -82,6 +82,14 @@ Word Duel, Word Hunt and Battleships are the three that used to collide. They
 are now separated on three axes at once — letters or none, rows or a square
 grid, and cell density: Battleships shows ten cells across where Word Hunt
 shows four.
+
+Backgammon's points are narrow and long. The board draws a point at 1:5; the
+motif gets to 1:3, which is as close as a well two and a half times wider than
+it is tall allows, and the difference between that and the 1:1.8 it started at
+is the difference between a backgammon board and bunting. It shows **twelve
+points across — six, the bar, six** — because that is how many there are between
+one side of a real board and the other. A crop showing seven would be inventing
+a point.
 
 Yahtzee and Liar's Dice are both dice and cannot be told apart by their pieces,
 so they are told apart by composition alone. Yahtzee's five are spaced,
@@ -155,6 +163,12 @@ in the main bundle — App.tsx imports every board statically — so reusing it
 costs nothing and replaced a fake pip that read as a small hole at thirteen
 units.
 
+**Faces must vary, and must land unsorted.** Yahtzee shows a large straight
+(`3,1,5,2,4`) — the one scoring hand that is five different faces — rather than
+a full house, because five dice showing the same two numbers read as a repeated
+graphic rather than a throw. Liar's Dice shows a pair among five. Neither is
+sorted; dice do not land in order.
+
 ---
 
 ## Sanctioned exceptions
@@ -222,7 +236,15 @@ from the channel map, and adding a game means adding it there too — see below.
   changes land on the end-of-game screen; `.art` changes do not.
 - **Class names are global and unprefixed** in one stylesheet of ~3,400 lines.
   `.art`, `.game`, `.name`, `.meta` and `.stripe` are all generic. This project
-  has already shipped one collision of exactly that kind.
+  has already shipped two collisions of exactly that kind — the second was in
+  these motifs. **`.art i` and `.pips i` have identical specificity**, and `.art`
+  sits later in the file, so `display: block` beat `display: none` and every die
+  in the lobby turned on all six of its pip slots: every face showed a six, with
+  the slots that face has no `grid-area` rule for scattered wherever
+  auto-placement dropped them. The rule is `.art > i`, because a motif's own
+  pieces are always direct children and a die's pips never are. **Any new
+  descendant selector under `.art` must be checked against the board CSS it will
+  now also match.**
 - **Backgammon's motif and the board share two `clip-path` polygons.** They are
   the same shape in the same viewBox units as `PointOutline` in
   `BackgammonBoard.tsx`. If either changes, both do.
@@ -247,6 +269,7 @@ against each other.
 | Connect Four ice disc | 8.29 | 3.65 |
 | Backgammon gold point | 10.32 | 3.65 |
 | Backgammon checker ring / point | 3.91 | 3.33 |
+| Backgammon bar edge / board | 3.91 | 3.33 |
 | Backgammon checker / its ring | 5.37 / 8.29 | 3.78 / 3.65 |
 | Wheel spoke / wedge | 4.72 | 4.13 |
 | Wheel cash wedge | 10.00 | 4.53 |

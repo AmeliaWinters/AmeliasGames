@@ -141,12 +141,14 @@ function motif(gameId: string) {
     // has a column of three standing and it is ice to play.
     case "connect4":
       return pieces(21);
-    // Ten points, opposed as they are on a board. The <b>s are checkers: they
-    // sit over the triangles, which are clipped and cannot hold anything.
+    // Twelve points a side, opposed across the bar as they are on a board --
+    // the bar itself is a pseudo-element, so these keep indices 1 to 24. The
+    // <b>s are checkers: they sit over the triangles, which are clipped and
+    // cannot hold anything.
     case "backgammon":
       return (
         <>
-          {pieces(20)}
+          {pieces(24)}
           <b />
           <b />
           <b />
@@ -165,15 +167,17 @@ function motif(gameId: string) {
     // three shots that found nothing.
     case "battleship":
       return pieces(40);
-    // A full house, as tidy as the sheet wants it.
+    // A large straight, landed in the order dice land in rather than sorted:
+    // the one scoring hand that shows five different faces, which is what a
+    // row of dice should look like.
     case "yahtzee":
-      return [3, 3, 3, 5, 5].map((value, i) => <Die key={i} value={value} label="" />);
+      return [3, 1, 5, 2, 4].map((value, i) => <Die key={i} value={value} label="" />);
     // Your hand, and a hand that is somebody else's business.
     case "liarsdice":
       return (
         <>
           <span>
-            {[4, 2, 4, 6, 4].map((value, i) => (
+            {[4, 2, 6, 4, 3].map((value, i) => (
               <Die key={i} value={value} label="" />
             ))}
           </span>
