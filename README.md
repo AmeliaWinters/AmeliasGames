@@ -554,10 +554,12 @@ install. The launcher icon is a two-by-two of counters — the smallest fragment
 of a board that still reads as one at 48px. minSdkVersion is 24, so it ships
 both as an adaptive icon (API 26+) and as pre-baked legacy PNGs.
 
-**These three still carry the pre-Playbill palette** — `#c42a62` raspberry and
-`#5e3a87` violet are hardcoded in `scripts/png.mjs`, and `public/icon.svg` was
-hand-written against the same colours. Regenerating them against Stage is
-outstanding work.
+All three are drawn in Stage, from the same six tokens the stylesheet sets on
+`:root` — `scripts/png.mjs` holds the one copy of them. They carried the
+pre-Playbill raspberry and violet for a while, which mattered more than an
+internal inconsistency usually would: the favicon and the link preview are the
+only parts of the design most people see before the app loads, so they were
+advertising a palette the app no longer had.
 
 ## The Android app
 

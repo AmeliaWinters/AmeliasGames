@@ -3,9 +3,15 @@
  *
  *   node scripts/make-icons.mjs
  *
- * The mark is a two-by-two of counters — one raspberry, one violet, two empty
+ * The mark is a two-by-two of counters — one ember, one ice, two empty
  * — which is the smallest fragment of a board that still reads as one. It
  * survives being shrunk to 48px, where anything more detailed turns to mush.
+ *
+ * The two empties are rings rather than filled holes. A hole is the board
+ * colour minus a little, which is fine on a real board where six counters
+ * around it establish the grid — but at four counters and 48px it just
+ * disappeared, and the mark read as two dots on a dark square rather than as
+ * a fragment of a board. Drawn as an edge, which is what --motif-off is for.
  *
  * minSdkVersion is 24, so both shapes are needed: adaptive icons for API 26+
  * (a separate foreground layer the launcher masks to whatever shape the phone
@@ -37,14 +43,23 @@ function drawMark(raster, centre, span) {
   const radius = diameter / 2;
   const offset = span / 2 - radius;
 
+  // Thick enough to survive mdpi, where the whole icon is 48px and a counter
+  // is about eight across, and still an edge rather than a second fill.
+  const stroke = Math.max(1, radius * 0.22);
+
   const positions = [
-    [centre - offset, centre - offset, PALETTE.seat0],
-    [centre + offset, centre - offset, PALETTE.hole],
-    [centre - offset, centre + offset, PALETTE.hole],
-    [centre + offset, centre + offset, PALETTE.seat1],
+    [centre - offset, centre - offset, PALETTE.seat0, true],
+    [centre + offset, centre - offset, PALETTE.motifOff, false],
+    [centre - offset, centre + offset, PALETTE.motifOff, false],
+    [centre + offset, centre + offset, PALETTE.seat1, true],
   ];
 
-  for (const [x, y, colour] of positions) raster.circle(x, y, radius, colour);
+  for (const [x, y, colour, filled] of positions) {
+    // The ring is measured to the same outer edge a filled counter reaches,
+    // so the four still sit on one grid.
+    if (filled) raster.circle(x, y, radius, colour);
+    else raster.ring(x, y, radius - stroke / 2, stroke, colour);
+  }
 }
 
 function write(path, buffer) {
@@ -84,7 +99,7 @@ write(
   Buffer.from(
     `<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#ebd5de</color>
+    <color name="ic_launcher_background">#1e1e24</color>
 </resources>
 `,
     "utf8",
@@ -95,12 +110,12 @@ write(
 write(
   join(ROOT, "public", "icon.svg"),
   Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Two Connect Four counters on a blush board">
-  <rect width="64" height="64" rx="14" fill="#ebd5de"/>
-  <circle cx="21" cy="21" r="11" fill="#c42a62"/>
-  <circle cx="43" cy="21" r="11" fill="#fdf7f9"/>
-  <circle cx="21" cy="43" r="11" fill="#fdf7f9"/>
-  <circle cx="43" cy="43" r="11" fill="#5e3a87"/>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Two Connect Four counters, ember and ice, on a dark board">
+  <rect width="64" height="64" rx="14" fill="#1e1e24"/>
+  <circle cx="21" cy="21" r="11" fill="#ff5a47"/>
+  <circle cx="43" cy="21" r="9.8" fill="none" stroke="#7a7a86" stroke-width="2.4"/>
+  <circle cx="21" cy="43" r="9.8" fill="none" stroke="#7a7a86" stroke-width="2.4"/>
+  <circle cx="43" cy="43" r="11" fill="#21c7f0"/>
 </svg>
 `,
     "utf8",

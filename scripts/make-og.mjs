@@ -2,7 +2,7 @@
  * Draws public/og.png — the link preview image.
  *
  * It renders the real final position from the first phone-versus-browser game
- * rather than stock artwork, in the default Plum & Rose palette:
+ * rather than stock artwork, in Stage — the default palette:
  *
  *   node scripts/make-og.mjs
  */

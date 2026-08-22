@@ -147,12 +147,24 @@ export class Raster {
   }
 }
 
-/** The app's Plum & Rose palette, shared by every generated image. */
+/**
+ * Stage, the app's default palette, shared by every generated image.
+ *
+ * These are the same six tokens the stylesheet sets on `:root` -- a link
+ * preview in a palette the app no longer has is worse than no preview, since
+ * it is the one picture of the game most people ever see.
+ */
 export const PALETTE = {
-  ground: rgba("#f9eef1"),
-  board: rgba("#ebd5de"),
-  hole: rgba("#fdf7f9"),
-  ink: rgba("#32172b"),
-  seat0: rgba("#c42a62"),
-  seat1: rgba("#5e3a87"),
+  ground: rgba("#0c0c0f"),
+  board: rgba("#1e1e24"),
+  hole: rgba("#08080a"),
+  ink: rgba("#f5f1e8"),
+  seat0: rgba("#ff5a47"), // ember
+  seat1: rgba("#21c7f0"), // ice
+  // --motif-off: an unlit piece where nothing bright sits on top of it. On a
+  // real board an empty hole can afford to be near-invisible, because the
+  // counters around it carry the shape; in a mark two counters wide there is
+  // nothing else to carry it, so the empties are drawn as edges in this
+  // instead. 3.9:1 on the board, against 1.2:1 for a --hole fill.
+  motifOff: rgba("#7a7a86"),
 };
