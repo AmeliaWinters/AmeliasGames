@@ -92,6 +92,37 @@ describe('seating', () => {
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).toMatch(/waiting/i);
   });
+
+  /**
+   * Battleships is the one game that opts out of the rule above, because
+   * setting out a fleet is exactly what there is to do while the invite is
+   * still unanswered. Blocking it made every placement bounce with an error.
+   */
+  it('accepts the moves a game marks as playable before the room fills', () => {
+    const room = newRoom('TEST', 'battleship');
+    room.join('a', 'A');
+    expect(room.move(0, { type: 'place', kind: 'destroyer', row: 0, col: 0, horizontal: true }).ok)
+      .toBe(true);
+    expect(room.move(0, { type: 'scatter' }).ok).toBe(true);
+    expect(room.move(0, { type: 'unplace', kind: 'destroyer' }).ok).toBe(true);
+  });
+
+  it('still refuses the moves that game did not mark, while it is short', () => {
+    const room = newRoom('TEST', 'battleship');
+    room.join('a', 'A');
+    room.move(0, { type: 'scatter' });
+    const shot = room.move(0, { type: 'fire', row: 0, col: 0 });
+    expect(shot.ok).toBe(false);
+    expect(shot.ok === false && shot.error).toMatch(/waiting/i);
+  });
+
+  /** One fleet placed early must not start the shooting on its own. */
+  it('does not let an early fleet sail before the other player arrives', () => {
+    const room = newRoom('TEST', 'battleship');
+    room.join('a', 'A');
+    room.move(0, { type: 'scatter' });
+    expect((room.viewFor(0, new Set()).state as { phase: string }).phase).toBe('placing');
+  });
 });
 
 describe('snapshot round-trip', () => {
@@ -230,6 +261,90 @@ describe('table size', () => {
     const fresh = room.viewFor(0, new Set([0, 1])).state as { bank: number[] };
     expect(fresh.bank).toHaveLength(2);
     expect(room.size).toBe(2);
+  });
+});
+
+/**
+ * Word Hunt is the only timed game, and the room is what makes its clock real:
+ * a reducer cannot end a round nobody is playing.
+ */
+describe('a game on a clock', () => {
+  const START = 1_700_000_000_000;
+  const ROUND_MS = 120_000;
+
+  function hunt(): RoomEngine {
+    const room = RoomEngine.create('TEST', 'wordhunt', () => 0.5, 2, START);
+    if (!room) throw new Error('could not create wordhunt');
+    room.join('a', 'A', START);
+    room.join('b', 'B', START);
+    return room;
+  }
+
+  it('reports the deadline the adapters arm their timers on', () => {
+    expect(hunt().deadline()).toBe(START + ROUND_MS);
+  });
+
+  /**
+   * The clock belongs to the game being played, not to the room being open.
+   * Starting it at `create` meant a hunt could run out while its second player
+   * was still reading the invite.
+   */
+  it('does not start the clock until every seat is taken', () => {
+    const room = RoomEngine.create('TEST', 'wordhunt', () => 0.5, 2, START);
+    if (!room) throw new Error('could not create wordhunt');
+    room.join('a', 'A', START);
+    expect(room.deadline()).toBe(null);
+
+    // Ten minutes of nobody turning up, and the round is still all there.
+    const late = START + 10 * 60 * 1000;
+    expect(room.tick(late)).toBe(false);
+    expect(room.viewFor(0, new Set(), late).over).toBe(false);
+
+    room.join('b', 'B', late);
+    expect(room.deadline()).toBe(late + ROUND_MS);
+  });
+
+  it('does not hand out a fresh round when a player reconnects', () => {
+    const room = hunt();
+    room.join('a', 'A', START + 60_000);
+    expect(room.deadline()).toBe(START + ROUND_MS);
+  });
+
+  it('reports no deadline for a game that is not timed', () => {
+    expect(newRoom().deadline()).toBe(null);
+  });
+
+  it('does nothing when the clock has not run out', () => {
+    const room = hunt();
+    expect(room.tick(START + ROUND_MS - 1)).toBe(false);
+    expect(room.viewFor(0, new Set(), START).over).toBe(false);
+  });
+
+  it('ends the round when it does, with nobody having moved', () => {
+    const room = hunt();
+    expect(room.tick(START + ROUND_MS)).toBe(true);
+    expect(room.viewFor(0, new Set(), START + ROUND_MS).over).toBe(true);
+    // Settled once and left alone: a second tick has nothing to report.
+    expect(room.tick(START + ROUND_MS + 1)).toBe(false);
+  });
+
+  it('refuses a move that arrives after time, without a tick having run', () => {
+    const room = hunt();
+    const late = room.move(0, { type: 'done' }, () => 0.5, START + ROUND_MS + 1);
+    expect(late.ok).toBe(false);
+    expect(room.viewFor(0, new Set(), START).over).toBe(true);
+  });
+
+  it('starts a fresh clock on a rematch', () => {
+    const room = hunt();
+    room.tick(START + ROUND_MS);
+    const later = START + 10 * 60 * 1000;
+    expect(room.rematch(() => 0.5, later).ok).toBe(true);
+    expect(room.deadline()).toBe(later + ROUND_MS);
+  });
+
+  it('sends the server clock with every view, so a countdown has something to measure against', () => {
+    expect(hunt().viewFor(0, new Set(), START).now).toBe(START);
   });
 });
 

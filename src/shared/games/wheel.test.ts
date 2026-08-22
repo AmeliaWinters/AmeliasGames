@@ -3,9 +3,11 @@ import {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  GUESSES_PER_TURN,
   PUZZLES,
+  WEDGE_ARC,
   ROUNDS,
-  ROUND_MINIMUM,
+  SOLVE_BONUS,
   VOWELS,
   VOWEL_COST,
   WHEEL,
@@ -36,6 +38,9 @@ function position(overrides: Partial<WofState> = {}): WofState {
     turn: 0,
     phase: 'spin',
     wedge: null,
+    wedgeAt: null,
+    spins: 0,
+    misses: 0,
     bank: Array<number>(seats).fill(0),
     score: Array<number>(seats).fill(0),
     note: null,
@@ -281,12 +286,29 @@ describe('consonants', () => {
     expect(s.note?.text).toContain(money(cashValue(CASH) * 2));
   });
 
-  it('passes the turn when the letter is not there', () => {
+  it('spends a guess when the letter is not there, and keeps the turn', () => {
     const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'Z' }, 0));
     expect(s.bank[0]).toBe(0);
-    expect(s.turn).toBe(1);
+    expect(s.turn).toBe(0);
+    expect(s.misses).toBe(1);
+    // The spin is spent even though the letter was not there: another
+    // consonant needs another wedge.
+    expect(s.phase).toBe('spin');
+    expect(s.wedge).toBeNull();
     expect(s.called).toEqual(['Z']);
     expect(s.note?.text).toMatch(/no Z/i);
+    expect(s.note?.text).toContain('Two guesses left.');
+  });
+
+  it('hands the turn over on the third missing letter', () => {
+    let s = position({ answer: 'A CUP OF TEA' });
+    for (const letter of ['Z', 'X', 'B']) {
+      s = ok(apply(spun(s), { type: 'letter', letter }, 0));
+    }
+    expect(s.turn).toBe(1);
+    // The next player starts with all three of their own.
+    expect(s.misses).toBe(0);
+    expect(s.note?.text).toMatch(/turn moves on/i);
   });
 
   it('refuses a vowel while a consonant is owed', () => {
@@ -329,10 +351,26 @@ describe('vowels', () => {
     expect(ok(apply(rich, { type: 'letter', letter: 'I' }, 0)).bank[0]).toBe(1000 - VOWEL_COST);
   });
 
-  it('keeps the turn when the vowel is there and hands it over when it is not', () => {
+  it('keeps the turn whether or not the vowel is there, and spends a guess if not', () => {
     const rich = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    expect(ok(apply(rich, { type: 'letter', letter: 'E' }, 0)).turn).toBe(0);
-    expect(ok(apply(rich, { type: 'letter', letter: 'I' }, 0)).turn).toBe(1);
+    const hit = ok(apply(rich, { type: 'letter', letter: 'E' }, 0));
+    expect(hit.turn).toBe(0);
+    expect(hit.misses).toBe(0);
+
+    const missed = ok(apply(rich, { type: 'letter', letter: 'I' }, 0));
+    expect(missed.turn).toBe(0);
+    expect(missed.misses).toBe(1);
+    // Charged either way: the money buys the question, not the answer.
+    expect(missed.bank[0]).toBe(1000 - VOWEL_COST);
+  });
+
+  it('hands the turn over on the third missing vowel', () => {
+    let s = position({ answer: 'GRR', bank: [1000, 0] });
+    for (const letter of ['E', 'I', 'O']) {
+      s = ok(apply(s, { type: 'letter', letter }, 0));
+    }
+    expect(s.turn).toBe(1);
+    expect(s.bank[0]).toBe(1000 - 3 * VOWEL_COST);
   });
 
   it('refuses a vowel nobody can afford', () => {
@@ -349,10 +387,10 @@ describe('vowels', () => {
 describe('solving', () => {
   const start = position({ answer: 'A PIECE OF CAKE', bank: [3000, 0] });
 
-  it('takes the round and banks the money', () => {
+  it('takes the round and banks the money, with the bonus on top', () => {
     const s = ok(apply(start, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
     expect(s.roundOver).toBe(true);
-    expect(s.score[0]).toBe(3000);
+    expect(s.score[0]).toBe(3000 + SOLVE_BONUS);
     expect(s.note?.text).toMatch(/solved/i);
     // And the board now shows the whole phrase.
     expect(wheel.view!(s, 1).answer).toBe('A PIECE OF CAKE');
@@ -372,12 +410,24 @@ describe('solving', () => {
     expect(ok(apply(s, { type: 'solve', answer: 'a bakers dozen' }, 0)).roundOver).toBe(true);
   });
 
-  it('passes the turn on a wrong answer', () => {
+  it('spends a guess on a wrong answer rather than the turn', () => {
     const s = ok(apply(start, { type: 'solve', answer: 'A SLICE OF CAKE' }, 0));
     expect(s.roundOver).toBe(false);
-    expect(s.turn).toBe(1);
+    // Still your go: a wrong phrase is one of three guesses, not the end of it.
+    expect(s.turn).toBe(0);
+    expect(s.misses).toBe(1);
     expect(s.score[0]).toBe(0);
-    // Losing the turn costs the bank nothing; Bankrupt is the only thing that does.
+    // Guessing costs the bank nothing; Bankrupt is the only thing that does.
+    expect(s.bank[0]).toBe(3000);
+  });
+
+  it('passes the turn on the third wrong answer', () => {
+    let s = start;
+    for (let i = 0; i < GUESSES_PER_TURN; i++) {
+      s = ok(apply(s, { type: 'solve', answer: 'A SLICE OF CAKE' }, 0));
+    }
+    expect(s.turn).toBe(1);
+    expect(s.misses).toBe(0);
     expect(s.bank[0]).toBe(3000);
   });
 
@@ -392,9 +442,33 @@ describe('solving', () => {
     );
   });
 
-  it('pays the minimum to someone who solves with nothing in the bank', () => {
+  it('pays the solve bonus to someone who solves with nothing in the bank', () => {
     const s = ok(apply(position({ bank: [0, 0] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
-    expect(s.score[0]).toBe(ROUND_MINIMUM);
+    expect(s.score[0]).toBe(SOLVE_BONUS);
+  });
+
+  it('pays the solve bonus on top of the round', () => {
+    const s = ok(apply(position({ bank: [3000, 0] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+    expect(s.score[0]).toBe(3000 + SOLVE_BONUS);
+  });
+
+  /**
+   * The rule that decides what a round feels like from second place: the money
+   * you won is yours whether or not you were the one to spot the phrase.
+   */
+  it('lets everyone keep what they won, not only the solver', () => {
+    const s = ok(
+      apply(position({ bank: [1200, 800, 400] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0),
+    );
+    expect(s.score).toEqual([1200 + SOLVE_BONUS, 800, 400]);
+  });
+
+  it('still lets Bankrupt take a round bank to nothing', () => {
+    // Bankrupt is what makes the money at risk; solving is no longer.
+    const s = ok(apply(position({ bank: [900, 500] }), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    expect(s.bank[0]).toBe(0);
+    const done = ok(apply({ ...s, turn: 1 }, { type: 'solve', answer: 'A PIECE OF CAKE' }, 1));
+    expect(done.score).toEqual([0, 500 + SOLVE_BONUS]);
   });
 
   it('takes the round when the last letter goes up, with no solve needed', () => {
@@ -406,6 +480,110 @@ describe('solving', () => {
     expect(s.roundOver).toBe(true);
     expect(s.score[0]).toBeGreaterThan(0);
     expect(s.note?.text).toMatch(/that's the puzzle/i);
+  });
+});
+
+/**
+ * Three guesses to a turn, rather than one. The old rule made calling a letter
+ * you were not sure of cost you the turn, so the game quietly rewarded not
+ * guessing — a strange thing for a guessing game to do.
+ */
+describe('three guesses to a turn', () => {
+  it('counts a wrong consonant, a dud vowel and a wrong phrase all the same', () => {
+    const rich = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
+    expect(ok(apply(spun(rich), { type: 'letter', letter: 'Z' }, 0)).misses).toBe(1);
+    expect(ok(apply(rich, { type: 'letter', letter: 'I' }, 0)).misses).toBe(1);
+    expect(ok(apply(rich, { type: 'solve', answer: 'NOPE' }, 0)).misses).toBe(1);
+  });
+
+  it('mixes them: three misses of any kind end the turn', () => {
+    let s = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
+    s = ok(apply(spun(s), { type: 'letter', letter: 'Z' }, 0));
+    expect(s.turn).toBe(0);
+    s = ok(apply(s, { type: 'letter', letter: 'I' }, 0));
+    expect(s.turn).toBe(0);
+    s = ok(apply(s, { type: 'solve', answer: 'NOPE' }, 0));
+    expect(s.turn).toBe(1);
+  });
+
+  it('does not spend a guess on a correct call', () => {
+    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'C' }, 0));
+    expect(s.misses).toBe(0);
+    expect(s.turn).toBe(0);
+  });
+
+  it('gives every seat its own three', () => {
+    let s = position({ answer: 'A CUP OF TEA' });
+    for (const letter of ['Z', 'X', 'B']) s = ok(apply(spun(s), { type: 'letter', letter }, 0));
+    expect(s.turn).toBe(1);
+    expect(s.misses).toBe(0);
+    s = ok(apply(spun(s), { type: 'letter', letter: 'D' }, 1));
+    expect(s.misses).toBe(1);
+    expect(s.turn).toBe(1);
+  });
+
+  it('does not spend a guess on Bankrupt or Lose a Turn', () => {
+    // Those are the wheel's doing, not the player's, and they end the turn
+    // outright — so there is nothing left for a guess to be spent on.
+    const s = position({ bank: [900, 0] });
+    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(BANKRUPT))).misses).toBe(0);
+    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(LOSE_TURN))).misses).toBe(0);
+  });
+
+  it('clears the count when a round ends', () => {
+    let s = position({ answer: 'A PIECE OF CAKE' });
+    s = ok(apply(spun(s), { type: 'letter', letter: 'Z' }, 0));
+    expect(s.misses).toBe(1);
+    s = ok(apply(s, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+    expect(s.misses).toBe(0);
+    expect(ok(apply(s, { type: 'next' }, s.turn, seeded(3))).misses).toBe(0);
+  });
+
+  it('says how many are left in the status line, once any are gone', () => {
+    const fresh = position();
+    expect(wheel.status(fresh, ['Ann', 'Bo'])).not.toMatch(/left/);
+    expect(wheel.status({ ...fresh, misses: 1 }, ['Ann', 'Bo'])).toMatch(/two left/i);
+    expect(wheel.status({ ...fresh, misses: 2 }, ['Ann', 'Bo'])).toMatch(/one left/i);
+  });
+});
+
+/** What the board needs to draw a wheel that actually spins. */
+describe('where the wheel stopped', () => {
+  it('records the wedge it landed on, by index', () => {
+    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    expect(s.wedgeAt).toBe(BANKRUPT);
+    expect(WHEEL[s.wedgeAt!].kind).toBe('bankrupt');
+  });
+
+  it('agrees with the wedge in hand', () => {
+    const s = spun(position());
+    expect(WHEEL[s.wedgeAt!]).toEqual(s.wedge);
+  });
+
+  it('leaves the pointer where it stopped when the turn passes', () => {
+    // Bankrupt ends the turn, and the wheel still has to be seen landing on it.
+    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    expect(s.wedge).toBeNull();
+    expect(s.wedgeAt).toBe(BANKRUPT);
+  });
+
+  it('counts spins upwards, so two of the same wedge still read as two spins', () => {
+    const first = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    expect(first.spins).toBe(1);
+    const second = ok(apply({ ...first, turn: 0 }, { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    expect(second.spins).toBe(2);
+    expect(second.wedgeAt).toBe(first.wedgeAt);
+  });
+
+  it('resets the pointer for a new round', () => {
+    const solved = ok(apply(position(), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+    const next = ok(apply(solved, { type: 'next' }, solved.turn, seeded(4)));
+    expect(next.wedgeAt).toBeNull();
+  });
+
+  it('lays the wheel out in twenty-four equal wedges', () => {
+    expect(WHEEL).toHaveLength(24);
+    expect(WEDGE_ARC).toBe(15);
   });
 });
 
@@ -602,12 +780,14 @@ describe('full games', () => {
         // from awarding to `state.turn`, or from awarding twice.
         if (state.roundOver && !before.roundOver) {
           const gained = state.score.map((n, i) => n - before.score[i]);
-          expect(gained.filter((n) => n > 0)).toHaveLength(1);
-          // Against the bank as it stands at the award, not before the move:
-          // the winning call's own money counts, and awardRound floors the
-          // bank at ROUND_MINIMUM before paying it out.
-          expect(gained[seat]).toBe(state.bank[seat]);
-          expect(state.bank[seat]).toBeGreaterThanOrEqual(ROUND_MINIMUM);
+          // Everyone banks exactly what they won this round — measured against
+          // the bank as it stands at the award, not before the move, since the
+          // winning call's own money counts and the solver's bonus is already
+          // in there.
+          expect(gained).toEqual(state.bank);
+          // Whoever finished it is the only seat guaranteed to be up, and by
+          // at least the bonus.
+          expect(state.bank[seat]).toBeGreaterThanOrEqual(SOLVE_BONUS);
           awards++;
         }
 
@@ -642,7 +822,7 @@ describe('full games', () => {
       // in one hand-driven three-round game.
       expect(new Set(seen).size).toBe(seen.length);
       // Somebody has to have won something: every round pays its winner.
-      expect(Math.max(...state.score)).toBeGreaterThanOrEqual(ROUND_MINIMUM);
+      expect(Math.max(...state.score)).toBeGreaterThanOrEqual(SOLVE_BONUS);
       expect(leaders(state).length).toBeGreaterThanOrEqual(1);
     }
   });

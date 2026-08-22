@@ -15,7 +15,7 @@ export interface SeatRecord {
  * itself. A stored room from an older shape is discarded rather than fed to a
  * reducer that would misread it.
  */
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {
@@ -72,11 +72,12 @@ export class RoomEngine {
     gameId: string,
     rng: Rng = Math.random,
     playerCount?: number,
+    now: number = Date.now(),
   ): RoomEngine | null {
     const def = getGame(gameId);
     if (!def) return null;
     const seats = clampSeats(def, playerCount);
-    return new RoomEngine(code, def, def.setup(seats, rng), Array(seats).fill(null));
+    return new RoomEngine(code, def, def.setup(seats, rng, now), Array(seats).fill(null));
   }
 
   /**
@@ -111,17 +112,21 @@ export class RoomEngine {
     return this.seats.findIndex((s) => s?.playerId === playerId);
   }
 
-  join(playerId: string, name: string): JoinResult {
+  join(playerId: string, name: string, now: number = Date.now()): JoinResult {
     // An existing player always gets their own seat back, so a dropped
     // connection is recoverable rather than fatal.
     const existing = this.seatOf(playerId);
     if (existing !== -1) {
       this.seats[existing] = { playerId, name };
+      this.tick(now);
       return { ok: true, seat: existing, reclaimed: true };
     }
     const free = this.seats.findIndex((s) => s === null);
     if (free === -1) return { ok: false, error: 'That game is full.' };
     this.seats[free] = { playerId, name };
+    // This may be the arrival that fills the room, which is when a timed
+    // game's clock starts.
+    this.tick(now);
     return { ok: true, seat: free, reclaimed: false };
   }
 
@@ -143,23 +148,74 @@ export class RoomEngine {
     return this.seats.length - this.filled();
   }
 
-  move(seat: number, move: unknown, rng: Rng = Math.random): ActionResult {
-    if (this.short() > 0) {
+  /**
+   * A move is refused while the room is short a player, unless the game says
+   * this particular one is setup rather than play — see `allowsEarlyMove`.
+   * Battleships is the only game that says yes, and only to placing.
+   */
+  move(seat: number, move: unknown, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
+    if (this.short() > 0 && !this.def.allowsEarlyMove?.(this.state, move, seat)) {
       return { ok: false, error: 'Waiting for another player.' };
     }
-    const result = this.def.applyMove(this.state, move, seat, rng);
+    // A move that arrives after the whistle meets a game that is already over,
+    // rather than one that is still open because no timer happened to have
+    // fired yet. The clock decides, not the scheduler.
+    this.tick(now);
+    const result = this.def.applyMove(this.state, move, seat, rng, now);
     if (!result.ok) return { ok: false, error: result.error };
     this.state = result.state;
     return { ok: true };
   }
 
-  rematch(rng: Rng = Math.random): ActionResult {
+  /**
+   * When this room's game must be settled by, or null if it is not on a clock.
+   * The adapters read it to arm a timer at the right moment instead of waiting
+   * for the next housekeeping sweep.
+   */
+  deadline(): number | null {
+    return this.def.deadline?.(this.state) ?? null;
+  }
+
+  /**
+   * Bring the room's clock up to date: start a timed game once every seat is
+   * filled, and settle it once its time is up. Returns whether anything
+   * changed, so a caller knows whether to broadcast.
+   *
+   * Safe to call as often as you like — a game that is not timed, not yet
+   * full, or not yet out of time says no and does nothing. Both halves run in
+   * order, so a room that fills and expires between two ticks still ends up
+   * settled rather than stuck half-started.
+   */
+  tick(now: number = Date.now()): boolean {
+    let changed = false;
+    // Nothing starts until everyone is here: the room refuses moves while it
+    // is short, so a clock running before then is running on a game nobody can
+    // play.
+    if (this.short() === 0) {
+      const started = this.def.start?.(this.state, now);
+      if (started) {
+        this.state = started;
+        changed = true;
+      }
+    }
+    const settled = this.def.expire?.(this.state, now);
+    if (settled) {
+      this.state = settled;
+      changed = true;
+    }
+    return changed;
+  }
+
+  rematch(rng: Rng = Math.random, now: number = Date.now()): ActionResult {
     if (!this.def.isOver(this.state)) {
       return { ok: false, error: 'That game is still in progress.' };
     }
     // The same table, not the game's ceiling: a rematch in a three-handed room
     // is another three-handed game.
-    this.state = this.def.setup(this.seats.length, rng);
+    this.state = this.def.setup(this.seats.length, rng, now);
+    // The table is already sitting there, so a timed rematch starts running
+    // the moment it is dealt.
+    this.tick(now);
     return { ok: true };
   }
 
@@ -172,13 +228,13 @@ export class RoomEngine {
    * sitting down — so a game that cannot seat exactly this many is refused
    * rather than silently dropping somebody or leaving a room short.
    */
-  switchGame(gameId: string, rng: Rng = Math.random): ActionResult {
+  switchGame(gameId: string, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
     if (!this.def.isOver(this.state)) {
       return { ok: false, error: 'That game is still in progress.' };
     }
     const next = getGame(gameId);
     if (!next) return { ok: false, error: 'No such game.' };
-    if (next.id === this.def.id) return this.rematch(rng);
+    if (next.id === this.def.id) return this.rematch(rng, now);
     if (!canSeat(next, this.seats.length)) {
       return {
         ok: false,
@@ -186,12 +242,13 @@ export class RoomEngine {
       };
     }
     this.def = next;
-    this.state = next.setup(this.seats.length, rng);
+    this.state = next.setup(this.seats.length, rng, now);
+    this.tick(now);
     return { ok: true };
   }
 
   /** Build the payload for one seat, redacted by the game's `view` if it has one. */
-  viewFor(seat: number, connected: ReadonlySet<number>): RoomView {
+  viewFor(seat: number, connected: ReadonlySet<number>, now: number = Date.now()): RoomView {
     const short = this.short();
     const waiting = short > 0;
     const names = this.seats.map((s, i) => s?.name ?? `Player ${i + 1}`);
@@ -213,6 +270,11 @@ export class RoomEngine {
         : this.def.status(this.state, names),
       over: this.def.isOver(this.state),
       waiting,
+      // The server's clock, sent so a timed game's countdown is measured
+      // against the clock that ends it rather than the player's, which may be
+      // wrong by minutes and would otherwise show a timer that disagrees with
+      // the game.
+      now,
     };
   }
 }

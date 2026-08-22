@@ -4,17 +4,22 @@ import {
   GRID_SIZE,
   MAX_WORD,
   MIN_WORD,
+  ROUND_MS,
   areAdjacent,
   canAct,
   canExtend,
   countOf,
+  formatClock,
+  hasStarted,
   isLegalPath,
   isMasked,
   makeGrid,
   maskWord,
+  msLeft,
   scoreOf,
   solve,
   spell,
+  timeIsUp,
   wordHunt,
   wordScore,
 } from './wordHunt.js';
@@ -39,7 +44,27 @@ const noRng = () => {
   throw new Error("word hunt must not use randomness after the grid is dealt");
 };
 
+/**
+ * A fixed kick-off, so every deadline in this file is exact rather than
+ * "whenever the suite happened to run". `DURING` is a moment comfortably
+ * inside the round: the default for moves that are not about the clock.
+ */
+const START = 1_700_000_000_000;
+const DURING = START + 30_000;
+const AFTER = START + ROUND_MS;
+
+/**
+ * A grid dealt and the whistle blown — which is what the room does the moment
+ * its last seat is taken, and the state every test below that is not about
+ * the clock itself wants.
+ */
 function fresh(players = 2): WhState {
+  const dealt = wordHunt.setup(players, seeded(7));
+  return wordHunt.start?.(dealt, START) ?? dealt;
+}
+
+/** Dealt but not started: a room still waiting on somebody. */
+function unstarted(players = 2): WhState {
   return wordHunt.setup(players, seeded(7));
 }
 
@@ -73,14 +98,14 @@ function pathFor(state: WhState, word: string): number[] {
   throw new Error(`${target} is not traceable on this grid`);
 }
 
-function play(state: WhState, move: unknown, seat: number): WhState {
-  const result = wordHunt.applyMove(state, move as never, seat, noRng);
+function play(state: WhState, move: unknown, seat: number, now = DURING): WhState {
+  const result = wordHunt.applyMove(state, move as never, seat, noRng, now);
   if (!result.ok) throw new Error(`move rejected: ${result.error}`);
   return result.state;
 }
 
-function refuse(state: WhState, move: unknown, seat: number): string {
-  const result = wordHunt.applyMove(state, move as never, seat, noRng);
+function refuse(state: WhState, move: unknown, seat: number, now = DURING): string {
+  const result = wordHunt.applyMove(state, move as never, seat, noRng, now);
   if (result.ok) throw new Error('expected the move to be rejected');
   return result.error;
 }
@@ -374,5 +399,111 @@ describe('the status line', () => {
     let state = onGrid(GRID);
     state = play(state, { type: 'done' }, 0);
     expect(wordHunt.status(state, [])).toBe('Waiting on Player 2');
+  });
+});
+
+describe('the clock', () => {
+  it('does not start until the room fills', () => {
+    // A round started when the grid was dealt would tick away while the second
+    // player was still opening the link, and could be over before they arrived.
+    expect(unstarted().endsAt).toBe(null);
+    expect(wordHunt.deadline?.(unstarted())).toBe(null);
+    expect(timeIsUp(unstarted(), START + 10 * ROUND_MS)).toBe(false);
+    expect(wordHunt.expire?.(unstarted(), START + 10 * ROUND_MS)).toBe(null);
+  });
+
+  it('shows a full round on the clock before the off, not an empty one', () => {
+    expect(msLeft(unstarted(), START + 10 * ROUND_MS)).toBe(ROUND_MS);
+    expect(hasStarted(unstarted())).toBe(false);
+    expect(hasStarted(fresh())).toBe(true);
+  });
+
+  it('runs for two minutes from the whistle', () => {
+    expect(fresh().endsAt).toBe(START + ROUND_MS);
+    expect(ROUND_MS).toBe(120_000);
+  });
+
+  it('will not restart a round that is already running', () => {
+    // A player reconnecting fills the room again; that is not two more minutes.
+    expect(wordHunt.start?.(fresh(), START + 60_000)).toBe(null);
+  });
+
+  it('reports its deadline while playing, and none once it is over', () => {
+    const state = fresh();
+    expect(wordHunt.deadline?.(state)).toBe(START + ROUND_MS);
+    const ended = wordHunt.expire?.(state, AFTER);
+    expect(ended && wordHunt.deadline?.(ended)).toBe(null);
+  });
+
+  it('counts down, and floors at nothing left', () => {
+    const state = fresh();
+    expect(msLeft(state, START)).toBe(ROUND_MS);
+    expect(msLeft(state, START + 30_000)).toBe(90_000);
+    expect(msLeft(state, AFTER + 5_000)).toBe(0);
+  });
+
+  it('has no time left in a game that is already finished', () => {
+    const state = play(play(fresh(), { type: 'done' }, 0), { type: 'done' }, 1);
+    expect(state.phase).toBe('over');
+    expect(msLeft(state, START)).toBe(0);
+    expect(timeIsUp(state, AFTER)).toBe(false);
+  });
+
+  it('does not expire a round that still has time in it', () => {
+    expect(wordHunt.expire?.(fresh(), START + ROUND_MS - 1)).toBe(null);
+  });
+
+  it('settles the game the moment the deadline passes', () => {
+    const state = onGrid(GRID);
+    const scored = play(state, { type: 'found', path: pathFor(state, 'CRANE') }, 0);
+    const ended = wordHunt.expire?.(scored, AFTER);
+
+    expect(ended?.phase).toBe('over');
+    expect(ended?.winner).toBe(0);
+    // Nobody is left hunting a game that has ended, however it ended.
+    expect(ended?.done).toEqual([true, true]);
+    // The answer key is filled in exactly as it is when everyone stops early.
+    expect(ended?.solutions.length).toBeGreaterThan(0);
+  });
+
+  it('ends on the deadline itself, not a millisecond later', () => {
+    expect(wordHunt.expire?.(fresh(), AFTER)?.phase).toBe('over');
+  });
+
+  it('refuses a word that arrives after the whistle', () => {
+    const state = onGrid(GRID);
+    const path = pathFor(state, 'CRANE');
+    expect(refuse(state, { type: 'found', path }, 0, AFTER)).toMatch(/time/i);
+    // The same word a moment earlier is perfectly good.
+    expect(play(state, { type: 'found', path }, 0, AFTER - 1).found[0]).toEqual(['CRANE']);
+  });
+
+  it('settles a timed-out round exactly as everyone stopping would', () => {
+    const state = onGrid(GRID);
+    const scored = play(state, { type: 'found', path: pathFor(state, 'CRANE') }, 0);
+
+    const byClock = wordHunt.expire?.(scored, AFTER);
+    const byHand = play(play(scored, { type: 'done' }, 0), { type: 'done' }, 1);
+
+    expect(byClock?.winner).toBe(byHand.winner);
+    expect(byClock?.draw).toBe(byHand.draw);
+    expect(byClock?.solutions).toEqual(byHand.solutions);
+  });
+
+  it('stops a seat acting once its time is up', () => {
+    const state = fresh();
+    expect(canAct(state, 0, DURING)).toBe(true);
+    expect(canAct(state, 0, AFTER)).toBe(false);
+    // With no clock to hand the answer is the rest of the question.
+    expect(canAct(state, 0)).toBe(true);
+  });
+
+  it('reads a countdown the way a clock does', () => {
+    expect(formatClock(ROUND_MS)).toBe('2:00');
+    expect(formatClock(90_000)).toBe('1:30');
+    expect(formatClock(9_500)).toBe('0:10');
+    expect(formatClock(0)).toBe('0:00');
+    // Never negative, however far past the deadline it is asked.
+    expect(formatClock(-5_000)).toBe('0:00');
   });
 });

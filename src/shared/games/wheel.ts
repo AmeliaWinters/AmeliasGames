@@ -49,31 +49,36 @@ import {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  GUESSES_PER_TURN,
   ROUNDS,
-  ROUND_MINIMUM,
+  SOLVE_BONUS,
   VOWELS,
   VOWEL_COST,
+  WHEEL,
   money,
+  wedgeName,
 } from './wheelDisplay.js';
+import type { Wedge } from './wheelDisplay.js';
 
 export {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  GUESSES_PER_TURN,
   ROUNDS,
-  ROUND_MINIMUM,
+  SOLVE_BONUS,
   VOWELS,
   VOWEL_COST,
+  WEDGE_ARC,
+  WHEEL,
   money,
+  wedgeLabel,
+  wedgeName,
 } from './wheelDisplay.js';
+export type { Wedge } from './wheelDisplay.js';
 
 /** A hostile client is not owed an unbounded string to normalise. */
 const MAX_GUESS = 200;
-
-export type Wedge =
-  | { kind: 'cash'; value: number }
-  | { kind: 'bankrupt' }
-  | { kind: 'lose-turn' };
 
 export interface Puzzle {
   category: string;
@@ -105,8 +110,35 @@ export interface WofState {
   turn: number;
   /** `call` means the wheel has stopped and a consonant is owed. */
   phase: 'spin' | 'call';
-  /** What the wheel last gave the player to move, or null before they spin. */
+  /**
+   * The cash wedge backing a consonant the player still owes, or null when
+   * nothing is owed. This is the *entitlement*, and it is spent — cleared when
+   * the letter is called, and when the turn moves on.
+   */
   wedge: Wedge | null;
+  /**
+   * Which wedge the wheel physically stopped on, as an index into `WHEEL`, or
+   * null before the first spin of a round.
+   *
+   * Deliberately not the same field as `wedge` above, and deliberately not
+   * cleared when the turn passes: this is where the pointer is, and the board
+   * animates to it. Bankrupt ends a turn, and the wheel still has to be seen
+   * landing on Bankrupt. Two identical $300 wedges are also why this is an
+   * index and not the wedge itself — the board cannot tell them apart, and
+   * must spin to the right one.
+   */
+  wedgeAt: number | null;
+  /**
+   * Spins so far this game, only ever going up. The board watches it to know
+   * a spin has happened at all: two spins running can land on the same wedge,
+   * and without this the wheel would sit still on the second one.
+   */
+  spins: number;
+  /**
+   * Wrong guesses by the player to move, this turn. Reset whenever the turn
+   * changes hands. At GUESSES_PER_TURN the turn moves on.
+   */
+  misses: number;
   /** Money won this round, lost entirely to Bankrupt. One entry per seat. */
   bank: number[];
   /** Money banked from rounds already won. Bankrupt cannot touch it. */
@@ -122,42 +154,6 @@ export type WofMove =
   | { type: 'letter'; letter: string }
   | { type: 'solve'; answer: string }
   | { type: 'next' };
-
-// ── The wheel ──────────────────────────────────────────────────────────
-
-const cash = (value: number): Wedge => ({ kind: 'cash', value });
-
-/**
- * Twenty-four wedges in wheel order: twenty-one cash, two Bankrupt and one
- * Lose a Turn. The order is kept rather than sorted because it is a wheel, and
- * a wheel has an order.
- */
-export const WHEEL: readonly Wedge[] = [
-  cash(900),
-  cash(700),
-  cash(300),
-  cash(800),
-  cash(550),
-  cash(400),
-  cash(300),
-  cash(900),
-  cash(500),
-  cash(300),
-  cash(900),
-  { kind: 'bankrupt' },
-  cash(600),
-  cash(400),
-  cash(300),
-  cash(500),
-  cash(800),
-  cash(350),
-  cash(450),
-  cash(700),
-  cash(300),
-  cash(600),
-  { kind: 'bankrupt' },
-  { kind: 'lose-turn' },
-];
 
 // ── The puzzles ────────────────────────────────────────────────────────
 
@@ -466,15 +462,71 @@ function drawPuzzle(used: readonly string[], rng: Rng): Puzzle {
 function passTurn(state: WofState): void {
   state.phase = 'spin';
   state.wedge = null;
+  // `wedgeAt` deliberately survives: it is where the wheel is standing, and
+  // the next player watches it spin away from there.
+  state.misses = 0;
   state.turn = (state.turn + 1) % seatCount(state);
 }
 
+/**
+ * A wrong guess: a letter that is not there, a vowel that is not there, or a
+ * failed attempt at the phrase.
+ *
+ * The turn no longer ends on the first one. A player gets `GUESSES_PER_TURN`,
+ * which is what makes backing a hunch worth doing — under one-and-out, calling
+ * a letter you were not sure of cost you the turn, so the game rewarded not
+ * guessing, which is a strange thing for a guessing game to do.
+ *
+ * `what` is the sentence so far; this appends what it cost.
+ */
+function strike(state: WofState, seat: number, what: string): void {
+  state.misses += 1;
+  const left = GUESSES_PER_TURN - state.misses;
+  // The spin is spent either way — another consonant needs another wedge.
+  state.phase = 'spin';
+  state.wedge = null;
+
+  if (left <= 0) {
+    state.note = { seat, text: `${what} That is ${count(GUESSES_PER_TURN)} — the turn moves on.` };
+    passTurn(state);
+    return;
+  }
+  // `count` spells numbers in lower case for use mid-sentence; this one opens
+  // a sentence of its own.
+  const spelt = count(left);
+  state.note = {
+    seat,
+    text: `${what} ${spelt[0].toUpperCase()}${spelt.slice(1)} ${
+      left === 1 ? 'guess' : 'guesses'
+    } left.`,
+  };
+}
+
+/**
+ * Close the round out. `seat` is whoever finished the puzzle.
+ *
+ * Two rules live here, and they are the ones that decide what the game feels
+ * like:
+ *
+ * 1. **Solving pays `SOLVE_BONUS`**, on top of whatever the round already won.
+ *    Spotting the phrase is the skill this game is about, so it is the thing
+ *    worth the most.
+ *
+ * 2. **Everybody banks what they won**, not only the solver. That money was
+ *    won letter by letter and it is theirs; taking it away because somebody
+ *    else saw the phrase first made every round a write-off from second place,
+ *    and made calling letters for a player who was behind pointless.
+ *
+ * Bankrupt still takes a bank to nothing, which is what keeps it frightening —
+ * it just no longer has a rival in "somebody else solved it".
+ */
 function awardRound(state: WofState, seat: number): void {
-  state.bank[seat] = Math.max(state.bank[seat], ROUND_MINIMUM);
-  state.score[seat] += state.bank[seat];
+  state.bank[seat] += SOLVE_BONUS;
+  state.score = state.score.map((banked, index) => banked + state.bank[index]);
   state.roundOver = true;
   state.phase = 'spin';
   state.wedge = null;
+  state.misses = 0;
 
   if (state.round >= ROUNDS) {
     state.over = true;
@@ -510,6 +562,9 @@ function beginRound(state: WofState, rng: Rng): WofState {
     turn: state.starter,
     phase: 'spin',
     wedge: null,
+    // A fresh puzzle gets a fresh wheel, standing where it was left.
+    wedgeAt: null,
+    misses: 0,
     bank: state.bank.map(() => 0),
     note: null,
     roundOver: false,
@@ -521,9 +576,14 @@ function beginRound(state: WofState, rng: Rng): WofState {
 function spin(state: WofState, seat: number, rng: Rng): MoveResult<WofState> {
   if (state.phase !== 'spin') return { ok: false, error: 'Name your consonant first.' };
 
-  const wedge = WHEEL[pick(rng, WHEEL.length)];
+  const at = pick(rng, WHEEL.length);
+  const wedge = WHEEL[at];
   const next = clone(state);
   next.wedge = wedge;
+  // Where the pointer now is, and the fact that it moved at all — the board
+  // needs both to spin the wheel to the right place.
+  next.wedgeAt = at;
+  next.spins += 1;
 
   if (wedge.kind === 'bankrupt') {
     const lost = next.bank[seat];
@@ -537,7 +597,7 @@ function spin(state: WofState, seat: number, rng: Rng): MoveResult<WofState> {
   }
 
   if (wedge.kind === 'lose-turn') {
-    next.note = { seat, text: 'spun Lose a Turn.' };
+    next.note = { seat, text: `spun ${wedgeName(wedge)}.` };
     passTurn(next);
     return { ok: true, state: next };
   }
@@ -566,8 +626,7 @@ function callConsonant(state: WofState, seat: number, letter: string): MoveResul
   next.called = [...state.called, letter];
 
   if (hits === 0) {
-    next.note = { seat, text: `called ${letter}. There is no ${letter}.` };
-    passTurn(next);
+    strike(next, seat, `called ${letter}. There is no ${letter}.`);
     return { ok: true, state: next };
   }
 
@@ -596,8 +655,7 @@ function buyVowel(state: WofState, seat: number, letter: string): MoveResult<Wof
 
   const hits = occurrences(state.answer, letter);
   if (hits === 0) {
-    next.note = { seat, text: `bought ${letter}. There is no ${letter}.` };
-    passTurn(next);
+    strike(next, seat, `bought ${letter}. There is no ${letter}.`);
     return { ok: true, state: next };
   }
 
@@ -620,8 +678,7 @@ function solve(state: WofState, seat: number, guess: string): MoveResult<WofStat
 
   const next = clone(state);
   if (attempt !== normalize(state.answer)) {
-    next.note = { seat, text: 'guessed, and got it wrong.' };
-    passTurn(next);
+    strike(next, seat, 'guessed, and got it wrong.');
     return { ok: true, state: next };
   }
 
@@ -663,6 +720,9 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       turn: starter,
       phase: 'spin',
       wedge: null,
+      wedgeAt: null,
+      spins: 0,
+      misses: 0,
       bank: Array<number>(seats).fill(0),
       score: Array<number>(seats).fill(0),
       note: null,
@@ -745,7 +805,12 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       return `${nameFor(top[0])} wins with ${best}`;
     }
     if (state.roundOver) return `${nameFor(state.turn)} to start round ${state.round + 1}`;
-    if (state.phase === 'call') return `${nameFor(state.turn)} to name a consonant`;
-    return `${nameFor(state.turn)} to spin or solve`;
+
+    // Guesses left is worth saying out loud once any have been used — it is
+    // what decides whether the player to move can afford a hunch.
+    const left = GUESSES_PER_TURN - state.misses;
+    const tail = left < GUESSES_PER_TURN ? ` — ${count(left)} left` : '';
+    if (state.phase === 'call') return `${nameFor(state.turn)} to name a consonant${tail}`;
+    return `${nameFor(state.turn)} to spin or solve${tail}`;
   },
 };

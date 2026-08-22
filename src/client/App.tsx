@@ -494,6 +494,7 @@ function GameBoard({
           state={room.state as WhState}
           seat={seat}
           names={room.players.map((p) => p.name)}
+          now={room.now}
           onMove={sendMove}
         />
       );

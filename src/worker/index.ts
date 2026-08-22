@@ -77,6 +77,11 @@ export class GameRoom implements DurableObject {
   private async persist(): Promise<void> {
     if (!this.engine) return;
     await this.state.storage.put('room', this.engine.snapshot());
+    // A timed game needs waking when its clock runs out, which is sooner than
+    // housekeeping would ever look. `ensureAlarm` only ever brings an alarm
+    // forward, so asking for both is asking for the earlier of the two.
+    const deadline = this.engine.deadline();
+    if (deadline !== null) await this.ensureAlarm(Math.max(0, deadline - Date.now()));
     await this.ensureAlarm(IDLE_TICK_MS);
   }
 
@@ -120,11 +125,12 @@ export class GameRoom implements DurableObject {
   private broadcast(exclude?: WebSocket): void {
     if (!this.engine) return;
     const connected = this.connectedSeats(exclude);
+    const now = Date.now();
     for (const ws of this.state.getWebSockets()) {
       if (ws === exclude) continue;
       const meta = ws.deserializeAttachment() as SocketMeta | null;
       if (meta && meta.playerId !== '') {
-        this.post(ws, { t: 'room', room: this.engine.viewFor(meta.seat, connected) });
+        this.post(ws, { t: 'room', room: this.engine.viewFor(meta.seat, connected, now) });
       }
     }
   }
@@ -215,6 +221,10 @@ export class GameRoom implements DurableObject {
       await this.state.storage.delete('emptySince');
       await this.persist();
 
+      // The clock can run out while an object is hibernating, so settle before
+      // answering rather than welcoming someone into a game that is over and
+      // does not know it yet.
+      if (engine.tick()) await this.persist();
       this.post(ws, {
         t: 'welcome',
         seat: result.seat,
@@ -321,6 +331,14 @@ export class GameRoom implements DurableObject {
   async alarm(): Promise<void> {
     const now = Date.now();
 
+    // A timed game ends on the clock, whether or not anyone is still watching
+    // — which is the whole point of putting it on one.
+    const engine = await this.loadEngine();
+    if (engine?.tick(now)) {
+      await this.state.storage.put('room', engine.snapshot());
+      this.broadcast();
+    }
+
     let pending = false;
     for (const ws of this.state.getWebSockets()) {
       const meta = ws.deserializeAttachment() as SocketMeta | null;
@@ -350,8 +368,10 @@ export class GameRoom implements DurableObject {
     // players in it needs no housekeeping, and rescheduling regardless woke the
     // object every few minutes for as long as anyone held a socket open.
     // `persist()` and `webSocketClose` re-arm the alarm when that changes.
+    const deadline = this.engine?.deadline() ?? null;
+    if (deadline !== null) await this.state.storage.setAlarm(deadline);
     if (pending || this.connectedSeats().size === 0) {
-      await this.state.storage.setAlarm(now + (pending ? PENDING_TICK_MS : IDLE_TICK_MS));
+      await this.ensureAlarm(pending ? PENDING_TICK_MS : IDLE_TICK_MS);
     }
   }
 }

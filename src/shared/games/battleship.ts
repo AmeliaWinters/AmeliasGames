@@ -239,6 +239,23 @@ export const battleship: GameDefinition<BsState, BsMove> = {
   },
 
   /**
+   * Setting out a fleet is the one thing here worth doing before the other
+   * admiral arrives: it is private, it is simultaneous, and it is most of the
+   * waiting. Without this the room turns every placement away until the invite
+   * is answered, which is a red error per tap and a fleet that will not go
+   * down.
+   *
+   * Firing is not on the list — there would be nothing to fire at, and `fire`
+   * refuses during `placing` anyway. Naming the three that are allowed rather
+   * than the one that is not keeps that guarantee here, where the room can see
+   * it, instead of inside the phase machine.
+   */
+  allowsEarlyMove(state, move) {
+    if (state.phase !== 'placing') return false;
+    return move?.type === 'place' || move?.type === 'unplace' || move?.type === 'scatter';
+  },
+
+  /**
    * While firing this is the whole truth. While placing it is a hint for the
    * status line only — see the note at the top of this file. Ties go to seat 0
    * so this stays a pure function of the state.

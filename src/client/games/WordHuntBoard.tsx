@@ -8,7 +8,10 @@ import {
   canAct,
   canExtend,
   countOf,
+  formatClock,
+  hasStarted,
   isMasked,
+  msLeft,
   scoreOf,
   spell,
   wordScore,
@@ -19,7 +22,46 @@ interface Props {
   state: WhState;
   seat: number | null;
   names: string[];
+  /** The server's clock as of this state — see `useCountdown`. */
+  now: number;
   onMove(move: WhMove): void;
+}
+
+/** Under this much left, the clock starts shouting about it. */
+const URGENT_MS = 20 * 1000;
+
+/**
+ * Milliseconds left, ticking, measured against the server's clock rather than
+ * this device's.
+ *
+ * The deadline is a server timestamp, so counting down to it with a local
+ * `Date.now()` shows the wrong number on any device whose clock is off — and
+ * phones are off by minutes more often than you would hope. Every state
+ * message carries the server's time, so the gap between the two clocks is
+ * remeasured whenever one arrives and the skew cancels out.
+ *
+ * This only ever decides what the player *sees*. Whether a word counts is the
+ * server's business, and it has already made up its mind by the time this runs.
+ */
+function useCountdown(state: WhState, serverNow: number): number {
+  const skew = useRef(0);
+  const [left, setLeft] = useState(() => msLeft(state, serverNow));
+
+  useEffect(() => {
+    skew.current = serverNow - Date.now();
+  }, [serverNow]);
+
+  useEffect(() => {
+    const read = () => setLeft(msLeft(state, Date.now() + skew.current));
+    read();
+    if (state.phase !== "play") return;
+    // Four times a second: fast enough that the seconds never visibly stick,
+    // cheap enough not to matter.
+    const id = setInterval(read, 250);
+    return () => clearInterval(id);
+  }, [state, serverNow]);
+
+  return left;
 }
 
 /**
@@ -44,7 +86,7 @@ function cellUnder(x: number, y: number): number | null {
   return Number.isInteger(index) ? index : null;
 }
 
-export function WordHuntBoard({ state, seat, names, onMove }: Props) {
+export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
   const [path, setPath] = useState<number[]>([]);
   const grid = useRef<HTMLDivElement>(null);
   /*
@@ -57,8 +99,16 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
   */
   const dragging = useRef(false);
 
+  const left = useCountdown(state, now);
   const mine = seat !== null;
-  const myMove = mine && canAct(state, seat);
+  const started = hasStarted(state);
+  // The clock closes the grid the moment it reads zero, rather than a
+  // round-trip later — the server has already stopped taking words by then,
+  // and a grid that still accepts traces is a grid promising something it
+  // cannot deliver. It is shut before the off for the same reason: the room
+  // turns every move away until it is full, so a grid that took traces would
+  // be answering each one with an error.
+  const myMove = mine && started && canAct(state, seat) && left > 0;
   const over = state.phase === "over";
 
   // A half-drawn word means nothing once the game has moved on underneath it.
@@ -102,6 +152,27 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
 
   return (
     <div className="board wh-board">
+      {!over && (
+        <p
+          className={[
+            "wh-clock",
+            started && left <= URGENT_MS ? "urgent" : "",
+            started && left === 0 ? "done" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          // Announced at the half-minute rather than every tick: a countdown
+          // read out four times a second is unusable with a screen reader on.
+          role="timer"
+          aria-live="off"
+        >
+          <span className="wh-clock-face">{left === 0 ? "Time" : formatClock(left)}</span>
+          <span className="wh-clock-note">
+            {!started ? "on the whistle" : left === 0 ? "pencils down" : "left"}
+          </span>
+        </p>
+      )}
+
       <div className="wh-scores" role="list" aria-label="Scores">
         {state.found.map((words, side) => {
           const count = countOf(state, side);
@@ -220,7 +291,11 @@ export function WordHuntBoard({ state, seat, names, onMove }: Props) {
 
       {mine && !myMove && !over && (
         <p className="wh-waiting" aria-live="polite">
-          You are done. Waiting for the others to finish.
+          {!started
+            ? "The clock starts when everyone is here."
+            : left === 0
+              ? "Time is up. Counting the scores…"
+              : "You are done. Waiting for the others to finish."}
         </p>
       )}
 

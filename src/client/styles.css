@@ -1063,14 +1063,146 @@ input:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* The wheel and what it means, stacked: the thing you watch, then the fact it
+   settled on, then how many guesses that leaves you. */
 .wof-wheel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+}
+
+/* The frame holds the pointer still while the disc turns underneath it. */
+.wof-wheel-frame {
+  position: relative;
+  width: 100%;
+  max-width: 240px;
+  aspect-ratio: 1;
+}
+
+.wof-disc {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The turn itself. Heavily eased out, so it flies and then creeps the last few
+   degrees the way a real wheel does. The rotation is set from React as an
+   absolute angle that only ever grows, so this never has to work out which way
+   round to go. */
+.wof-disc > g {
+  transform-box: view-box;
+  transform-origin: center;
+  transition: transform 2600ms cubic-bezier(0.16, 0.84, 0.24, 1);
+}
+
+.wof-wedge {
+  stroke: var(--rule);
+  stroke-width: 0.6;
+}
+.wof-wedge.cash {
+  fill: var(--board);
+}
+.wof-wedge.cash.alt {
+  fill: var(--surface);
+}
+/* The two wedges that cost you something, and the one that costs you the lot.
+   They are told apart by colour before anything is read, which is the point:
+   at a glance the wheel is mostly money and these are not. */
+.wof-wedge.bankrupt {
+  fill: var(--ink);
+}
+.wof-wedge.lose {
+  fill: var(--alert);
+}
+
+.wof-face {
+  font-family: var(--body);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  fill: var(--ink);
+}
+/* BANKRUPT and LOSE TURN are words on a 15° slice, so they take what room is
+   left. Both sit on a filled wedge, so both need the reversed ink. */
+.wof-face.small {
+  font-family: var(--display);
+  font-size: 6.5px;
+  letter-spacing: 0.04em;
+  fill: var(--ground);
+}
+
+.wof-hub {
+  fill: var(--surface);
+  stroke: var(--rule);
+  stroke-width: 1.5;
+}
+
+/* The pointer, at twelve o'clock. A notch rather than an arrow: it overlaps
+   the rim, so the wedge it is sitting on is unmistakable. */
+.wof-pointer {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  z-index: 1;
+  width: 14px;
+  height: 18px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+.wof-readout {
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 9px;
-  min-height: 54px;
-  padding: 10px 12px;
-  background: var(--surface);
+  min-height: 34px;
+  margin: 0;
+  text-align: center;
+}
+
+/* Guesses left, as three pips and a count. The pips are the glanceable half —
+   nobody reads a sentence to find out whether they can risk a letter. */
+.wof-guesses {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.wof-guesses.last {
+  color: var(--alert);
+}
+
+.wof-guesses .wof-pips {
+  display: flex;
+  gap: 4px;
+}
+.wof-guesses .wof-pips i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.wof-guesses .wof-pips i.spent {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--rule-hi);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The wheel still lands on the right wedge — it just gets there at once.
+     The value below it is never held back in this mode, so nothing is lost
+     but the flourish. */
+  .wof-disc > g {
+    transition: none;
+  }
 }
 
 /* A number, so it takes the numeral treatment rather than the display face:
@@ -2483,6 +2615,73 @@ input:focus-visible {
   gap: 12px;
   padding: 12px;
   background: var(--board);
+}
+
+/* The clock. Two minutes is the game, so it sits above everything and is read
+   from across the room -- big, tabular so the digits never jostle, and quiet
+   until it has something to say. */
+.wh-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.wh-clock-face {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+  /* Tabular, or every tick shifts the digits and the clock jitters. */
+  font-variant-numeric: tabular-nums;
+}
+
+.wh-clock-note {
+  font-family: var(--body);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+/* The last twenty seconds. The colour is the message; the pulse is a second
+   channel for anyone reading the grid rather than the clock, which is where
+   every player is looking by then. One beat a second, matching the count. */
+.wh-clock.urgent {
+  color: var(--alert);
+}
+.wh-clock.urgent .wh-clock-face {
+  animation: wh-tick 1s steps(1, end) infinite;
+}
+.wh-clock.urgent .wh-clock-note {
+  color: var(--alert);
+}
+
+/* Time. Nothing left to count, so the pulse stops -- a clock still flashing
+   after the whistle reads as a game still running. */
+.wh-clock.done .wh-clock-face {
+  animation: none;
+}
+
+@keyframes wh-tick {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wh-clock.urgent .wh-clock-face {
+    animation: none;
+  }
 }
 
 /* The tallies. Every seat, always, because watching someone else's number

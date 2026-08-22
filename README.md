@@ -94,8 +94,35 @@ applies moves locally, so nobody can re-roll until they like the answer.
 **Wheel of Fortune** — two to four players, three rounds, most money wins.
 Spin and name a consonant, buy a vowel for $250 out of what you have won this
 round, or solve. Bankrupt takes the round's money but never what you have
-already banked; solving pays at least $500. Rounds rotate who opens, so taking
-one does not compound into the first spin of the next.
+already banked. Rounds rotate who opens, so taking one does not compound into
+the first spin of the next.
+
+Three things about a turn are worth stating, because they are what the game
+turns on:
+
+- **You get three guesses to a turn.** A consonant that is not there, a vowel
+  that is not there and a wrong stab at the phrase all cost one; the turn moves
+  on at the third. Under one-and-out, calling a letter you were not sure of
+  cost you the turn, so the game quietly rewarded not guessing — a strange
+  thing for a guessing game to do. Bankrupt and Lose a Turn still end a turn
+  outright: those are the wheel's doing, not a guess.
+- **Everyone banks what they won**, not only whoever solved it. That money was
+  won letter by letter and it is theirs. Losing it because somebody else spotted
+  the phrase first made every round a write-off from second place. Bankrupt is
+  now the only thing that takes a round's money away, which is what keeps it
+  frightening.
+- **Solving pays $2,000**, on top of whatever the round already won. With
+  everyone keeping their money, spotting the phrase has to be the thing that
+  decides a game — otherwise the winner is whoever happened to spin the biggest
+  numbers.
+
+The wheel is a wheel: twenty-four wedges the board draws and spins, coming to
+rest on the one the server picked. The server is the only thing here holding an
+rng, so it sends back the index it landed on and the board animates *to* it —
+watching the wheel and then being told a different number is the one thing that
+would make the whole game feel rigged. Two spins running can land on the same
+wedge, which is why `spins` counts upwards: without it the wheel would sit
+still on the second one and read as broken.
 
 It is the game that proves out `view()`. The phrase lives in `state.answer` on
 the server and is masked on the way out to every client, letter by letter, as
@@ -211,10 +238,50 @@ snapshot rather than a flag, which is what lets the board keep showing the
 table as it stood — every hand face up, the dice that counted marked — while
 the next round is already dealt behind it.
 
+**Battleships** — two players, five ships each, ten by ten. Set out your fleet,
+then take one shot each until one fleet is gone. Touching is allowed and
+overlapping is not, exactly as in the boxed game.
+
+The two halves behave quite differently, and everything about this game follows
+from that. **Placing is free-simultaneous**: both admirals set out at once and
+neither waits on the other. **Firing strictly alternates**, one shot each, hit
+or miss — the "another go after a hit" variant is a real way to play and
+deliberately not this one, because a lucky opening run can end the game before
+the other player has fired a shot. `room.turn` is therefore wrong about placing
+and right about firing, so nothing asks it: `canAct` is the single predicate
+that covers both, and the board takes no `myTurn` at all.
+
+`view()` keeps the one secret. Every shot either player has fired is already
+drawn on both boards, so all that is redacted is where the enemy ships *are* —
+and a ship that has gone down is revealed outright, since the hits that sank
+her already spelled out her position. Ships keep their damage but lose their
+coordinates, which is what lets the board tell "ready" from "still setting out"
+without being told anything it should not know.
+
 **Word Hunt** — two to four players, one 4x4 grid, everybody hunting it at
-once. Trace a word through touching letters — diagonals included, never the
-same cell twice — and it is yours. Biggest score wins, and the same word is
-there for everybody, so nobody is racing anyone to it.
+once, **two minutes on the clock**. Trace a word through touching letters —
+diagonals included, never the same cell twice — and it is yours. Biggest score
+wins, and the same grid is there for everybody, so nobody is racing anyone to
+a particular word.
+
+The clock is the server's, and it starts when the last player sits down rather
+than when the room is opened — a round started at setup would tick away while
+the second player was still opening the link, and could be over before they
+arrived. The board holds the grid shut until then and shows a full 2:00.
+
+Three things enforce it, and only the first two decide anything:
+
+- The reducer refuses a word that arrives after the whistle, so a client with a
+  slow connection or a doctored clock cannot sneak one in.
+- `RoomEngine.tick()` settles the round when the deadline passes, and both
+  adapters arm a timer on `deadline()` — a `setTimeout` in the dev server, a
+  Durable Object alarm in the worker. That is what makes the round end on time
+  with nobody watching, which a reducer alone cannot do: a game nobody is
+  playing gets no moves to notice the time in.
+- The board counts down, and does not decide anything at all. Every state
+  message carries the server's clock, so the countdown measures the gap between
+  the two rather than trusting the device's own — a phone that is minutes out
+  would otherwise show a timer that disagrees with the game it is counting.
 
 Words run from three letters to eight, and length is the whole of the scoring:
 100, 400, 800, 1400, 1800, 2200. It climbs faster than length does on purpose,
@@ -469,6 +536,26 @@ Hover styles now sit behind `@media (hover: hover)`.
 Both were invisible in the accessibility tree and in every computed-style
 check. They were only found by looking at a screenshot of the running app.
 
+**"Wait for the other player" is not the same rule for every game.** The room
+turns every move away until each seat it laid out is taken, which is right for
+every game where a move is a turn — and wrong for Battleships, where setting
+out your fleet is private, simultaneous, and precisely what there is to do
+while the invite goes unanswered. The effect was that every single tap during
+placing came back as a red error banner, so the game read as completely broken:
+you could not put a ship down until your opponent happened to arrive.
+
+The fix is a game-level opt-out, `allowsEarlyMove`, rather than a special case
+in the room: the room still owns the rule, and Battleships names the three
+moves it does not apply to. Firing is not among them, and could not be anyway —
+`fire` refuses during `placing`, and the phase cannot leave `placing` until
+both fleets are down.
+
+The same question has a different answer one game over. Word Hunt is
+free-simultaneous too, but its round is a race, so it wants no early moves at
+all — and its clock starts when the room fills for exactly the same reason.
+The generalisation to resist is "simultaneous games should accept early moves";
+the real one is that only the game knows.
+
 **Durable Objects hibernate, and that erases your instance fields.** The first
 build kept the `RoomEngine` in a plain `this.engine` property and only loaded
 it from storage on join. That works right up until the room goes idle: the
@@ -486,9 +573,10 @@ of every handler. Load from storage, don't assume.
 
 ## Status
 
-Connect Four, Backgammon, Wheel of Fortune and Word Duel are all complete and tested end
-to end on both transports. Chess is the intended next game, as a pure-rules
-exercise; Wheel of Fortune has since taken Hearts' job of proving out `view()`.
+All eight games are complete and tested end to end on both transports. Chess is
+the intended next game, as a pure-rules exercise; Wheel of Fortune has since
+taken Hearts' job of proving out `view()`, and Battleships is the second game
+to lean on it.
 
 Live at https://amelias-games.anonylunt.workers.dev and shipping as a
 sideloadable Android APK, with 224 tests — including forty full random games

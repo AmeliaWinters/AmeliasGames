@@ -5,6 +5,7 @@ import {
   CELL_COUNT,
   MAX_WORD,
   MIN_WORD,
+  ROUND_MS,
   areAdjacent,
   canAct,
   countOf,
@@ -12,6 +13,7 @@ import {
   maskWord,
   scoreOf,
   spell,
+  timeIsUp,
 } from './wordHuntDisplay.js';
 
 import type { WhMove, WhState } from './wordHuntDisplay.js';
@@ -24,16 +26,21 @@ export {
   MASK_CHAR,
   MAX_WORD,
   MIN_WORD,
+  ROUND_MS,
   areAdjacent,
   canAct,
   canExtend,
   cellAt,
   countOf,
+  formatClock,
+  hasStarted,
   isLegalPath,
   isMasked,
   maskWord,
+  msLeft,
   scoreOf,
   spell,
+  timeIsUp,
   wordScore,
 } from './wordHuntDisplay.js';
 export type { WhMove, WhState } from './wordHuntDisplay.js';
@@ -42,7 +49,7 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  * Word Hunt. One 4x4 grid, everybody hunting it at once, tracing words through
  * touching letters. Biggest score wins.
  *
- * Three things are worth knowing before reading on:
+ * Four things are worth knowing before reading on:
  *
  * 1. **Nobody waits.** Play is free-simultaneous, like Word Duel: any seat may
  *    submit a word at any time. `turn` reports whoever is still hunting purely
@@ -58,6 +65,14 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *    a grid with nothing in it, so `setup` plants real words along real paths
  *    first and only then fills the gaps — and throws the grid away and starts
  *    again until it holds enough words to be worth playing.
+ *
+ * 4. **The round is two minutes long**, and the server's clock is the only one
+ *    that counts. `start` stamps `endsAt` when the room fills — not at setup,
+ *    or the round would tick away while the second player was still opening
+ *    the link. `found` refuses anything arriving after it, and `expire`
+ *    settles the game when it passes, which the room calls off a timer so the
+ *    hunt ends on time even with nobody watching. A client counting down is
+ *    showing the player a number, not deciding anything.
  */
 
 /** The list as an array, so a word can be drawn by index while planting. */
@@ -247,10 +262,21 @@ function decide(state: WhState): { winner: number | null; draw: boolean } {
  */
 function finish(state: WhState): WhState {
   const { winner, draw } = decide(state);
-  return { ...state, phase: 'over', winner, draw, solutions: solve(state.grid) };
+  return {
+    ...state,
+    phase: 'over',
+    // Nobody is still hunting a game that has ended, whether they stopped
+    // themselves or the clock stopped them. Leaving a seat marked as hunting
+    // in a finished game is a state that says two contradictory things.
+    done: state.done.map(() => true),
+    winner,
+    draw,
+    solutions: solve(state.grid),
+  };
 }
 
-function found(state: WhState, path: unknown, seat: number): MoveResult<WhState> {
+function found(state: WhState, path: unknown, seat: number, now: number): MoveResult<WhState> {
+  if (timeIsUp(state, now)) return { ok: false, error: "Time — that one didn't count." };
   if (!canAct(state, seat)) {
     return {
       ok: false,
@@ -299,18 +325,43 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
       grid: makeGrid(rng),
       found: Array.from({ length: playerCount }, () => []),
       done: Array(playerCount).fill(false),
+      // Unset: the room starts the clock when the last seat is taken.
+      endsAt: null,
       solutions: [],
       winner: null,
       draw: false,
     };
   },
 
-  applyMove(state, move, seat): MoveResult<WhState> {
+  /**
+   * The whistle. Idempotent, because a player reconnecting fills the room
+   * again and that must not buy everybody another two minutes.
+   */
+  start(state, now) {
+    if (state.phase !== 'play' || state.endsAt !== null) return null;
+    return { ...state, endsAt: now + ROUND_MS };
+  },
+
+  applyMove(state, move, seat, _rng, now = Date.now()): MoveResult<WhState> {
     if (seat < 0 || seat >= state.done.length) return { ok: false, error: 'You are not playing.' };
     if (!move) return { ok: false, error: 'Unknown move.' };
-    if (move.type === 'found') return found(state, move.path, seat);
+    if (move.type === 'found') return found(state, move.path, seat, now);
     if (move.type === 'done') return stop(state, seat);
     return { ok: false, error: 'Unknown move.' };
+  },
+
+  /** The hunt is on a clock, once it has started. */
+  deadline(state) {
+    return state.phase === 'play' ? state.endsAt : null;
+  },
+
+  /**
+   * Time. Settles the game exactly as the last player stopping would, so a
+   * round that runs out and a round everyone finished early end up in the same
+   * shape — same answer key, same result, one code path deciding both.
+   */
+  expire(state, now) {
+    return timeIsUp(state, now) ? finish(state) : null;
   },
 
   /**

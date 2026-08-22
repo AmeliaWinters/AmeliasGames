@@ -39,6 +39,15 @@ export interface RoomView {
   over: boolean;
   /** True while the room is still short of the table size it was opened for. */
   waiting: boolean;
+  /**
+   * The server's clock when this view was built, in epoch milliseconds.
+   *
+   * Only a timed game needs it, and it needs it badly: a deadline is a server
+   * timestamp, and a device whose clock is minutes out would otherwise show a
+   * countdown that disagrees with the game it is counting down. Measuring the
+   * gap against this instead makes the clock skew cancel out.
+   */
+  now: number;
 }
 
 export type ClientMessage =

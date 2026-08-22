@@ -20,6 +20,8 @@ interface Room {
   /** seat -> live socket. Absent means that player is away but keeps their seat. */
   sockets: Map<number, WebSocket>;
   emptySince: number | null;
+  /** Pending wake-up for a timed game. Null when the game is not on a clock. */
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -46,9 +48,34 @@ function fail(socket: WebSocket, kind: ErrorKind, message: string): void {
 
 function broadcast(room: Room): void {
   const connected = connectedSeats(room);
+  const now = Date.now();
   for (const [seat, socket] of room.sockets) {
-    send(socket, { t: 'room', room: room.engine.viewFor(seat, connected) });
+    send(socket, { t: 'room', room: room.engine.viewFor(seat, connected, now) });
   }
+  armDeadline(room);
+}
+
+/**
+ * Wake up when a timed game runs out, so the round ends on time whether or not
+ * anybody is still looking at it. Re-armed from `broadcast`, which every state
+ * change already goes through — a game that is not on a clock asks for no
+ * timer, and one that has just ended clears the one it had.
+ *
+ * The timer is unref'd: the listening socket is what keeps this process alive,
+ * and a pending round should never be the reason it cannot exit.
+ */
+function armDeadline(room: Room): void {
+  if (room.timer !== null) {
+    clearTimeout(room.timer);
+    room.timer = null;
+  }
+  const at = room.engine.deadline();
+  if (at === null) return;
+  room.timer = setTimeout(() => {
+    room.timer = null;
+    if (room.engine.tick()) broadcast(room);
+  }, Math.max(0, at - Date.now()));
+  room.timer.unref?.();
 }
 
 function handleConnection(socket: WebSocket): void {
@@ -91,7 +118,7 @@ function handleConnection(socket: WebSocket): void {
         // settled before anyone else can ask for a different one.
         const engine = RoomEngine.create(code, gameId, undefined, msg.players);
         if (!engine) return fail(socket, 'rejected', 'Could not create that game.');
-        room = { engine, sockets: new Map(), emptySince: Date.now() };
+        room = { engine, sockets: new Map(), emptySince: Date.now(), timer: null };
         rooms.set(code, room);
       } else {
         // Starting a "new" game on a code that is already someone else's room
@@ -122,6 +149,10 @@ function handleConnection(socket: WebSocket): void {
       joined = { room, seat: result.seat };
       pending.delete(socket);
 
+      // The clock may have run out while this room sat with nobody in it, so
+      // settle it before answering rather than welcoming a player into a game
+      // that is over and does not know it yet.
+      room.engine.tick();
       send(socket, {
         t: 'welcome',
         seat: result.seat,
@@ -191,7 +222,10 @@ export function startServer(port: number = PORT): WebSocketServer {
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (room.emptySince !== null && now - room.emptySince > EMPTY_ROOM_TTL_MS) rooms.delete(code);
+    if (room.emptySince !== null && now - room.emptySince > EMPTY_ROOM_TTL_MS) {
+      if (room.timer !== null) clearTimeout(room.timer);
+      rooms.delete(code);
+    }
   }
   for (const [socket, since] of pending) {
     if (now - since > HELLO_TIMEOUT_MS) {

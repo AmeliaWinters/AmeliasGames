@@ -128,11 +128,14 @@ function Harbour({
   state,
   seat,
   themName,
+  themHere,
   onMove,
 }: {
   state: BsState;
   seat: number;
   themName: string;
+  /** False while their seat is still empty — they have not joined yet. */
+  themHere: boolean;
   onMove(move: BsMove): void;
 }) {
   const fleet = state.fleets[seat];
@@ -251,10 +254,12 @@ function Harbour({
 
       <p className="bs-waiting" aria-live="polite">
         {ready
-          ? theyAreReady
-            ? "Both fleets are at sea."
-            : `Fleet at sea. Waiting for ${themName} to finish placing.`
-          : theyAreReady
+          ? !themHere
+            ? "Fleet at sea. Send the code — you can start the moment they arrive."
+            : theyAreReady
+              ? "Both fleets are at sea."
+              : `Fleet at sea. Waiting for ${themName} to finish placing.`
+          : themHere && theyAreReady
             ? `${themName} is ready and waiting.`
             : `${waiting.length} ${waiting.length === 1 ? "ship" : "ships"} still in harbour.`}
       </p>
@@ -281,7 +286,8 @@ export function BattleshipBoard({ state, seat, names, onMove }: Props) {
       <Harbour
         state={state}
         seat={seat}
-        themName={nameFor(opponentOf(seat)) || "the other player"}
+        themName={names[opponentOf(seat)] || "the other player"}
+        themHere={Boolean(names[opponentOf(seat)])}
         onMove={onMove}
       />
     );
