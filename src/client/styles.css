@@ -333,6 +333,41 @@ input {
   text-decoration-color: var(--rule);
 }
 
+/* The sound switch inside a room, where there is no room for the word.
+   Icon to the eye, thumb to the hand: the speaker is 16px and the target
+   around it is the full height of the bar. */
+.mute {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mute svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The speaker body is a solid shape, not an outline of one -- at this size an
+   outlined cone closes up into a blob. */
+.mute .cone {
+  fill: currentColor;
+  stroke-width: 1;
+}
+/* On is the state worth marking, and it is marked the way every other live
+   thing here is: by being in the ink colour rather than the muted one. */
+.mute[aria-pressed="true"] {
+  color: var(--ink);
+}
+
 /* Connection state, shown as a dot because it is glanceable, not read. */
 .dot {
   width: 7px;
@@ -839,6 +874,10 @@ input:focus-visible {
   .swap:hover {
     color: var(--ink);
     text-decoration-color: currentColor;
+  }
+
+  .mute:hover {
+    color: var(--ink);
   }
 
   .column:hover:not(:disabled) .ghost {

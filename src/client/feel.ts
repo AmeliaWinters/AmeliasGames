@@ -11,11 +11,12 @@
  *   that buzzed every time an opponent rolled would be a phone face-down on
  *   the table by the third round.
  *
- * Nothing here is fetched. The clatter is synthesised from a noise buffer and
- * two oscillators, because the Android build has to work with no network and
- * a folder of samples is weight carried on every device forever. It also buys
- * something a recording cannot: the gain and pitch come from the impulse the
- * solver actually resolved, so no two contacts sound the same.
+ * The clatter is synthesised rather than sampled, and stays that way: the gain
+ * and pitch come from the impulse the solver actually resolved, so no two
+ * contacts sound the same — which is the one thing a recording cannot do. The
+ * recorded cues that everything *else* in the app makes live in `sfx.ts`; they
+ * borrow the context built here, because a second AudioContext is a second
+ * hardware output to unsuspend on a phone, for no gain.
  */
 
 const STORAGE_KEY = "ag.sound";
@@ -53,13 +54,13 @@ export function soundIsOn(): boolean {
 }
 
 /**
- * The audio graph, built on first use.
+ * The audio graph, built on first use, and shared with `sfx.ts`.
  *
  * Deliberately lazy: a context created before the player has touched anything
  * starts suspended on every mobile browser, and building one for a player who
  * never turns the sound on is a decoder they did not ask for.
  */
-function audio(): AudioContext | null {
+export function sharedAudio(): AudioContext | null {
   if (!wanted) return null;
   if (!ctx) {
     const Ctor =
@@ -86,7 +87,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * the tray rather than another die, which is the duller of the two sounds.
  */
 export function clatter(strength: number, wall: boolean): void {
-  const ac = audio();
+  const ac = sharedAudio();
   if (!ac || !noise) return;
   const stamp = ac.currentTime * 1000;
   if (stamp - lastHeard < SOUND_GAP_MS) return;

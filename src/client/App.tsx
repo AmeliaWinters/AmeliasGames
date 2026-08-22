@@ -36,9 +36,11 @@ import {
   loadPalette,
   otherPalette,
   PALETTES,
+  savePalette,
   type Palette,
 } from "./palette.js";
 import { applySound, loadSound } from "./feel.js";
+import { play, primeSfx, useTableSounds } from "./sfx.js";
 
 /**
  * A name in two parts, so the channel colour can land on the second half.
@@ -228,23 +230,48 @@ function seatSummary(table: GameEntry): string {
     : `${table.minPlayers}–${table.maxPlayers} players`;
 }
 
+/**
+ * The palette, and the switch that changes it.
+ *
+ * Opening is a guess -- your last choice, or your system's preference -- so
+ * mounting paints without recording. Pressing the switch is the choice, and is
+ * the only thing that writes it down.
+ */
 function usePalette(): [Palette, () => void] {
   const [palette, setPalette] = useState<Palette>(loadPalette);
   useEffect(() => applyPalette(palette), [palette]);
-  return [palette, () => setPalette((current) => otherPalette(current))];
+  return [
+    palette,
+    () =>
+      setPalette((current) => {
+        const next = otherPalette(current);
+        savePalette(next);
+        return next;
+      }),
+  ];
 }
 
 /**
- * Whether the dice make a noise, remembered like the palette is.
+ * Whether the app makes a noise, remembered like the palette is.
  *
- * Off until asked for. A dice game that is silent is missing half of itself,
- * and a page that makes a noise the first time you open it on a bus is a page
- * you close — so the switch sits beside the palette switch, where it is found
- * rather than buried, and the first sound anyone hears is one they asked for.
+ * Off until asked for. A game that is silent is missing half of itself, and a
+ * page that makes a noise the first time you open it on a bus is a page you
+ * close — so the switch sits beside the palette switch in the lobby and in the
+ * top bar in a room, where it is found rather than buried, and the first sound
+ * anyone hears is one they asked for.
+ *
+ * One switch covers everything: the synthesised dice read the same preference
+ * `applySound` writes, and `primeSfx` can only build an audio graph once that
+ * preference is on. Turning it off does not need to reach the cues at all.
  */
 function useSound(): [boolean, () => void] {
   const [sound, setSound] = useState<boolean>(loadSound);
-  useEffect(() => applySound(sound), [sound]);
+  useEffect(() => {
+    applySound(sound);
+    // Order matters: nothing can load until the preference is on. The cue is
+    // the switch answering — see `primeSfx`.
+    if (sound) primeSfx("tap");
+  }, [sound]);
   return [sound, () => setSound((on) => !on)];
 }
 
@@ -308,6 +335,7 @@ export function App() {
     });
 
   useChannel(room?.gameId ?? gameId);
+  useTableSounds(room, seat, error);
 
   // One way out of a room, shared by the wordmark and the recovery screens, so
   // the hash, the socket and the setup screen can never fall out of step.
@@ -416,6 +444,13 @@ export function App() {
             <button
               className="code"
               title="Copy the invite link"
+              /* The visible label is the code, which says what this *is* and
+                 not what pressing it does. On a mouse the title covers that;
+                 on a phone nothing does, and this is the one control the
+                 whole waiting state depends on. Both names keep the visible
+                 text inside them, so speaking the label still matches what is
+                 on screen. */
+              aria-label={copied ? "Invite link copied" : `Copy the invite link, room ${room.code}`}
               onClick={() => {
                 navigator.clipboard?.writeText(inviteUrl(room.code));
                 setCopied(true);
@@ -425,7 +460,19 @@ export function App() {
               {copied ? "Copied" : room.code}
             </button>
           )}
-          <span className={`dot ${status}`} title={connectionNote ?? "Connected"} />
+          <SoundButton on={sound} onToggle={toggleSound} />
+          {/* Glanceable rather than read, but a colour alone is not available
+              to everyone, and a bare title is available to almost nobody --
+              not to a screen reader, and not to a finger. `role="img"` names
+              it on demand without announcing itself: the banner and the
+              status line already say when the connection drops, and a third
+              voice saying it would be the same news three times. */}
+          <span
+            className={`dot ${status}`}
+            role="img"
+            aria-label={connectionNote ?? "Connected"}
+            title={connectionNote ?? "Connected"}
+          />
         </div>
       </header>
 
@@ -677,6 +724,41 @@ function GameBoard({
   }
 }
 
+/**
+ * The sound switch, as an icon, for the top bar.
+ *
+ * The lobby spells the preference out in words because there is room for words
+ * there. In a room there is not, so it becomes a speaker -- with the state in
+ * `aria-pressed` and in the label, because "is that speaker crossed out?" is a
+ * question a 16px glyph should never be the only answer to.
+ */
+function SoundButton({ on, onToggle }: { on: boolean; onToggle(): void }) {
+  return (
+    <button
+      type="button"
+      className="mute"
+      aria-pressed={on}
+      aria-label={`Sound ${on ? "on" : "off"}`}
+      title={on ? "Turn sound off" : "Turn sound on"}
+      onClick={onToggle}
+    >
+      {/* One speaker, drawn once: only the waves change, so the two states
+          cannot drift apart in size or alignment. */}
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path className="cone" d="M2 6h2.4L7.5 3.2v9.6L4.4 10H2z" />
+        {on ? (
+          <>
+            <path d="M9.9 5.7a3 3 0 0 1 0 4.6" />
+            <path d="M11.9 3.8a6 6 0 0 1 0 8.4" />
+          </>
+        ) : (
+          <path d="M10.3 6.3l3.4 3.4M13.7 6.3l-3.4 3.4" />
+        )}
+      </svg>
+    </button>
+  );
+}
+
 function Setup({
   initialName,
   pendingCode,
@@ -743,7 +825,10 @@ function Setup({
               name="game"
               value={game.id}
               checked={game.id === gameId}
-              onChange={() => onPickGame(game.id)}
+              onChange={() => {
+                play("tap");
+                onPickGame(game.id);
+              }}
             />
             <CardArt gameId={game.id} />
             <span className="name">{game.name}</span>
@@ -794,7 +879,7 @@ function Setup({
           aria-pressed={sound}
           onClick={onToggleSound}
         >
-          Dice sound {sound ? "on" : "off"}
+          Sound {sound ? "on" : "off"}
         </button>
       </div>
     </main>

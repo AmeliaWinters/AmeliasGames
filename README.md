@@ -412,10 +412,34 @@ it.
 Sound and haptics split the same way: **sound is the table, haptics are your
 hand.** Everyone hears a throw, because a throw happens at the table; only the
 player who threw feels it, because a phone that buzzed on every opponent's roll
-would be a phone face-down by the third round. Both are synthesised — the gain
-and pitch of a knock come from the impulse the solver actually resolved, so no
-two are alike, and nothing is fetched. Sound is off until asked for, with the
-switch beside the palette switch.
+would be a phone face-down by the third round. The dice are synthesised rather
+than sampled — the gain and pitch of a knock come from the impulse the solver
+actually resolved, so no two are alike, which is the one thing a recording
+cannot do.
+
+## Sound
+
+Everything that is *not* the dice is a recording, in `src/client/sfx.ts`: a
+disc landing, a shell into a hull, somebody sitting down, a game ending. Ten
+CC0 files from Kenney, 112 KB in `public/sfx/`, listed one by one with their
+original names in `public/sfx/LICENSE.txt`. They are carried in the APK, so a
+phone with no signal sounds the same as one with.
+
+Two things keep it from becoming noise:
+
+- **One switch, off until asked for.** A page that makes a noise the first
+  time you open it on a bus is a page you close. The switch sits beside the
+  palette switch in the lobby and in the top bar of a room, and it governs the
+  dice too: a cue asks `feel.ts` for the audio context and gets null back while
+  the preference is off, so a player who never turns it on never downloads a
+  byte of this.
+- **One cue per moment.** `useTableSounds` reads `RoomView` — the same shape
+  for all eight games, so a new game gets dealt/moved/your-turn/joined/over
+  without touching the file — and it picks *either* "your turn" or the move
+  sound, never both. A board with a better answer says so: Battleships maps to
+  null and plays its own hit and miss, and then the generic rule stands down
+  entirely, because in a two-player game their shot landing already is your
+  turn arriving.
 
 ## Adding a game
 
@@ -457,6 +481,12 @@ room*, not merely available to be.
 **Playbill: one dark stage, four channels.** Two palettes, one design — only
 colour changes between them; type, layout and motion are shared. The switch is
 on the setup screen and remembers your choice.
+
+Stage is the design's default, but it is not forced on a first visit: with
+nothing saved, the app opens in whichever palette `prefers-color-scheme` asks
+for, and only Stage when the system has no opinion. That opening guess is not
+written down — pressing the switch is what makes it a choice, and a choice
+outranks the system from then on.
 
 | | Stage (default) | Daylight |
 |---|---|---|

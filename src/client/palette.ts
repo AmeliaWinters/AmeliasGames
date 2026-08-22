@@ -14,17 +14,37 @@ export const PALETTES: Record<Palette, PaletteInfo> = {
 
 const STORAGE_KEY = "ag.palette";
 
+/**
+ * The palette to open in: the one you last chose, or -- if you have never
+ * chosen -- whichever your system asks for.
+ *
+ * Stage is the design's default and stays the answer when the system has no
+ * opinion. But a visitor whose device is set to light and who is handed a
+ * near-black page has been ignored, and the switch sits at the bottom of the
+ * setup screen where they may not think to look for it.
+ *
+ * Nothing is written here on purpose: the guess stays a guess, so a visitor
+ * who changes their system theme is followed on their next visit rather than
+ * being held to a preference they never expressed. Only `savePalette` turns
+ * it into a choice.
+ */
 export function loadPalette(): Palette {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved === "daylight" || saved === "stage" ? saved : "stage";
+  if (saved === "daylight" || saved === "stage") return saved;
+  return matchMedia("(prefers-color-scheme: light)").matches ? "daylight" : "stage";
 }
 
+/** Paints the palette. Deliberately does not remember it -- see `savePalette`. */
 export function applyPalette(palette: Palette): void {
   document.documentElement.dataset.palette = palette;
-  localStorage.setItem(STORAGE_KEY, palette);
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", PALETTES[palette].themeColor);
+}
+
+/** Records an explicit choice, which outranks the system preference from then on. */
+export function savePalette(palette: Palette): void {
+  localStorage.setItem(STORAGE_KEY, palette);
 }
 
 export function otherPalette(palette: Palette): Palette {

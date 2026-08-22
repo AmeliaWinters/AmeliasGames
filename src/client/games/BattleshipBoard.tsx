@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 // Values from battleshipDisplay.js, which imports nothing — the board must
 // never pull the reducer in. The types below are type-only, so they are erased
 // and carry no runtime import.
@@ -23,6 +23,7 @@ import type {
   Ship,
   ShipKind,
 } from "../../shared/games/battleshipDisplay.js";
+import { play } from "../sfx.js";
 
 interface Props {
   state: BsState;
@@ -272,7 +273,37 @@ function Harbour({
   );
 }
 
+/**
+ * Every shot fired, heard by everyone watching — hull or water.
+ *
+ * Battleships opts out of the generic move sound in `sfx.ts` precisely so this
+ * can exist: a shot has a result, and a wooden knock that says "somebody
+ * moved" would be the wrong half of the news. Both seats are watched rather
+ * than just yours, because a miss of theirs is the best thing that happens to
+ * you all game.
+ *
+ * Counts, not identities: shots are only ever appended, so a longer list is a
+ * new shot and its last entry is the one that was just fired. A rematch resets
+ * the lists to empty, which is a shorter list and therefore silent.
+ */
+function useShotSounds(state: BsState): void {
+  const seen = useRef<number[] | null>(null);
+  useEffect(() => {
+    const counts = state.shots.map((shots) => shots.length);
+    const before = seen.current;
+    seen.current = counts;
+    // A board opened mid-game already has shots on it. They are history, not
+    // news, and firing all of them at once would be a barrage.
+    if (!before || before.length !== counts.length) return;
+    counts.forEach((count, index) => {
+      if (count <= before[index]) return;
+      play(state.shots[index][count - 1].hit ? "hit" : "miss");
+    });
+  }, [state]);
+}
+
 export function BattleshipBoard({ state, seat, names, onMove }: Props) {
+  useShotSounds(state);
   const them = seat === null ? null : opponentOf(seat);
   const nameFor = (index: number | null) =>
     index === null ? "" : index === seat ? "You" : names[index] || `Player ${index + 1}`;
