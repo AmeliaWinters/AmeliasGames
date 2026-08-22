@@ -240,8 +240,8 @@ export function WordleBoard({ state, seat, names, now, onMove }: Props) {
   const hunting = seat === null ? null : targetOf(state, seat);
   const setFor = seat === null ? null : guesserOf(state, seat);
 
-  // Only tick while a clock is actually running. Before the first guess of the
-  // game nobody is under the whistle, and there is nothing to count.
+  // Only tick while a clock is actually running. Until somebody cracks a word
+  // nobody is under the whistle, and there is nothing to count.
   const ticking = state.phase === "play" && state.dueBy.some((at) => at !== null);
   const clock = useServerNow(now, ticking);
   const myLeft = seat === null ? null : msLeftFor(state, seat, clock);
@@ -295,9 +295,9 @@ export function WordleBoard({ state, seat, names, now, onMove }: Props) {
         <p className="wd-brief">
           Pick a five-letter word for {nameFor(setFor) || "the next player"} to
           guess. Slang and swearing are fair game. You will be hunting somebody
-          else's — nobody ever gets their own. Once the guessing starts, every
-          guess puts everyone else on a one-minute clock, and running it out
-          finishes you.
+          else's — nobody ever gets their own. The guessing is untimed until
+          somebody cracks their word — that puts everyone still hunting on a
+          one-minute clock, and running it out finishes you.
         </p>
 
         {yourWord === null ? (
@@ -383,9 +383,9 @@ export function WordleBoard({ state, seat, names, now, onMove }: Props) {
       {mine && !over && (
         <>
           {/*
-            The shot clock, and only when one is running: before the first
-            guess of the game nobody is on one, and a 1:00 sitting there
-            frozen would read as broken rather than as not yet started.
+            The shot clock, and only when one is running: until somebody
+            solves nobody is on one, and a 1:00 sitting there frozen would
+            read as broken rather than as not yet started.
             Yours or theirs — whose it is changes the whole message, so the
             two are written out rather than shared.
           */}

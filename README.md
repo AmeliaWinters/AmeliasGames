@@ -169,6 +169,13 @@ validated on the server, and one convenience import in the board would put a
 dictionary on every phone that opens the lobby. `bundle.test.ts` holds that
 line.
 
+There is a shot clock, and it does not start with the game. Guessing runs
+untimed for as long as nobody has cracked their word — working one out from
+cold is the game, not a stall. The first solve puts everyone still hunting on
+a minute, refreshed by each guess they get in, and letting it go finishes
+them. That way the clock only ever polices the thing worth policing: a result
+standing on the board with someone who has walked away in front of it.
+
 **Yahtzee** — two to four players, thirteen rounds, highest total wins. Roll
 five dice, keep what you like, roll the rest up to twice more, then write the
 hand into one of your thirteen boxes. Every box takes one hand and no more,

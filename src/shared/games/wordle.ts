@@ -62,13 +62,16 @@ export type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
  *    are guessing is revealed once you are finished with it, because losing
  *    without ever learning the word is the unsatisfying ending.
  *
- * 3. **There is a shot clock, and it is a reply.** Guess, and everyone else
- *    still playing has `GUESS_MS` — one minute — to guess something back.
- *    Nobody is on a clock before the first guess of the game: see `reclock`
- *    for the whole of the rule. `expire` catches a minute that has gone, which
- *    the room calls off a timer, so a player who walks away is finished rather
- *    than leaving everyone else waiting forever. A client counting down is
- *    showing the player a number; the server's clock is the one that decides.
+ * 3. **There is a shot clock, and a solve is what starts it.** Until somebody
+ *    cracks the word they were pointed at, the game is untimed and everyone
+ *    may think as long as they like. The first solve puts everyone still
+ *    playing on `GUESS_MS` — one minute — and from then on a player's own
+ *    guess is what buys them the next minute: see `reclock` for the whole of
+ *    the rule. `expire` catches a minute that has gone, which the room calls
+ *    off a timer, so a player who walks away once the race is on is finished
+ *    rather than leaving everyone else waiting forever. A client counting down
+ *    is showing the player a number; the server's clock is the one that
+ *    decides.
  */
 
 /**
@@ -203,38 +206,33 @@ function setWord(state: WordleState, word: string, seat: number): MoveResult<Wor
  *
  * Three rules, and the order they are written in is the order they matter:
  *
- * 1. **The mover has answered**, so their clock comes off. They set one
- *    running on everybody else instead — that is what a guess does here.
- * 2. **Everyone else still playing goes on the clock** if they are not
- *    already on one. Not *re-*armed: a player firing off guesses must not be
- *    able to keep handing the others a fresh minute, and a player under
- *    pressure must not be able to buy time by making somebody else move.
- * 3. **Unless there is nobody left to start it.** Once everyone else is
- *    finished, no further guess is coming to put the mover back on a clock, so
- *    they keep their own — a minute per guess, alone. Skip this and the last
- *    player standing could sit on an unfinished game for good, which is the
- *    exact thing the clock is here to prevent.
+ * 1. **Nothing is timed until a word has actually been cracked.** Working out
+ *    a five-letter word from cold is thinking, not stalling, and a countdown
+ *    over that only rushes people out of the part of the game they came for.
+ *    So while `solvedIn` is empty every clock is off, and the guess that fills
+ *    it is the one that starts them.
+ * 2. **Once somebody has solved, everyone still playing is on a clock.** The
+ *    game now has a result standing and the only thing between it and the
+ *    scoreboard is the players who have not answered it — which is exactly the
+ *    stall worth putting a whistle on. The mover buys their own next minute by
+ *    guessing; everyone else keeps the clock they are already on rather than
+ *    being handed a fresh one, so a player firing off guesses cannot top up
+ *    the others and a player under pressure cannot buy time by making somebody
+ *    else move.
+ * 3. **A seat that can no longer act has no clock.** Solved, out of guesses or
+ *    timed out — there is nothing left for it to be late for.
  *
- * At two players this is precisely the rule it always was: the one other seat
- * is "everyone else".
+ * At two players this reads simply: guess away untimed, and the moment one of
+ * you gets it the other has a minute per guess to catch up.
  */
 function reclock(state: WordleState, mover: number, now: number): Array<number | null> {
-  const dueBy = state.dueBy.slice();
-  let others = false;
+  const cracked = seatsOf(state).some((seat) => state.solvedIn[seat] !== null);
+  if (!cracked) return state.dueBy.map(() => null);
 
-  dueBy[mover] = null;
-  for (const seat of seatsOf(state)) {
-    if (seat === mover) continue;
-    if (!canAct(state, seat)) {
-      dueBy[seat] = null;
-      continue;
-    }
-    others = true;
-    dueBy[seat] = dueBy[seat] ?? now + GUESS_MS;
-  }
-
-  if (!others && canAct(state, mover)) dueBy[mover] = now + GUESS_MS;
-  return dueBy;
+  return state.dueBy.map((due, seat) => {
+    if (!canAct(state, seat)) return null;
+    return seat === mover ? now + GUESS_MS : (due ?? now + GUESS_MS);
+  });
 }
 
 function guess(
@@ -307,9 +305,10 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
       target: ring(count, rng),
       guesses: Array.from({ length: count }, () => [] as Row[]),
       solvedIn: Array<number | null>(count).fill(null),
-      // Nobody is on a clock yet, and nobody is until the first guess. There
-      // is no `start` here for the same reason: the room fills, everyone
-      // picks a word, and only a guess puts anyone under the whistle.
+      // Nobody is on a clock yet, and nobody is until a word is cracked.
+      // There is no `start` here for the same reason: the room fills,
+      // everyone picks a word, and the guessing runs untimed until the first
+      // solve puts everyone else under the whistle.
       dueBy: Array<number | null>(count).fill(null),
       timedOut: [],
       winner: null,
@@ -384,7 +383,8 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
    *
    * Note what this does *not* do: a player finishing honestly — solving, or
    * spending their guesses — never ends anyone else's game early, because the
-   * others are still entitled to the guesses they have left.
+   * others are still entitled to the guesses they have left. A solve starts
+   * their clock; it does not stop their game.
    */
   expire(state, now) {
     if (state.phase !== 'play') return null;
@@ -402,8 +402,10 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
     }
 
     // Still a game. Everyone left who is not already on a clock goes on one:
-    // the clock that just expired may have been the only one running, and a
-    // game with no clock at all is the stall this mechanism exists to stop.
+    // the clock that just expired may have been the only one running, and
+    // once a word has been cracked a game with no clock at all is the stall
+    // this mechanism exists to stop. Only reachable past the first solve —
+    // before that no clock is running, so none can expire.
     const dueBy = stopped.dueBy.map((due, seat) =>
       canAct(stopped, seat) ? (due ?? now + GUESS_MS) : null,
     );

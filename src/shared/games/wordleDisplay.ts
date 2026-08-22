@@ -26,7 +26,9 @@ export const MAX_GUESSES = 6;
  * A minute is deliberately generous for a five-letter word and deliberately
  * short of "as long as you like". The clock exists because Word Duel is
  * free-simultaneous — nothing about the rules ever forced a player to move —
- * and a game where one side can simply stop is not a game.
+ * and a game where one side can simply stop is not a game. It is held back
+ * until somebody solves, though: the stall worth policing is the one holding
+ * up a finished result, not the thinking that gets you to it.
  */
 export const GUESS_MS = 60 * 1000;
 
@@ -87,15 +89,15 @@ export interface WordleState {
    * `dueBy[s]` is when seat `s` must have got their next guess in by, in epoch
    * milliseconds, or null if no clock is running on them.
    *
-   * Nobody is on a clock until somebody guesses: the shot clock is a reply to
-   * a move, so before the first guess of the game both entries are null and
-   * the game is untimed. See `guess()` in `wordle.ts` for when a clock starts,
-   * stops and stays put.
+   * Nobody is on a clock until somebody *solves*: guessing at a word you have
+   * not cracked yet is untimed, so until the first solve every entry is null
+   * and the game runs on nobody's clock. See `reclock` in `wordle.ts` for when
+   * a clock starts, stops and stays put.
    *
    * Above two players several run at once, so this is genuinely per seat: the
-   * first guess of the game starts a clock on everyone who can still act, and
-   * each player refreshes only their own by guessing. Nobody can hand anybody
-   * else a fresh minute, and nobody can buy one.
+   * first solve starts a clock on everyone who can still act, and each player
+   * refreshes only their own by guessing. Nobody can hand anybody else a fresh
+   * minute, and nobody can buy one.
    */
   dueBy: Array<number | null>;
   /**
