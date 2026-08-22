@@ -7,8 +7,9 @@ import { pick } from './random.js';
  *
  * A hidden phrase, a wheel, and three rounds. On your turn you may spin and
  * name a consonant, buy a vowel out of the money you have won this round, or
- * try to solve. Getting it right keeps the turn; getting it wrong hands it
- * over. Most money after three rounds wins.
+ * try to solve. Getting it right keeps the turn — up to three letters, then it
+ * moves on anyway; getting it wrong hands it over on the spot. Most money
+ * after three rounds wins.
  *
  * The reducer is written for however many seats it is handed. `setup` is given
  * the room's real player count, so nothing here assumes two — `state.bank` is
@@ -50,7 +51,6 @@ import {
   BLANK,
   CONSONANTS,
   FINDS_PER_TURN,
-  GUESSES_PER_TURN,
   ROUNDS,
   SOLVE_BONUS,
   VOWELS,
@@ -66,7 +66,6 @@ export {
   BLANK,
   CONSONANTS,
   FINDS_PER_TURN,
-  GUESSES_PER_TURN,
   ROUNDS,
   SOLVE_BONUS,
   VOWELS,
@@ -137,14 +136,12 @@ export interface WofState {
    */
   spins: number;
   /**
-   * Wrong guesses by the player to move, this turn. Reset whenever the turn
-   * changes hands. At GUESSES_PER_TURN the turn moves on.
-   */
-  misses: number;
-  /**
    * Correct letters found by the player to move, this turn. Reset whenever the
    * turn changes hands. At FINDS_PER_TURN the turn moves on — a hot streak is
    * worth having, not worth keeping the wheel for the whole round.
+   *
+   * There is no counter for the other way a turn ends, because there is
+   * nothing to count: one wrong guess and the turn is over.
    */
   finds: number;
   /** Money won this round, lost entirely to Bankrupt. One entry per seat. */
@@ -472,43 +469,22 @@ function passTurn(state: WofState): void {
   state.wedge = null;
   // `wedgeAt` deliberately survives: it is where the wheel is standing, and
   // the next player watches it spin away from there.
-  state.misses = 0;
   state.finds = 0;
   state.turn = (state.turn + 1) % seatCount(state);
 }
 
 /**
  * A wrong guess: a letter that is not there, a vowel that is not there, or a
- * failed attempt at the phrase.
+ * failed attempt at the phrase. The turn ends on it, the way it does on the
+ * show — a guess costs the wheel, which is what makes naming a letter you are
+ * only half sure of a decision worth making.
  *
- * The turn no longer ends on the first one. A player gets `GUESSES_PER_TURN`,
- * which is what makes backing a hunch worth doing — under one-and-out, calling
- * a letter you were not sure of cost you the turn, so the game rewarded not
- * guessing, which is a strange thing for a guessing game to do.
- *
- * `what` is the sentence so far; this appends what it cost.
+ * `what` is the sentence so far; this appends what it cost. `passTurn` clears
+ * the spin as it goes: a wedge means "what the player to move spun".
  */
 function strike(state: WofState, seat: number, what: string): void {
-  state.misses += 1;
-  const left = GUESSES_PER_TURN - state.misses;
-  // The spin is spent either way — another consonant needs another wedge.
-  state.phase = 'spin';
-  state.wedge = null;
-
-  if (left <= 0) {
-    state.note = { seat, text: `${what} That is ${count(GUESSES_PER_TURN)} — the turn moves on.` };
-    passTurn(state);
-    return;
-  }
-  // `count` spells numbers in lower case for use mid-sentence; this one opens
-  // a sentence of its own.
-  const spelt = count(left);
-  state.note = {
-    seat,
-    text: `${what} ${spelt[0].toUpperCase()}${spelt.slice(1)} ${
-      left === 1 ? 'guess' : 'guesses'
-    } left.`,
-  };
+  state.note = { seat, text: `${what} The turn moves on.` };
+  passTurn(state);
 }
 
 /**
@@ -561,7 +537,6 @@ function awardRound(state: WofState, seat: number): void {
   state.roundOver = true;
   state.phase = 'spin';
   state.wedge = null;
-  state.misses = 0;
   state.finds = 0;
 
   if (state.round >= ROUNDS) {
@@ -600,7 +575,6 @@ function beginRound(state: WofState, rng: Rng): WofState {
     wedge: null,
     // A fresh puzzle gets a fresh wheel, standing where it was left.
     wedgeAt: null,
-    misses: 0,
     finds: 0,
     bank: state.bank.map(() => 0),
     note: null,
@@ -761,7 +735,6 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       wedge: null,
       wedgeAt: null,
       spins: 0,
-      misses: 0,
       finds: 0,
       bank: Array<number>(seats).fill(0),
       score: Array<number>(seats).fill(0),
@@ -846,10 +819,11 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     }
     if (state.roundOver) return `${nameFor(state.turn)} to start round ${state.round + 1}`;
 
-    // Guesses left is worth saying out loud once any have been used — it is
-    // what decides whether the player to move can afford a hunch.
-    const left = GUESSES_PER_TURN - state.misses;
-    const tail = left < GUESSES_PER_TURN ? ` — ${count(left)} left` : '';
+    // Letters left in the streak is worth saying out loud once the player has
+    // found any: it is the only part of the turn's shape that is not obvious
+    // from the board, since the other way a turn ends takes exactly one guess.
+    const left = FINDS_PER_TURN - state.finds;
+    const tail = left < FINDS_PER_TURN ? ` — ${count(left)} left` : '';
     if (state.phase === 'call') return `${nameFor(state.turn)} to name a consonant${tail}`;
     return `${nameFor(state.turn)} to spin or solve${tail}`;
   },

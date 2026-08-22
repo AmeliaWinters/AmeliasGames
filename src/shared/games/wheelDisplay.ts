@@ -24,21 +24,12 @@ export const VOWEL_COST = 250;
 export const SOLVE_BONUS = 2000;
 
 /**
- * Wrong guesses a player gets before the turn moves on.
- *
- * One strike and out made a turn a coin toss: call a letter that is not there
- * and you were finished, whatever you had worked out. Three is enough to back
- * a hunch — buy a vowel, miss, and still have a go at the phrase.
- */
-export const GUESSES_PER_TURN = 3;
-
-/**
  * Correct letters a player may find before the turn moves on.
  *
  * Without it a good spin was the whole round: find a letter, spin again, find
- * another, and a player who got going never handed the wheel back. Three is
- * the same number as the wrong guesses on purpose — a turn is three shots,
- * and it ends whichever way you use them up.
+ * another, and a player who got going never handed the wheel back. A wrong
+ * guess ends the turn on the spot, as it does on the show; three right ones
+ * end it too, so a hot streak is worth having but not worth the whole round.
  */
 export const FINDS_PER_TURN = 3;
 

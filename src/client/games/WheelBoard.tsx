@@ -6,7 +6,6 @@ import {
   ALPHABET,
   BLANK,
   FINDS_PER_TURN,
-  GUESSES_PER_TURN,
   ROUNDS,
   VOWELS,
   VOWEL_COST,
@@ -247,7 +246,6 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
   // Where the wheel is standing, which outlives the turn that spun it — see
   // `wedgeAt` on the state.
   const landed = state.wedgeAt === null ? null : WHEEL[state.wedgeAt];
-  const guessesLeft = Math.max(0, GUESSES_PER_TURN - state.misses);
   const findsLeft = Math.max(0, FINDS_PER_TURN - state.finds);
 
   function submitSolve(event: React.FormEvent) {
@@ -310,20 +308,12 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
             )}
           </p>
 
-          {/* What is left of the turn, both ways it can run out: three wrong
-              guesses ends it, and so does three right ones. Both are rules a
-              player has to be able to see rather than work out from the note
-              line, and the second is the one most likely to be news. */}
+          {/* How much of the streak is left. A wrong guess ends the turn on
+              the spot, which needs no meter — nobody has to be told they get
+              one. The cap on right ones is the rule that is actually news, so
+              it is the only one shown. */}
           {myTurn && (
             <div className="wof-meters">
-              <p className={guessesLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
-                <span className="wof-pips" aria-hidden="true">
-                  {Array.from({ length: GUESSES_PER_TURN }, (_, i) => (
-                    <i key={i} className={i < guessesLeft ? "" : "spent"} />
-                  ))}
-                </span>
-                {guessesLeft} {guessesLeft === 1 ? "guess" : "guesses"} left
-              </p>
               <p className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
                 <span className="wof-pips" aria-hidden="true">
                   {Array.from({ length: FINDS_PER_TURN }, (_, i) => (
