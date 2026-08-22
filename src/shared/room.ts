@@ -14,8 +14,15 @@ export interface SeatRecord {
  * Bumped whenever a persisted shape changes — a game's state, or the snapshot
  * itself. A stored room from an older shape is discarded rather than fed to a
  * reducer that would misread it.
+ *
+ * Meaning counts as shape. A stored `Toss` is not a record of what the dice
+ * showed, it is the throw the boards re-run to find out — so changing the
+ * simulation or the size of a die makes an old one land somewhere new, and a
+ * game restored across that change would draw dice that disagree with the
+ * score beside them. That is the same failure as a misread field and takes the
+ * same cure.
  */
-export const SNAPSHOT_VERSION = 4;
+export const SNAPSHOT_VERSION = 5;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {

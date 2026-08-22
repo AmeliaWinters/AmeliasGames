@@ -148,6 +148,22 @@ export function DiceTray({
     // whichever box each rule happened to sit in — the pips are inside the
     // die, so theirs would come out a seventh of the size intended.
     box.current?.style.setProperty("--die", size.toFixed(2) + "px");
+    /*
+      Every slot, not every body — and the difference is a bug this has told
+      twice. A slot with no body behind it is never given a position or a
+      rotation, so it stays in the corner of the tray at the identity, and a
+      cube at the identity is a cube showing a one. Backgammon drew a double
+      as four dice that way and put two ones in the corner of the board.
+
+      A tray asked for more dice than were thrown is a caller's mistake and
+      not something to paper over, but a die that does not exist has to be
+      *absent* rather than wrong: hidden is a hole, and a hole is something
+      you go and look at.
+    */
+    slots.current.forEach((slot, i) => {
+      const body = live.bodies[i];
+      if (slot) slot.style.visibility = body ? "" : "hidden";
+    });
     live.bodies.forEach((body, i) => {
       const slot = slots.current[i];
       if (slot) {
@@ -184,6 +200,7 @@ export function DiceTray({
           asleep: true,
           slow: 0,
           air: 0,
+          tip: null,
         })),
         rng: () => 0,
       };

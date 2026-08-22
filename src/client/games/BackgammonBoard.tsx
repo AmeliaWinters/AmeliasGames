@@ -3,6 +3,7 @@ import {
   BACKGAMMON_TRAY,
   POINTS,
   barEntry,
+  diceOnTable,
   direction,
   legalMoves,
   pipCount,
@@ -301,25 +302,9 @@ export function BackgammonStatus({
   const stuck = myTurn && state.phase === "move" && !flying && legalMoves(state).length === 0;
   const canRoll = myTurn && state.phase === "roll" && !flying;
 
-  // The whole throw, not what is left of it: doubles are four dice and the
-  // tray has to hold the same bodies for the length of a turn.
-  const thrown =
-    state.roll === null
-      ? [0, 0]
-      : state.roll[0] === state.roll[1]
-        ? [state.roll[0], state.roll[0], state.roll[0], state.roll[0]]
-        : [...state.roll];
-  // Which of them are gone, matched by value rather than by count: `dice`
-  // holds what is unplayed, and playing the 5 of a 3-and-5 leaves [3] — so
-  // counting from the end would strike out the 3, which is the one you still
-  // have.
-  const unplayed = [...state.dice];
-  const spent = thrown.map((face) => {
-    const at = unplayed.indexOf(face);
-    if (at === -1) return true;
-    unplayed.splice(at, 1);
-    return false;
-  });
+  // Two dice, because two dice were thrown — see `diceOnTable`, which is
+  // where the double's four moves are turned back into the pair on the table.
+  const { thrown, double, left, spent } = diceOnTable(state);
 
   return (
     <div className="bg-controls">
@@ -336,7 +321,13 @@ export function BackgammonStatus({
         flying={flying}
         mine={myTurn}
         label={diceLabel(thrown, state.dice, flying, state.phase)}
-        hint={canRoll ? "Flick to throw" : undefined}
+        hint={
+          canRoll
+            ? "Flick to throw"
+            : double && state.phase === "move" && !flying
+              ? `Double — ${left} of four to play`
+              : undefined
+        }
         onThrow={canRoll ? onThrow : undefined}
         onRest={onRest}
       />
@@ -367,6 +358,12 @@ function diceLabel(
   if (flying) return "The dice, in the air";
   if (phase === "roll") return "The dice, not thrown yet";
   const rolled = `Rolled ${thrown.join(" and ")}`;
+  // A double is two dice and four moves, so the count is the news rather than
+  // which numbers are left — they are all the same number.
+  if (thrown[0] === thrown[1]) {
+    if (left.length === 0) return `${rolled}, a double, all four played`;
+    return `${rolled}, a double; ${left.length} of four still to play`;
+  }
   if (left.length === 0) return `${rolled}, all played`;
   if (left.length === thrown.length) return rolled;
   return `${rolled}; ${left.join(" and ")} still to play`;

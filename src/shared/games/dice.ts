@@ -40,16 +40,28 @@ import type { Rng } from '../types.js';
  *
  * Each die starts in one of the cube's 24 orientations, drawn uniformly from
  * the server's rng and independently of everything else (`Toss.spin`). The
- * simulation then applies some rotation to it — a complicated one, but a
- * *fixed* one, because the tumbling is driven entirely by where the die slides
- * and never feeds back into it. A uniformly random orientation composed with
- * any fixed rotation is still uniformly random, so the face that ends up
- * pointing at the player is exactly uniform over the six. The physics decides
- * which face; the draw decides that it is even.
+ * simulation then applies some rotation to it — a complicated one, but the
+ * *same* one whichever of the 24 it started in. A uniformly random orientation
+ * composed with a fixed rotation is still uniformly random, so the face that
+ * ends up pointing at the player is exactly uniform over the six. The physics
+ * decides which face; the draw decides that it is even.
  *
- * That independence is load-bearing: the moment the 3D orientation is allowed
- * to affect the 2D motion, the argument above stops holding and the dice
- * quietly stop being fair.
+ * Two things keep that "same one whichever it started in" true, and both are
+ * load-bearing:
+ *
+ * - **The 2D motion never reads the 3D orientation.** The tumble and the fall
+ *   onto a face are driven by where the die slides, and neither writes a
+ *   velocity. Let the orientation nudge the motion and every die's path
+ *   depends on the draw, which is the end of the argument.
+ * - **What does read the orientation is even-handed about the 24.** The
+ *   settling looks at which face a die is nearest, so it is not a fixed
+ *   rotation on its own — but it treats the 24 alike, and turning the whole
+ *   throw by one of them turns its answer by the same one (see `slerp`). Start
+ *   in `g` rather than upright and everything that follows is the upright
+ *   throw turned by `g`, so the 24 starts still reach 24 different finishes.
+ *
+ * `dice.test.ts` holds the conclusion directly: sweep a throw across all 24
+ * starts and each face comes up exactly four times per die.
  */
 
 /** Where a die is: in the plane, plus which of the 24 orientations it is in. */
@@ -91,7 +103,10 @@ export const P = {
   SLEEP_MS: 70,
   /** Damping quadruples here. A throw is a moment, not a cutscene. */
   DEADLINE: 620,
-  /** Everything sleeps regardless. The promise that a turn always ends. */
+  /**
+   * Everything sleeps regardless. The promise that a turn always ends — plus
+   * `SQUARE_MS` for the last of the fall, which is not a throw carrying on.
+   */
   HARD_STOP: 1150,
   /** Contacts softer than this are the solver settling, not dice landing. */
   QUIET: 4,
@@ -112,6 +127,39 @@ export const P = {
    * stop reading as objects.
    */
   PASSES: 3,
+  /**
+   * Where the tumble hands over to gravity.
+   *
+   * A real die does not spin freely until it stops and then jump onto a face:
+   * as it runs out of speed the corner it is riding on stops carrying it and
+   * it falls onto whichever face it was nearest. Below this speed — in tray
+   * units a second, and well above the speed it sleeps at, so there is a
+   * stretch of the throw where both are happening — that fall starts, coming
+   * on gradually as the die slows rather than switching on.
+   */
+  SETTLE_V: 9,
+  /** And it does not start while the die is still spinning in the plane. */
+  SETTLE_SPIN: 9,
+  /**
+   * How quickly that fall closes the gap: the share of whatever is left to
+   * turn that it takes each second.
+   *
+   * A share rather than a rate, so the die decelerates onto the face instead
+   * of turning at a constant speed and stopping dead when it arrives — which
+   * is the same jump as before, only smaller and further from the end.
+   */
+  SETTLE_W: 7,
+  /**
+   * The last of it, once the die has stopped travelling: whatever is left of
+   * the fall, eased rather than cut. A die that has been rolling all the way
+   * down needs almost none of this; it is here because "almost" is not "none",
+   * and a jump of two degrees is as wrong as a jump of forty.
+   *
+   * Fixed, not scaled by how far there is to go — see the note on the tip
+   * itself for why the number of steps a throw takes must not depend on which
+   * way a die happens to be turned.
+   */
+  SQUARE_MS: 150,
 } as const;
 
 // ── The cube ───────────────────────────────────────────────────────────
@@ -214,6 +262,55 @@ export function faceOf(q: Quat): number {
   return best;
 }
 
+/**
+ * Turn `a` a fraction of the way towards `b`, the short way round.
+ *
+ * The one operation the settling is made of, and the reason the odds survive
+ * it: it is *right-equivariant*. Turn both ends by the same rotation and the
+ * result turns with them — `slerp(a·g, b·g, t) = slerp(a, b, t)·g` — and the
+ * same is true of `squareUp`, because right-multiplying by one of the 24
+ * permutes the 24 without moving any of them relative to each other. So a
+ * throw that starts in orientation `g` ends in `R·g` for a rotation `R` that
+ * is the same for all 24 starts, even though the settling looks at the
+ * orientation to decide what to do. The uniform draw still carries through
+ * exactly, which `dice.test.ts` checks across all 24.
+ */
+export function slerp(a: Quat, b: Quat, t: number): Quat {
+  let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  // q and -q are the same rotation, so take whichever of the two is nearer —
+  // otherwise the die takes the long way round to the face it is already on.
+  let end: Quat = b;
+  if (dot < 0) {
+    end = [-b[0], -b[1], -b[2], -b[3]];
+    dot = -dot;
+  }
+  if (dot > 0.9995) {
+    // Nearly there; the arc is shorter than the arithmetic's precision.
+    return normalise([
+      a[0] + (end[0] - a[0]) * t,
+      a[1] + (end[1] - a[1]) * t,
+      a[2] + (end[2] - a[2]) * t,
+      a[3] + (end[3] - a[3]) * t,
+    ]);
+  }
+  const theta = Math.acos(dot);
+  const sin = Math.sin(theta);
+  const wa = Math.sin((1 - t) * theta) / sin;
+  const wb = Math.sin(t * theta) / sin;
+  return [
+    a[0] * wa + end[0] * wb,
+    a[1] * wa + end[1] * wb,
+    a[2] * wa + end[2] * wb,
+    a[3] * wa + end[3] * wb,
+  ];
+}
+
+/** The angle between two rotations, in radians. */
+function between(a: Quat, b: Quat): number {
+  const dot = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+  return 2 * Math.acos(Math.min(1, dot));
+}
+
 /** The nearest of the 24 square orientations — where a landing die settles. */
 export function squareUp(q: Quat): number {
   let best = 0;
@@ -257,6 +354,39 @@ export interface Body {
   slow: number;
   /** Milliseconds of flight left before it is on the table again. */
   air: number;
+  /** The last of the fall onto a face, once it has stopped travelling. */
+  tip: Tip | null;
+}
+
+/**
+ * A die going the last few degrees onto its face.
+ *
+ * A die that has stopped sliding has not finished moving: it is resting on an
+ * edge or a corner and has to fall the rest of the way. Most of that fall
+ * happens while it is still slowing down — see `SETTLE_V` — and this is
+ * whatever is left of it at the moment the die stops, played out over
+ * `SQUARE_MS` rather than applied in a single frame. The face it arrives on is
+ * the one it was already nearest, so nothing about the result changes; what
+ * changes is that the die is never seen to jump.
+ *
+ * The plane angle comes along for the ride, and for the same reason: the
+ * footprint and the cube are two views of one die, and one of them snapping
+ * square while the other eases would look like two objects.
+ *
+ * **Why the duration is a constant.** The footprint turns while this runs, so
+ * a die still rolling can strike a settling one — which means the length of
+ * the settle is part of the motion. Scale it by how far the *cube* has to
+ * turn and the 3D orientation is suddenly deciding where dice end up, and the
+ * fairness argument at the top of this file is gone. It has to be a number
+ * that does not know which way the die is facing.
+ */
+interface Tip {
+  /** Milliseconds elapsed, out of `P.SQUARE_MS`. */
+  t: number;
+  q0: Quat;
+  q1: Quat;
+  a0: number;
+  a1: number;
 }
 
 /** One resolved contact, for the sound. `wall` is die on tray, not die on die. */
@@ -554,6 +684,53 @@ function depth(a: Body, b: Body): { nx: number; ny: number; d: number } | null {
 }
 
 /**
+ * Gravity, on a die that is running out of speed.
+ *
+ * A cube crossing a table rolls corner over corner for as long as its own
+ * speed keeps carrying it over; once it is slow enough, the corner it is
+ * riding stops being a hinge and starts being a pivot it falls off. This is
+ * that: a pull towards the face the die is already nearest, worth nothing at
+ * `SETTLE_V` and everything at a standstill, so a die arrives at rest already
+ * lying on a face instead of being put on one.
+ *
+ * Reads the motion and never writes to it — the same rule the tumble follows,
+ * for the same reason.
+ */
+function fall(b: Body, dt: number): void {
+  if (b.air > 0) return;
+  const pull = Math.min(
+    1 - Math.min(1, Math.hypot(b.vx, b.vy) / P.SETTLE_V),
+    1 - Math.min(1, Math.abs(b.w) / P.SETTLE_SPIN),
+  );
+  if (pull <= 0) return;
+  const onto = ORIENTATIONS[squareUp(b.q)];
+  if (between(b.q, onto) < 1e-6) return;
+  b.q = slerp(b.q, onto, Math.min(1, P.SETTLE_W * pull * dt));
+}
+
+/** The last of the fall. True while there is still some of it left. */
+function tipOver(b: Body, dt: number): boolean {
+  const tip = b.tip;
+  if (!tip) return false;
+  tip.t = Math.min(P.SQUARE_MS, tip.t + dt * 1000);
+  const k = tip.t / P.SQUARE_MS;
+  // Smoothstep: a die that is toppling is not moving at the instant it starts
+  // and is not moving at the instant it lands, and a linear ramp says it was
+  // doing the same speed at both ends.
+  const s = k * k * (3 - 2 * k);
+  b.q = slerp(tip.q0, tip.q1, s);
+  b.a = tip.a0 + (tip.a1 - tip.a0) * s;
+  if (tip.t < P.SQUARE_MS) return true;
+  // Exactly, rather than to within a rounding error: this is the moment the
+  // number the die shows becomes a number, and `squareUp` has to find it where
+  // it was put.
+  b.q = tip.q1;
+  b.a = tip.a1;
+  b.tip = null;
+  return false;
+}
+
+/**
  * One fixed step. Returns how many bodies are still moving; zero means the
  * throw is over. Contacts worth hearing are appended to `contacts`.
  */
@@ -568,6 +745,12 @@ export function step(world: World, contacts: Contact[]): number {
   const adamp = past ? P.ANG_DAMP * 4 : P.ANG_DAMP;
 
   for (const b of world.bodies) {
+    // A die on its way onto a face. It has stopped travelling, so there is no
+    // motion left to integrate — only the fall to finish.
+    if (b.tip) {
+      tipOver(b, dt);
+      continue;
+    }
     if (b.asleep) continue;
     b.air = Math.max(0, b.air - dt * 1000);
     b.vx -= b.vx * damp * dt;
@@ -597,6 +780,7 @@ export function step(world: World, contacts: Contact[]): number {
       ),
     );
 
+    fall(b, dt);
     walls(b, world, contacts);
   }
 
@@ -620,6 +804,12 @@ export function step(world: World, contacts: Contact[]): number {
 
   let moving = 0;
   for (const b of world.bodies) {
+    // Still falling onto its face, which is not the same as at rest: the
+    // throw is not over and the board must not read the dice yet.
+    if (b.tip) {
+      moving++;
+      continue;
+    }
     if (b.asleep) continue;
     if (b.air > 0) {
       // A die in the air has not come to rest, whatever its speed says.
@@ -636,13 +826,21 @@ export function step(world: World, contacts: Contact[]): number {
       b.vx = 0;
       b.vy = 0;
       b.w = 0;
+      // It has stopped sliding; it has not finished falling. Whatever is left
+      // of the tip onto a face is played out over the next few frames rather
+      // than in this one — most of it is already done, because `fall` has been
+      // working on it since the die slowed down.
+      //
       // Square in the plane as well as on a face: the footprint and the cube
       // are two views of one die and must agree about which way it is facing.
-      b.a = Math.round(b.a / (Math.PI / 2)) * (Math.PI / 2);
-      // A die comes to rest on a face. Landing it at 7° off square would read
-      // as a rendering bug rather than as a die — and this is the moment the
-      // number it shows becomes a number.
-      b.q = ORIENTATIONS[squareUp(b.q)];
+      b.tip = {
+        t: 0,
+        q0: b.q,
+        q1: ORIENTATIONS[squareUp(b.q)],
+        a0: b.a,
+        a1: Math.round(b.a / (Math.PI / 2)) * (Math.PI / 2),
+      };
+      moving++;
     } else moving++;
   }
 
@@ -691,6 +889,7 @@ export function open(opts: {
       asleep: false,
       slow: 0,
       air: 0,
+      tip: null,
     };
     world.bodies.push(body);
     if (held[i]) {

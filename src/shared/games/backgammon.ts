@@ -27,7 +27,53 @@ export const CHECKERS = 15;
  * device draws it at. Shallower than Yahtzee's and with a bigger die — two
  * dice in a tray sized for five read as two dice that got lost.
  */
-export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 17 };
+export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 12 };
+
+/**
+ * The dice on the table, and what is left of them.
+ *
+ * Here rather than in the board because getting it wrong put dice on the
+ * board that were never thrown: a double is four *moves* and it was drawn as
+ * four dice, but the tray draws the cubes the simulation tumbled and there
+ * are only ever two of those. The two spare ones sat unrotated in the corner
+ * of the tray, and an unrotated cube shows a one — so a double four showed
+ * two fours and two ones, and the ones were not dice.
+ *
+ * Two dice, then, always. The four is bookkeeping, and `left` is what the
+ * board says in words.
+ */
+export function diceOnTable(state: BgState): {
+  /** The pair, as thrown. Two zeroes before the first roll. */
+  thrown: number[];
+  /** Both the same. Four moves from two dice. */
+  double: boolean;
+  /** Moves still to play: two normally, up to four on a double. */
+  left: number;
+  /**
+   * Which of the two are used up, matched by value rather than by count:
+   * `dice` holds what is unplayed, and playing the 5 of a 3-and-5 leaves [3],
+   * so counting from the end would strike out the 3 — the one you still have.
+   *
+   * Never one of a double. Both dice are the same number and neither is spent
+   * until all four moves are, so dimming one would be picking a die at random
+   * and calling it used.
+   */
+  spent: boolean[];
+} {
+  const thrown = state.roll === null ? [0, 0] : [...state.roll];
+  const double = state.roll !== null && state.roll[0] === state.roll[1];
+  const left = state.dice.length;
+  const unplayed = [...state.dice];
+  const spent = double
+    ? thrown.map(() => state.phase === "move" && left === 0)
+    : thrown.map((face) => {
+        const at = unplayed.indexOf(face);
+        if (at === -1) return true;
+        unplayed.splice(at, 1);
+        return false;
+      });
+  return { thrown, double, left, spent };
+}
 
 export interface BgState {
   points: number[];

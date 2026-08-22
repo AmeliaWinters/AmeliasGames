@@ -6,6 +6,7 @@ import {
   canBearOff,
   pipCount,
   barEntry,
+  diceOnTable,
   POINTS,
   CHECKERS,
   type BgState,
@@ -744,5 +745,39 @@ describe("the dice themselves", () => {
         expect(value).toBeLessThanOrEqual(6);
       }
     }
+  });
+});
+
+describe("the dice on the table", () => {
+  /*
+    The bug this is about: a double is four moves, and the board drew it as
+    four dice. The tray draws the cubes the simulation tumbled and there were
+    only two of them, so the two extra ones sat unrotated in the corner — and
+    an unrotated cube shows a one. A double four drew two fours and two ones.
+  */
+  it("is two dice, whatever the roll", () => {
+    expect(diceOnTable(position({ roll: [4, 4], dice: [4, 4, 4, 4] })).thrown).toEqual([4, 4]);
+    expect(diceOnTable(position({ roll: [3, 5], dice: [3, 5] })).thrown).toEqual([3, 5]);
+    expect(diceOnTable(position({ roll: null, phase: "roll" })).thrown).toHaveLength(2);
+  });
+
+  it("counts a double's four moves without inventing dice for them", () => {
+    const four = (dice: number[]) => diceOnTable(position({ roll: [4, 4], dice }));
+    expect(four([4, 4, 4, 4]).left).toBe(4);
+    expect(four([4, 4]).left).toBe(2);
+    expect(four([]).left).toBe(0);
+    expect(four([4, 4, 4, 4]).double).toBe(true);
+    // Neither die is struck out while there are moves left in the pair: both
+    // show the same number, so dimming one would be picking at random.
+    expect(four([4, 4, 4]).spent).toEqual([false, false]);
+    expect(four([4]).spent).toEqual([false, false]);
+    expect(four([]).spent).toEqual([true, true]);
+  });
+
+  it("strikes out the die that was played, not the one that is left", () => {
+    // Playing the 5 of a 3-and-5 leaves [3], and it is the 5 that is gone.
+    expect(diceOnTable(position({ roll: [3, 5], dice: [3] })).spent).toEqual([false, true]);
+    expect(diceOnTable(position({ roll: [3, 5], dice: [5] })).spent).toEqual([true, false]);
+    expect(diceOnTable(position({ roll: [3, 5], dice: [3, 5] })).spent).toEqual([false, false]);
   });
 });

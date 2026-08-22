@@ -24,6 +24,8 @@ import {
   type YMove,
   type YState,
 } from './yahtzee.js';
+import { YAHTZEE_TRAY, hasRolled } from './yahtzeeDisplay.js';
+import { facesOf, open, settle } from './dice.js';
 import { RoomEngine } from '../room.js';
 import type { MoveResult } from '../types.js';
 
@@ -428,5 +430,58 @@ describe('in a room', () => {
     expect(room.move(1, { type: 'roll' }).ok).toBe(false);
     expect(room.move(0, { type: 'roll' }).ok).toBe(true);
     expect((room.viewFor(2, new Set([0, 1, 2])).state as YState).rollsLeft).toBe(ROLLS - 1);
+  });
+});
+
+
+/**
+ * The number on the sheet and the number on the die.
+ *
+ * The reducer runs the throw, reads the faces off the resting cubes and
+ * records them; the board re-runs the same throw and draws whatever the cubes
+ * are showing when they stop. Two runs of one simulation, and nothing checks
+ * them against each other at play time — a player does, by reading the tray
+ * and then reading the score. So this is that check: replay every throw of
+ * several games exactly the way `DiceTray` does, and hold the cubes to the
+ * record, kept dice included.
+ */
+describe('the dice on the table', () => {
+  it('show what the sheet was scored from, roll after roll', () => {
+    for (let game = 0; game < 20; game++) {
+      let seed = game * 7919 + 1;
+      const rng = () => {
+        seed = (seed * 1103515245 + 12345) >>> 0;
+        return seed / 4294967296;
+      };
+      let state = yahtzee.setup(2, rng);
+
+      for (let round = 0; round < 6; round++) {
+        for (let roll = 0; roll < ROLLS; roll++) {
+          if (hasRolled(state) && state.held.every(Boolean)) break;
+          state = ok(
+            apply(state, { type: 'roll', flick: { x: rng() * 4 - 2, y: -rng() * 3 } }, state.turn, rng),
+          );
+
+          // What the board does with the state it has just been handed.
+          const world = open({
+            tray: YAHTZEE_TRAY,
+            toss: state.toss!,
+            from: state.toss!.from,
+            held: state.held,
+          });
+          settle(world);
+          expect(facesOf(world)).toEqual(state.dice);
+
+          for (let die = 0; die < state.dice.length; die++) {
+            if (rng() < 0.4) {
+              const kept = apply(state, { type: 'hold', die }, state.turn, rng);
+              if (kept.ok) state = kept.state;
+            }
+          }
+        }
+        const box = legalCategories(state.sheets[state.turn], state.dice)[0];
+        state = ok(apply(state, { type: 'score', category: box }, state.turn, rng));
+      }
+    }
   });
 });

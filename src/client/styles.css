@@ -1271,6 +1271,20 @@ input:focus-visible {
 .die-hold:disabled {
   cursor: default;
 }
+/* A die is small — smaller than a fingertip, and smaller again since the tray
+   was given room to throw in. The cube keeps its size and the area that
+   answers a tap does not: this is the 44px the die itself no longer is,
+   invisible, centred, and allowed to overlap its neighbours' rather than
+   leaving a strip down the middle that keeps nothing. */
+.die-hold::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 /* Kept dice are ringed on every side, since any of them may be the one facing
    you. The ring is the information, and it is the accent because keeping is a
    choice you made rather than something the rules did to you.
@@ -1286,8 +1300,8 @@ input:focus-visible {
 .die-hold.held .cube-face {
   border-color: #0c0c0f;
   box-shadow:
-    inset 0 0 0 2px var(--accent),
-    inset 0 0 0 4px #0c0c0f;
+    inset 0 0 0 max(1.5px, calc(var(--die) * 0.045)) var(--accent),
+    inset 0 0 0 max(3px, calc(var(--die) * 0.09)) #0c0c0f;
 }
 
 .dice-hint {

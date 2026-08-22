@@ -27,7 +27,7 @@ import type { Toss } from './toss.js';
  * - the six faces come up equally often, or the game is crooked.
  */
 
-const TRAY: Tray = { w: 100, h: 44, die: 14 };
+const TRAY: Tray = { w: 100, h: 44, die: 10 };
 
 function toss(over: Partial<Toss> = {}): Toss {
   const from = row(TRAY, 5);
@@ -82,7 +82,11 @@ describe('a throw', () => {
         steps++;
       }
       expect(moving).toBe(0);
-      expect(steps * P.STEP * 1000).toBeLessThanOrEqual(P.HARD_STOP + P.STEP * 1000);
+      // The hard stop, plus the last of the fall onto a face, plus the step
+      // the hard stop is noticed in.
+      expect(steps * P.STEP * 1000).toBeLessThanOrEqual(
+        P.HARD_STOP + P.SQUARE_MS + P.STEP * 1000,
+      );
     }
   });
 
@@ -145,6 +149,70 @@ describe('a throw', () => {
     const right = settle(thrown({ x: 4, y: 0 })).rest;
     const middle = (places: Rest[]) => places.reduce((sum, at) => sum + at.x, 0) / places.length;
     expect(middle(left)).toBeLessThan(middle(right));
+  });
+});
+
+describe('a die coming to rest', () => {
+  /** How far a die turned between one step and the next, in radians. */
+  function turns(over: Partial<Toss>): number[][] {
+    const world = thrown(over);
+    const each: number[][] = world.bodies.map(() => []);
+    let moving = 1;
+    let steps = 0;
+    while (moving > 0 && steps < 2000) {
+      const before = world.bodies.map((b) => b.q);
+      moving = step(world, []);
+      world.bodies.forEach((b, i) => {
+        const dot = Math.abs(
+          before[i][0] * b.q[0] +
+            before[i][1] * b.q[1] +
+            before[i][2] * b.q[2] +
+            before[i][3] * b.q[3],
+        );
+        each[i].push(2 * Math.acos(Math.min(1, dot)));
+      });
+      steps++;
+    }
+    return each;
+  }
+
+  it('does not jump onto its face', () => {
+    // The bug this is here about: a die used to tumble, stop, and then snap
+    // upright in a single frame — up to sixty degrees in eight milliseconds,
+    // which reads as the die being corrected rather than as a die landing. It
+    // falls onto the face now, so the last thing it does is nearly nothing.
+    for (let seed = 0; seed < 20; seed++) {
+      for (const each of turns({ seed, x: 2.7, y: -2.2 })) {
+        const last = each.map((turn, i) => (turn > 1e-9 ? i : -1)).reduce((a, b) => Math.max(a, b));
+        expect(each[last]).toBeLessThan(0.03);
+      }
+    }
+  });
+
+  it('turns no faster settling than it did rolling', () => {
+    // The other half of the same claim: the fall is not a jump spread over a
+    // few frames either. Nothing in the last quarter of a second turns faster
+    // than the die was turning while it was still crossing the tray.
+    for (let seed = 0; seed < 20; seed++) {
+      for (const each of turns({ seed, x: 2.7, y: -2.2 })) {
+        const tail = Math.max(0, each.length - Math.round(0.25 / P.STEP));
+        const fastest = Math.max(...each.slice(0, tail));
+        for (const turn of each.slice(tail)) expect(turn).toBeLessThanOrEqual(fastest);
+      }
+    }
+  });
+
+  it('ends square, on the face it is read from', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const world = thrown({ seed, x: -2.1, y: -3.3 });
+      const settled = settle(world);
+      world.bodies.forEach((body, i) => {
+        // Exactly one of the 24, not merely near one — the face the reducer
+        // puts on the wire is read off this.
+        expect(body.q).toEqual(ORIENTATIONS[settled.rest[i].o]);
+        expect(faceOf(ORIENTATIONS[settled.rest[i].o])).toBe(settled.faces[i]);
+      });
+    }
   });
 });
 
