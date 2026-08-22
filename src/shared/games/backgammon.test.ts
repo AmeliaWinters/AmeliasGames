@@ -20,6 +20,7 @@ function position(overrides: Partial<BgState> = {}): BgState {
     turn: 0,
     dice: [],
     roll: null,
+    toss: null,
     phase: "move",
     winner: null,
     result: null,
@@ -27,11 +28,11 @@ function position(overrides: Partial<BgState> = {}): BgState {
   };
 }
 
-/** An rng that yields exactly the die faces given, in order. */
-function loadedDice(...faces: number[]): () => number {
-  let index = 0;
-  return () => (faces[index++ % faces.length] - 1) / 6 + 0.01;
-}
+/*
+  There is no loading the dice any more, and that is the point: the pair is
+  read off cubes that were thrown, so an rng cannot hand one over. Tests that
+  need a particular roll ask `rolls` for a seed that produces it.
+*/
 
 const never = () => 0;
 
@@ -76,21 +77,44 @@ describe("setup", () => {
   });
 });
 
+/** Throw until the dice come up the way a test needs them. */
+function rolls(from: BgState, want: (roll: [number, number]) => boolean): BgState {
+  for (let seed = 0; seed < 400; seed++) {
+    const result = backgammon.applyMove(from, { type: "roll" }, from.turn, () => seed / 400);
+    if (result.ok && result.state.roll && want(result.state.roll)) return result.state;
+  }
+  throw new Error("no seed in 400 produced the roll this test needs");
+}
+
 describe("rolling", () => {
+  /*
+    The pair is the simulation's — read off the dice where they stop — so a
+    test cannot hand one over with a stubbed rng. It can ask for a seed that
+    produces the pair it needs, which is what `rolls` does, and everything
+    else asserts the rule rather than a number.
+  */
   it("produces two dice and moves to the move phase", () => {
     const s = backgammon.setup(2, never);
-    const result = backgammon.applyMove(s, { type: "roll" }, s.turn, loadedDice(3, 5));
+    const result = backgammon.applyMove(s, { type: "roll" }, s.turn, () => 0.42);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.state.roll).toEqual([3, 5]);
-    expect(result.state.dice).toEqual([3, 5]);
+    const [a, b] = result.state.roll!;
+    expect(a).toBeGreaterThanOrEqual(1);
+    expect(b).toBeLessThanOrEqual(6);
+    expect(result.state.dice).toEqual(a === b ? [a, a, a, a] : [a, b]);
     expect(result.state.phase).toBe("move");
   });
 
   it("gives four moves for doubles", () => {
     const s = backgammon.setup(2, never);
-    const result = backgammon.applyMove(s, { type: "roll" }, s.turn, loadedDice(4, 4));
-    expect(result.ok && result.state.dice).toEqual([4, 4, 4, 4]);
+    const doubled = rolls(s, (roll) => roll[0] === roll[1]);
+    expect(doubled.dice).toEqual([doubled.roll![0], doubled.roll![0], doubled.roll![0], doubled.roll![0]]);
+  });
+
+  it("plays a pair as two dice", () => {
+    const s = backgammon.setup(2, never);
+    const split = rolls(s, (roll) => roll[0] !== roll[1]);
+    expect(split.dice).toEqual(split.roll);
   });
 
   it("refuses a second roll in the same turn", () => {
@@ -529,6 +553,33 @@ describe("immutability", () => {
     expect(before.bar[0]).toBe(0);
     expect(before.off[0]).toBe(0);
     expect(before.dice).toEqual([4]);
+  });
+
+  it("never mutates the throw the dice arrived on", () => {
+    // Same lesson as `roll`, one level deeper: a `Toss` carries three arrays of
+    // its own, and a shallow spread copies only the reference to it. Nothing
+    // writes to a stored throw today, which is exactly when this is cheap to
+    // guarantee rather than expensive to discover.
+    const toss = {
+      n: 1,
+      seed: 12345,
+      x: 0,
+      y: 0,
+      spin: [3, 7],
+      from: [{ x: 1, y: 2, o: 0 }, { x: 3, y: 4, o: 1 }],
+      rest: [{ x: 5, y: 6, o: 2 }, { x: 7, y: 8, o: 3 }],
+    };
+    const before = position({ points: withChecker(10, 1), dice: [4], roll: [4, 2], toss });
+    const after = applyOne(before, 0, 10, 4)!;
+    expect(after).not.toBeNull();
+
+    after.toss!.rest[0].x = 99;
+    after.toss!.from[0].y = 99;
+    after.toss!.spin[0] = 99;
+
+    expect(before.toss!.rest[0].x).toBe(5);
+    expect(before.toss!.from[0].y).toBe(2);
+    expect(before.toss!.spin[0]).toBe(3);
   });
 
   it("does not leave the previous player's dice lying around after the turn flips", () => {

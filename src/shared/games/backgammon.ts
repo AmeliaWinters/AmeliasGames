@@ -1,6 +1,7 @@
 import type { GameDefinition, MoveResult } from "../types.js";
 import { GAME_MANIFEST } from "./manifest.js";
-import { die } from "./random.js";
+import { throwNext, type Tray } from "./dice.js";
+import type { Flick, Toss } from "./toss.js";
 
 /**
  * Backgammon.
@@ -18,6 +19,16 @@ import { die } from "./random.js";
 export const POINTS = 24;
 export const CHECKERS = 15;
 
+/**
+ * The tray the pair is thrown into, in its own units.
+ *
+ * Not pixels: the server simulates the throw and reads the pair off it, so the
+ * tray it simulates has to be the tray every device draws, whatever size that
+ * device draws it at. Shallower than Yahtzee's and with a bigger die — two
+ * dice in a tray sized for five read as two dice that got lost.
+ */
+export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 17 };
+
 export interface BgState {
   points: number[];
   /** Checkers sitting on the bar, waiting to re-enter. */
@@ -29,6 +40,13 @@ export interface BgState {
   dice: number[];
   /** The pair rolled, kept so the UI can show what happened. */
   roll: [number, number] | null;
+  /**
+   * How that pair was thrown, or null before the first roll. `phase` nearly
+   * serves as the trigger for a board animating a throw, but only nearly: two
+   * turns running can roll the same pair, and dice that sat still on the
+   * second one would read as broken. See `toss.ts`.
+   */
+  toss: Toss | null;
   phase: "roll" | "move";
   winner: 0 | 1 | null;
   /** 1 single, 2 gammon, 3 backgammon. */
@@ -38,7 +56,8 @@ export interface BgState {
 export type Source = number | "bar";
 
 export type BgMove =
-  | { type: "roll" }
+  // The flick is how the dice were thrown, not what they landed on.
+  | { type: "roll"; flick?: Flick }
   | { type: "move"; from: Source; die: number }
   | { type: "pass" };
 
@@ -91,6 +110,18 @@ function clone(state: BgState): BgState {
     // with the state it came from, which is one careless write away from
     // corrupting a stored snapshot.
     roll: state.roll ? ([...state.roll] as [number, number]) : null,
+    // The throw carries three arrays of its own, and the spread above copies
+    // only the reference to it. Nothing writes to a stored `Toss` today —
+    // `throwNext` only ever fills in the object it just built — so this costs
+    // nothing now and is here for the same reason `roll` is.
+    toss: state.toss
+      ? {
+          ...state.toss,
+          spin: state.toss.spin.slice(),
+          from: state.toss.from.map((r) => ({ ...r })),
+          rest: state.toss.rest.map((r) => ({ ...r })),
+        }
+      : null,
   };
 }
 
@@ -297,6 +328,7 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
       turn: rng() < 0.5 ? 0 : 1,
       dice: [],
       roll: null,
+      toss: null,
       phase: "roll",
       winner: null,
       result: null,
@@ -310,13 +342,22 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
 
     if (move.type === "roll") {
       if (state.phase !== "roll") return { ok: false, error: "You have already rolled." };
-      const a = die(rng);
-      const b = die(rng);
+      // The pair is read off the dice where they stop, not chosen and then
+      // shown — see `dice.ts`.
+      const thrown = throwNext({
+        previous: state.toss,
+        flick: move.flick,
+        rng,
+        tray: BACKGAMMON_TRAY,
+        count: 2,
+      });
+      const [a, b] = thrown.faces;
       return {
         ok: true,
         state: {
           ...clone(state),
           roll: [a, b] as [number, number],
+          toss: thrown.toss,
           // Doubles are played four times over.
           dice: a === b ? [a, a, a, a] : [a, b],
           phase: "move",

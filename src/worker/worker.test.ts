@@ -131,6 +131,9 @@ async function seatTwo() {
   await ctx.room.webSocketMessage(host as unknown as WebSocket, hello({ playerId: 'host', name: 'Host', create: true }));
   const guest = ctx.socket();
   await ctx.room.webSocketMessage(guest as unknown as WebSocket, hello({ playerId: 'guest', name: 'Guest' }));
+  // A room now gathers first and is dealt second, so nothing can be played
+  // until the host says everyone is here.
+  await ctx.room.webSocketMessage(host as unknown as WebSocket, JSON.stringify({ t: 'start' }));
   return { ctx, host, guest };
 }
 
@@ -208,6 +211,22 @@ describe('presence', () => {
     const players = guest.last('room').room.players;
     expect(players[0].connected).toBe(false);
     expect(players[1].connected).toBe(true);
+  });
+
+  it('starts the empty-room countdown when the last socket errors rather than closes', async () => {
+    // These two doors used to lead to different places: close armed the sweep,
+    // error did not. A room whose last socket failed instead of closing was
+    // therefore never swept, and held its storage -- and its room code -- for
+    // good.
+    const { ctx, host, guest } = await seatTwo();
+    await ctx.room.webSocketError(host as unknown as WebSocket);
+    expect(ctx.state.store.get('emptySince')).toBeUndefined();
+
+    // The host's socket is really gone now, the way the runtime would have
+    // dropped it -- so the guest is the last one out.
+    ctx.state.sockets = ctx.state.sockets.filter((s) => s !== (host as unknown as WebSocket));
+    await ctx.room.webSocketError(guest as unknown as WebSocket);
+    expect(typeof ctx.state.store.get('emptySince')).toBe('number');
   });
 });
 

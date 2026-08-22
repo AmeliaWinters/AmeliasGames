@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ALPHABET,
   BLANK,
+  FINDS_PER_TURN,
   GUESSES_PER_TURN,
   ROUNDS,
   VOWELS,
@@ -15,7 +16,8 @@ import {
   wedgeLabel,
   wedgeName,
 } from "../../shared/games/wheelDisplay.js";
-import type { WofMove, WofState } from "../../shared/games/wheel.js";
+import type { Wedge, WofMove, WofState } from "../../shared/games/wheel.js";
+import { wantsStillness } from "../motion.js";
 
 /**
  * How long the wheel takes to come to rest. Matched by the transition in
@@ -30,6 +32,22 @@ const SPIN_TURNS = 4;
 /** The wheel is drawn in a 220-unit box; these are its two radii. */
 const RADIUS = 100;
 const LABEL_RADIUS = 74;
+
+/**
+ * Half the box, and so the centre of the wheel in the box's own coordinates.
+ *
+ * The wheel is drawn about its own origin and then moved here by a translate,
+ * rather than the box being given a viewBox centred on zero. That reads like
+ * the long way round, and it is the only way the spin works: the disc is
+ * turned by a CSS `transform`, and `transform-origin: center` under
+ * `transform-box: view-box` resolves to half the box measured from the
+ * element's own origin — not from the viewBox's corner. With a `-110 -110`
+ * viewBox that put the pivot at (110, 110), a full radius clear of the wheel,
+ * and the whole thing swung off the screen on the first spin instead of
+ * turning on the spot. Starting the box at zero makes the pivot and the centre
+ * the same point, whichever way an engine reads it.
+ */
+const CENTRE = 110;
 
 /** Where the wheel has to sit for wedge `at` to be under the pointer. */
 function restAngle(at: number | null): number {
@@ -52,19 +70,34 @@ function sectorPath(index: number): string {
   return `M 0 0 L ${point(from)} A ${RADIUS} ${RADIUS} 0 0 1 ${point(from + WEDGE_ARC)} Z`;
 }
 
+/**
+ * Bankrupt and Lose a Turn, as marks rather than words.
+ *
+ * They used to be set as text, and there is no room for it: a wedge is 15°,
+ * which is about nineteen units of arc at the label radius, and "BANKRUPT"
+ * laid across that at any readable size runs over its neighbours and off the
+ * rim. A mark is read at a glance anyway, which is all a wheel in motion gives
+ * you — and the words themselves are still said in full underneath, in the
+ * readout and in the note line.
+ *
+ * Drawn about the origin, so the caller places them the same way it places a
+ * number: rotated with the wedge, at the label radius.
+ */
+function wedgeGlyph(wedge: Wedge): string {
+  // Bankrupt: the "none of it" sign — a ring with a stroke through it.
+  if (wedge.kind === 'bankrupt') {
+    return 'M 5.4 0 A 5.4 5.4 0 1 1 -5.4 0 A 5.4 5.4 0 1 1 5.4 0 M -3.8 -3.8 L 3.8 3.8';
+  }
+  // Lose a Turn: two chevrons, pointing the way the turn is about to go.
+  return 'M -4.6 -4 L -0.2 0 L -4.6 4 M 1 -4 L 5.4 0 L 1 4';
+}
+
 function wedgeClass(index: number): string {
   const wedge = WHEEL[index];
   if (wedge.kind === "bankrupt") return "wof-wedge bankrupt";
   if (wedge.kind === "lose-turn") return "wof-wedge lose";
   // Cash wedges alternate so twenty-one of them do not read as one disc.
   return index % 2 === 0 ? "wof-wedge cash" : "wof-wedge cash alt";
-}
-
-/** Whether this device has asked for less movement. */
-function wantsStillness(): boolean {
-  return (
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 /**
@@ -103,32 +136,44 @@ function Wheel({ state, spinning }: { state: WofState; spinning: boolean }) {
       <span className="wof-pointer" aria-hidden="true" />
       <svg
         className={spinning ? "wof-disc spinning" : "wof-disc"}
-        viewBox="-110 -110 220 220"
+        viewBox={`0 0 ${CENTRE * 2} ${CENTRE * 2}`}
         // The wheel is decoration for a fact stated in words below it and in
         // the note line above it, so there is nothing here to announce twice.
         aria-hidden="true"
       >
+        {/* Two groups, and they do different jobs: the outer one is the only
+            thing that turns, and the inner one never moves — it just carries
+            the wheel from the origin to the middle of the box. See CENTRE. */}
         <g style={{ transform: `rotate(${angle}deg)` }}>
-          {WHEEL.map((wedge, index) => (
-            <path key={index} className={wedgeClass(index)} d={sectorPath(index)} />
-          ))}
-          {WHEEL.map((wedge, index) => (
-            <g
-              key={`label-${index}`}
-              transform={`rotate(${index * WEDGE_ARC + WEDGE_ARC / 2})`}
-            >
-              <text
-                className={wedge.kind === "cash" ? "wof-face" : "wof-face small"}
-                x="0"
-                y={-LABEL_RADIUS}
-                textAnchor="middle"
+          <g transform={`translate(${CENTRE} ${CENTRE})`}>
+            {WHEEL.map((wedge, index) => (
+              <path key={index} className={wedgeClass(index)} d={sectorPath(index)} />
+            ))}
+            {WHEEL.map((wedge, index) => (
+              <g
+                key={`label-${index}`}
+                transform={`rotate(${index * WEDGE_ARC + WEDGE_ARC / 2}) translate(0 ${-LABEL_RADIUS})`}
               >
-                {wedgeLabel(wedge)}
-              </text>
-            </g>
-          ))}
+                {wedge.kind === "cash" ? (
+                  <text className="wof-face" x="0" y="0" textAnchor="middle">
+                    {wedgeLabel(wedge)}
+                  </text>
+                ) : (
+                  <path
+                    className="wof-glyph"
+                    // A number is placed by its baseline, so its body sits a
+                    // few units further out than the point it is hung from. A
+                    // mark is placed by its middle, so it is nudged to match
+                    // and the two sit on one ring.
+                    transform="translate(0 -4)"
+                    d={wedgeGlyph(wedge)}
+                  />
+                )}
+              </g>
+            ))}
+          </g>
         </g>
-        <circle className="wof-hub" r="12" />
+        <circle className="wof-hub" cx={CENTRE} cy={CENTRE} r="12" />
       </svg>
     </div>
   );
@@ -214,6 +259,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
   // `wedgeAt` on the state.
   const landed = state.wedgeAt === null ? null : WHEEL[state.wedgeAt];
   const guessesLeft = Math.max(0, GUESSES_PER_TURN - state.misses);
+  const findsLeft = Math.max(0, FINDS_PER_TURN - state.finds);
 
   function submitSolve(event: React.FormEvent) {
     event.preventDefault();
@@ -275,20 +321,29 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
             )}
           </p>
 
-          {/* Guesses left, for the player who has them. Three to a turn is the
-              rule most likely to be news, and counting misses out of the note
-              line is not something anyone should have to do. */}
+          {/* What is left of the turn, both ways it can run out: three wrong
+              guesses ends it, and so does three right ones. Both are rules a
+              player has to be able to see rather than work out from the note
+              line, and the second is the one most likely to be news. */}
           {myTurn && (
-            <p className={guessesLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
-              <span className="wof-pips" aria-hidden="true">
-                {Array.from({ length: GUESSES_PER_TURN }, (_, i) => (
-                  <i key={i} className={i < guessesLeft ? "" : "spent"} />
-                ))}
-              </span>
-              {guessesLeft === GUESSES_PER_TURN
-                ? `${GUESSES_PER_TURN} guesses this turn`
-                : `${guessesLeft} ${guessesLeft === 1 ? "guess" : "guesses"} left`}
-            </p>
+            <div className="wof-meters">
+              <p className={guessesLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
+                <span className="wof-pips" aria-hidden="true">
+                  {Array.from({ length: GUESSES_PER_TURN }, (_, i) => (
+                    <i key={i} className={i < guessesLeft ? "" : "spent"} />
+                  ))}
+                </span>
+                {guessesLeft} {guessesLeft === 1 ? "guess" : "guesses"} left
+              </p>
+              <p className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
+                <span className="wof-pips" aria-hidden="true">
+                  {Array.from({ length: FINDS_PER_TURN }, (_, i) => (
+                    <i key={i} className={i < findsLeft ? "" : "spent"} />
+                  ))}
+                </span>
+                {findsLeft} {findsLeft === 1 ? "letter" : "letters"} left
+              </p>
+            </div>
           )}
         </div>
       )}

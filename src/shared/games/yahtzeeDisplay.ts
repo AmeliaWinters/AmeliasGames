@@ -13,6 +13,21 @@
  * the one part of these rules that is pure arithmetic over five numbers.
  */
 
+// Both are leaves like this one — no reducer, no registry — so the board can
+// take them without dragging `applyMove` into the browser behind them.
+import type { Tray } from './dice.js';
+import type { Flick, Toss } from './toss.js';
+
+/**
+ * The tray the dice are thrown into, in its own units.
+ *
+ * Not pixels: the server simulates the throw and reads the faces off it, so
+ * the tray it simulates has to be the tray every device draws, whatever size
+ * that device draws it at. The stylesheet holds the same shape as an
+ * `aspect-ratio`, and the board scales one to the other.
+ */
+export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 14 };
+
 export const DICE = 5;
 export const FACES = 6;
 /** Rolls per turn: the first, then two more of whatever you did not keep. */
@@ -91,6 +106,12 @@ export interface Note {
 export interface YState {
   /** Five faces. 0 means "not rolled yet this turn" — see `hasRolled`. */
   dice: number[];
+  /**
+   * The last throw, or null before anyone has rolled. Not cleared at the turn
+   * boundary: `n` has to keep counting for the life of the game, and a board
+   * tells "nothing rolled yet" from the dice being zero rather than from this.
+   */
+  toss: Toss | null;
   /** Which dice the player to move is keeping. Cleared at the turn boundary. */
   held: boolean[];
   /** Rolls the player to move still has. ROLLS at the start of a turn. */
@@ -108,7 +129,9 @@ export interface YState {
 }
 
 export type YMove =
-  | { type: 'roll' }
+  // The flick is how the dice were thrown, not what they landed on. Optional
+  // because a keyboard has no flick in it, and a tap is a throw too.
+  | { type: 'roll'; flick?: Flick }
   | { type: 'hold'; die: number }
   | { type: 'score'; category: Category };
 

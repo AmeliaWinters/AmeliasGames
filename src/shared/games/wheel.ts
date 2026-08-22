@@ -49,6 +49,7 @@ import {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  FINDS_PER_TURN,
   GUESSES_PER_TURN,
   ROUNDS,
   SOLVE_BONUS,
@@ -64,6 +65,7 @@ export {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  FINDS_PER_TURN,
   GUESSES_PER_TURN,
   ROUNDS,
   SOLVE_BONUS,
@@ -139,6 +141,12 @@ export interface WofState {
    * changes hands. At GUESSES_PER_TURN the turn moves on.
    */
   misses: number;
+  /**
+   * Correct letters found by the player to move, this turn. Reset whenever the
+   * turn changes hands. At FINDS_PER_TURN the turn moves on — a hot streak is
+   * worth having, not worth keeping the wheel for the whole round.
+   */
+  finds: number;
   /** Money won this round, lost entirely to Bankrupt. One entry per seat. */
   bank: number[];
   /** Money banked from rounds already won. Bankrupt cannot touch it. */
@@ -465,6 +473,7 @@ function passTurn(state: WofState): void {
   // `wedgeAt` deliberately survives: it is where the wheel is standing, and
   // the next player watches it spin away from there.
   state.misses = 0;
+  state.finds = 0;
   state.turn = (state.turn + 1) % seatCount(state);
 }
 
@@ -503,6 +512,32 @@ function strike(state: WofState, seat: number, what: string): void {
 }
 
 /**
+ * A letter that was there: bank the find, and hand the wheel on once the
+ * player has had `FINDS_PER_TURN` of them.
+ *
+ * Without this a good turn was the whole round — find a letter, spin again,
+ * find another, and the player who got going never gave the wheel back while
+ * everyone else watched. The cap is the same three as `strike`'s on purpose: a
+ * turn is three letters, and it ends whichever way you spend them.
+ *
+ * Only called on a round still running. Finishing the puzzle on your third
+ * find takes the round, and "the turn moves on" is not a thing to say about a
+ * round that has ended — so the caller checks `roundOver` first. Like
+ * `strike`, this appends to the note already standing rather than replacing
+ * it: the player still needs to read what their letter paid.
+ */
+function credit(state: WofState, seat: number): void {
+  state.finds += 1;
+  if (state.finds < FINDS_PER_TURN) return;
+  const sentence = state.note === null ? '' : `${state.note.text} `;
+  state.note = {
+    seat,
+    text: `${sentence}That is ${count(FINDS_PER_TURN)} — the turn moves on.`,
+  };
+  passTurn(state);
+}
+
+/**
  * Close the round out. `seat` is whoever finished the puzzle.
  *
  * Two rules live here, and they are the ones that decide what the game feels
@@ -527,6 +562,7 @@ function awardRound(state: WofState, seat: number): void {
   state.phase = 'spin';
   state.wedge = null;
   state.misses = 0;
+  state.finds = 0;
 
   if (state.round >= ROUNDS) {
     state.over = true;
@@ -565,6 +601,7 @@ function beginRound(state: WofState, rng: Rng): WofState {
     // A fresh puzzle gets a fresh wheel, standing where it was left.
     wedgeAt: null,
     misses: 0,
+    finds: 0,
     bank: state.bank.map(() => 0),
     note: null,
     roundOver: false,
@@ -640,6 +677,7 @@ function callConsonant(state: WofState, seat: number, letter: string): MoveResul
     text: `found ${count(hits)} ${letter}${hits === 1 ? '' : "'s"} — ${money(won)}.`,
   };
   finishIfSolved(next, seat);
+  if (!next.roundOver) credit(next, seat);
   return { ok: true, state: next };
 }
 
@@ -667,6 +705,7 @@ function buyVowel(state: WofState, seat: number, letter: string): MoveResult<Wof
         : `bought ${letter} — ${count(hits)} of them.`,
   };
   finishIfSolved(next, seat);
+  if (!next.roundOver) credit(next, seat);
   return { ok: true, state: next };
 }
 
@@ -723,6 +762,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       wedgeAt: null,
       spins: 0,
       misses: 0,
+      finds: 0,
       bank: Array<number>(seats).fill(0),
       score: Array<number>(seats).fill(0),
       note: null,

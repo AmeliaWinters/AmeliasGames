@@ -32,6 +32,8 @@ function position(overrides: Partial<YState> = {}): YState {
   const seats = overrides.sheets?.length ?? overrides.extras?.length ?? 2;
   return {
     dice: [1, 2, 3, 4, 5],
+    // No throw behind them by default: these are positions, not histories.
+    toss: null,
     held: Array<boolean>(DICE).fill(false),
     // Mid-turn by default: most tests are about a hand that is already on the
     // table, and a state with dice but three rolls left cannot happen.
@@ -142,15 +144,40 @@ describe('the turn', () => {
     for (let i = 0; i < ROLLS; i++) {
       state = ok(apply(state, { type: 'roll' }, 0, faces(4)));
     }
-    expect(state.dice).toEqual([4, 4, 4, 4, 4]);
+    expect(state.dice.every((face) => face >= 1 && face <= 6)).toBe(true);
     expect(state.rollsLeft).toBe(0);
     expect(err(apply(state, { type: 'roll' }, 0, faces(4)))).toMatch(/No rolls left/);
   });
 
-  it('rerolls only what is not held', () => {
+  /*
+    The faces are the simulation's — read off the cubes where they stop — so
+    these assert the rule rather than a number a stubbed rng handed over. What
+    a kept die promises is that it does not move, and that is exactly testable.
+  */
+  it('leaves the dice being kept exactly as they were', () => {
     const start = position({ dice: [6, 6, 1, 2, 3], held: [true, true, false, false, false] });
-    const state = ok(apply(start, { type: 'roll' }, 0, faces(5)));
-    expect(state.dice).toEqual([6, 6, 5, 5, 5]);
+    for (let seed = 0; seed < 12; seed++) {
+      const state = ok(apply(start, { type: 'roll' }, 0, () => seed / 12));
+      expect(state.dice.slice(0, 2)).toEqual([6, 6]);
+      expect(state.dice.every((face) => face >= 1 && face <= 6)).toBe(true);
+    }
+  });
+
+  it('actually throws the dice that are not being kept', () => {
+    const start = position({ dice: [6, 6, 1, 2, 3], held: [true, true, false, false, false] });
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 12; seed++) {
+      seen.add(ok(apply(start, { type: 'roll' }, 0, () => seed / 12)).dice.slice(2).join(','));
+    }
+    // Twelve throws landing on one arrangement of three dice would mean the
+    // simulation is not being driven by the seed at all.
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('refuses a roll that would throw nothing', () => {
+    // Keeping all five and rolling again spent a roll and moved nothing.
+    const start = position({ dice: [6, 6, 1, 2, 3], held: [true, true, true, true, true] });
+    expect(err(apply(start, { type: 'roll' }, 0, faces(5)))).toMatch(/keeping all five/i);
   });
 
   it('refuses to hold before a roll, or once the rolls are gone', () => {
@@ -383,11 +410,14 @@ describe('a whole game', () => {
 });
 
 describe('in a room', () => {
-  it('seats the table the room was opened for and refuses the other players', () => {
-    const room = RoomEngine.create('TEST', 'yahtzee', () => 0.5, 3)!;
+  it('deals for whoever sat down, and refuses a move from the wrong seat', () => {
+    const room = RoomEngine.create('TEST', 'yahtzee')!;
     room.join('a', 'Ann');
     room.join('b', 'Bo');
     room.join('c', 'Cy');
+    // Three turned up, so three sheets are dealt — the table is decided by who
+    // arrived rather than by a number chosen before anyone did.
+    expect(room.start(0, () => 0.5).ok).toBe(true);
 
     const view = room.viewFor(1, new Set([0, 1, 2])).state as YState;
     expect(view.sheets).toHaveLength(3);

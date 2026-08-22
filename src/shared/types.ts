@@ -52,19 +52,6 @@ export interface GameDefinition<S = unknown, M = unknown> {
    */
   view?(state: S, seat: number): S;
 
-  /**
-   * Whether `move` may be played before every seat is filled.
-   *
-   * The room turns moves away while it is still short a player, which is the
-   * right answer for every game where a move is a turn — there is nobody to
-   * take a turn against. Battleships is the exception: setting out your fleet
-   * is private, simultaneous, and precisely what there is to do while you wait
-   * for the invite to be answered.
-   *
-   * Absent means no, so a game has to ask for this deliberately. The room
-   * still owns the rule; this only says which moves it does not apply to.
-   */
-  allowsEarlyMove?(state: S, move: M, seat: number): boolean;
 
   /**
    * Start a timed game's clock, or null if there is nothing to start.

@@ -1,13 +1,17 @@
-import type { GameDefinition, MoveResult } from '../types.js';
+import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
 import { DUEL_WORDS, isDuelWord } from './words.js';
+import { pick } from './random.js';
 import {
+  GUESS_MS,
   HIDDEN,
   MAX_GUESSES,
   WORD_LENGTH,
   canAct,
   isFinished,
-  opponentOf,
+  outOfTime,
+  seatsOf,
+  targetOf,
 } from './wordleDisplay.js';
 
 import type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
@@ -15,20 +19,32 @@ import type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
 // Re-exported so the reducer, its tests and the board all name these in one
 // place, while only this file ever reaches the word list.
 export {
+  GUESS_MS,
   HIDDEN,
   KEY_ROWS,
   MAX_GUESSES,
   WORD_LENGTH,
   canAct,
+  formatClock,
   isFinished,
+  guesserOf,
   keyMarks,
-  opponentOf,
+  msLeftFor,
+  outOfTime,
+  seatsOf,
+  targetOf,
 } from './wordleDisplay.js';
 export type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
 
 /**
- * Head-to-head Wordle. Each player sets a five-letter word for the other, then
- * both work on the word they were given.
+ * Wordle as a duel. Everybody sets a five-letter word, everybody is pointed at
+ * somebody else's, and they all work on it at once.
+ *
+ * Two to eight play. The pointing is a random ring drawn at setup — see
+ * `target` on `WordleState` — which is what guarantees nobody is handed their
+ * own word and nobody is left without one. At two players there is only one
+ * such ring, which is how this game spent its first life as a head-to-head
+ * with `opponentOf(seat)` hardcoded to `seat === 0 ? 1 : 0`.
  *
  * Two things here are unlike every other game in this repo:
  *
@@ -39,13 +55,20 @@ export type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
  *    `applyMove` never consults it. Anything deciding whether a player may act
  *    must ask `canAct`, not `turn`.
  *
- * 2. **The only secret is the word.** Both players' guesses and marks are
- *    open, and that costs nothing: you are guessing your opponent's word and
- *    they are guessing yours, so their guesses at *your* word tell you only
- *    what you could already work out by marking them yourself. `view()`
- *    therefore hides exactly one thing — the word your opponent set for you —
- *    and only until the game ends, because losing without ever learning the
- *    word is the unsatisfying ending.
+ * 2. **The only secret is the word.** Everyone's guesses and marks are open,
+ *    and that costs nothing: their guesses at a word tell you only what you
+ *    could work out by marking them yourself. `view()` therefore hides the
+ *    words themselves, and only until they can no longer help — the one you
+ *    are guessing is revealed once you are finished with it, because losing
+ *    without ever learning the word is the unsatisfying ending.
+ *
+ * 3. **There is a shot clock, and it is a reply.** Guess, and everyone else
+ *    still playing has `GUESS_MS` — one minute — to guess something back.
+ *    Nobody is on a clock before the first guess of the game: see `reclock`
+ *    for the whole of the rule. `expire` catches a minute that has gone, which
+ *    the room calls off a timer, so a player who walks away is finished rather
+ *    than leaving everyone else waiting forever. A client counting down is
+ *    showing the player a number; the server's clock is the one that decides.
  */
 
 /**
@@ -82,18 +105,54 @@ export function markGuess(guess: string, secret: string): Mark[] {
 }
 
 /**
- * Fewer guesses wins; solving beats not solving; the same count is a draw, as
- * is neither player solving. Nothing here breaks a tie by who finished first —
- * under free-simultaneous play that would hand the game to the faster typist
- * rather than the better guesser.
+ * Fewer guesses wins; solving beats not solving; a shared best is a draw, and
+ * so is nobody solving at all. Nothing here breaks a tie by who finished
+ * first — under free-simultaneous play that would hand the game to the faster
+ * typist rather than the better guesser.
+ *
+ * The last clause is the one that is easy to get wrong. When nobody solved,
+ * a player who was still trying beats one who walked away, so a game where
+ * everyone but one player let their clock go is a win for whoever was left —
+ * not the draw that ranking solvers alone would produce.
  */
-function decide(solvedIn: Array<number | null>): { winner: number | null; draw: boolean } {
-  const [a, b] = solvedIn;
-  if (a === null && b === null) return { winner: null, draw: true };
-  if (a === null) return { winner: 1, draw: false };
-  if (b === null) return { winner: 0, draw: false };
-  if (a === b) return { winner: null, draw: true };
-  return { winner: a < b ? 0 : 1, draw: false };
+function decide(state: WordleState): { winner: number | null; draw: boolean } {
+  const seats = seatsOf(state);
+  const solvers = seats.filter((seat) => state.solvedIn[seat] !== null);
+
+  if (solvers.length > 0) {
+    const best = Math.min(...solvers.map((seat) => state.solvedIn[seat] as number));
+    const winners = solvers.filter((seat) => state.solvedIn[seat] === best);
+    return winners.length === 1
+      ? { winner: winners[0], draw: false }
+      : { winner: null, draw: true };
+  }
+
+  const standing = seats.filter((seat) => !state.timedOut.includes(seat));
+  return standing.length === 1
+    ? { winner: standing[0], draw: false }
+    : { winner: null, draw: true };
+}
+
+/**
+ * Who guesses whose word: a random ring around the table.
+ *
+ * A single cycle rather than any old derangement, drawn by shuffling the seats
+ * and pointing each at the next. Two properties come free and both matter: no
+ * seat can point at itself, so nobody is handed the answer to their own word;
+ * and every seat is pointed at exactly once, so nobody sets a word that goes
+ * unguessed and nobody sits without one to work on.
+ */
+function ring(count: number, rng: Rng): number[] {
+  const order = Array.from({ length: count }, (_, index) => index);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = pick(rng, i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const target = Array<number>(count).fill(0);
+  for (let i = 0; i < order.length; i++) {
+    target[order[i]] = order[(i + 1) % order.length];
+  }
+  return target;
 }
 
 /**
@@ -123,7 +182,7 @@ function isOver(state: WordleState): boolean {
 
 function setWord(state: WordleState, word: string, seat: number): MoveResult<WordleState> {
   if (state.phase !== 'setup') {
-    return { ok: false, error: 'Both words are already set.' };
+    return { ok: false, error: 'Every word is already set.' };
   }
   if (state.secrets[seat] !== null) {
     // Deliberately final. Letting a player swap their word after seeing the
@@ -133,14 +192,59 @@ function setWord(state: WordleState, word: string, seat: number): MoveResult<Wor
 
   const secrets = state.secrets.slice();
   secrets[seat] = word;
-  const bothIn = secrets.every((s) => s !== null);
+  const allIn = secrets.every((s) => s !== null);
 
-  return { ok: true, state: { ...state, secrets, phase: bothIn ? 'play' : 'setup' } };
+  return { ok: true, state: { ...state, secrets, phase: allIn ? 'play' : 'setup' } };
 }
 
-function guess(state: WordleState, word: string, seat: number): MoveResult<WordleState> {
+/**
+ * Where every shot clock in this game is started, stopped and left alone.
+ * Called with the state as it stands *after* a guess by `mover`.
+ *
+ * Three rules, and the order they are written in is the order they matter:
+ *
+ * 1. **The mover has answered**, so their clock comes off. They set one
+ *    running on everybody else instead — that is what a guess does here.
+ * 2. **Everyone else still playing goes on the clock** if they are not
+ *    already on one. Not *re-*armed: a player firing off guesses must not be
+ *    able to keep handing the others a fresh minute, and a player under
+ *    pressure must not be able to buy time by making somebody else move.
+ * 3. **Unless there is nobody left to start it.** Once everyone else is
+ *    finished, no further guess is coming to put the mover back on a clock, so
+ *    they keep their own — a minute per guess, alone. Skip this and the last
+ *    player standing could sit on an unfinished game for good, which is the
+ *    exact thing the clock is here to prevent.
+ *
+ * At two players this is precisely the rule it always was: the one other seat
+ * is "everyone else".
+ */
+function reclock(state: WordleState, mover: number, now: number): Array<number | null> {
+  const dueBy = state.dueBy.slice();
+  let others = false;
+
+  dueBy[mover] = null;
+  for (const seat of seatsOf(state)) {
+    if (seat === mover) continue;
+    if (!canAct(state, seat)) {
+      dueBy[seat] = null;
+      continue;
+    }
+    others = true;
+    dueBy[seat] = dueBy[seat] ?? now + GUESS_MS;
+  }
+
+  if (!others && canAct(state, mover)) dueBy[mover] = now + GUESS_MS;
+  return dueBy;
+}
+
+function guess(
+  state: WordleState,
+  word: string,
+  seat: number,
+  now: number,
+): MoveResult<WordleState> {
   if (state.phase === 'setup') {
-    return { ok: false, error: 'Waiting for both words to be set.' };
+    return { ok: false, error: 'Waiting for every word to be set.' };
   }
   if (state.phase === 'over') {
     return { ok: false, error: 'The game is already over.' };
@@ -151,10 +255,18 @@ function guess(state: WordleState, word: string, seat: number): MoveResult<Wordl
   if (state.guesses[seat].length >= MAX_GUESSES) {
     return { ok: false, error: 'You are out of guesses.' };
   }
+  // Belt and braces. The room settles the clock before every move it applies,
+  // so a guess this late normally meets a game that is already over — but the
+  // reducer is not entitled to assume its caller did that.
+  if (outOfTime(state, seat, now)) {
+    return { ok: false, error: 'Your minute is up.' };
+  }
 
-  // The word this seat is guessing at is the one the OPPONENT set.
-  const secret = state.secrets[opponentOf(seat)];
-  if (secret === null) return { ok: false, error: 'Waiting for both words to be set.' };
+  // The word this seat is guessing at is the one its target set.
+  const secret = state.secrets[targetOf(state, seat)];
+  if (secret === null || secret === undefined) {
+    return { ok: false, error: 'Waiting for every word to be set.' };
+  }
 
   const rows: Row[] = state.guesses[seat].concat({ word, marks: markGuess(word, secret) });
   const guesses = state.guesses.slice();
@@ -164,33 +276,51 @@ function guess(state: WordleState, word: string, seat: number): MoveResult<Wordl
   if (word === secret) solvedIn[seat] = rows.length;
 
   const next: WordleState = { ...state, guesses, solvedIn };
-  if (isFinished(next, 0) && isFinished(next, 1)) {
-    const { winner, draw } = decide(solvedIn);
-    return { ok: true, state: { ...next, phase: 'over', winner, draw } };
+  if (seatsOf(next).every((s) => isFinished(next, s))) {
+    const { winner, draw } = decide(next);
+    // No clock survives the end of a game: `deadline` would otherwise keep
+    // asking the room to wake up for a game there is nothing left to settle.
+    return {
+      ok: true,
+      state: { ...next, dueBy: next.dueBy.map(() => null), phase: 'over', winner, draw },
+    };
   }
-  return { ok: true, state: next };
+  return { ok: true, state: { ...next, dueBy: reclock(next, seat, now) } };
 }
 
 export const wordle: GameDefinition<WordleState, WordleMove> = {
   id: GAME_MANIFEST.wordle.id,
   name: GAME_MANIFEST.wordle.name,
   minPlayers: 2,
-  maxPlayers: 2,
+  maxPlayers: 8,
 
-  // Both words come from the players, so there is nothing to draw and no rng.
-  setup(): WordleState {
+  /**
+   * The words come from the players, so there is nothing to draw but the ring
+   * — and that is the one thing here that needs the rng, because who is
+   * guessing whose word must not be predictable from the seating.
+   */
+  setup(playerCount, rng): WordleState {
+    const count = Math.max(2, Math.min(playerCount, 8));
     return {
       phase: 'setup',
-      secrets: [null, null],
-      guesses: [[], []],
-      solvedIn: [null, null],
+      secrets: Array<string | null>(count).fill(null),
+      target: ring(count, rng),
+      guesses: Array.from({ length: count }, () => [] as Row[]),
+      solvedIn: Array<number | null>(count).fill(null),
+      // Nobody is on a clock yet, and nobody is until the first guess. There
+      // is no `start` here for the same reason: the room fills, everyone
+      // picks a word, and only a guess puts anyone under the whistle.
+      dueBy: Array<number | null>(count).fill(null),
+      timedOut: [],
       winner: null,
       draw: false,
     };
   },
 
-  applyMove(state, move, seat): MoveResult<WordleState> {
-    if (seat !== 0 && seat !== 1) return { ok: false, error: 'You are not playing.' };
+  applyMove(state, move, seat, _rng, now = Date.now()): MoveResult<WordleState> {
+    if (!Number.isInteger(seat) || seat < 0 || seat >= state.secrets.length) {
+      return { ok: false, error: 'You are not playing.' };
+    }
     if (!move || (move.type !== 'setWord' && move.type !== 'guess')) {
       return { ok: false, error: 'Unknown move.' };
     }
@@ -200,7 +330,7 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
 
     return move.type === 'setWord'
       ? setWord(state, word.state, seat)
-      : guess(state, word.state, seat);
+      : guess(state, word.state, seat, now);
   },
 
   /**
@@ -210,60 +340,150 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
    */
   turn(state) {
     if (isOver(state)) return null;
-    if (canAct(state, 0) && canAct(state, 1)) {
-      return state.guesses[0].length <= state.guesses[1].length ? 0 : 1;
-    }
-    if (canAct(state, 0)) return 0;
-    if (canAct(state, 1)) return 1;
-    return null;
+    const seats = seatsOf(state);
+    // A seat under the whistle is one the game is actually waiting on, and
+    // saying so is the whole job of this hint. Above two players several may
+    // be on a clock at once; the one closest to running out is the answer.
+    const ticking = seats
+      .filter((seat) => state.dueBy[seat] !== null)
+      .sort((a, b) => (state.dueBy[a] as number) - (state.dueBy[b] as number));
+    if (ticking.length > 0) return ticking[0];
+
+    const live = seats.filter((seat) => canAct(state, seat));
+    if (live.length === 0) return null;
+    // Whoever has played fewest rows is the one the game is waiting on; ties
+    // go to the lower seat so this stays a pure function of the state.
+    return live.reduce((a, b) => (state.guesses[a].length <= state.guesses[b].length ? a : b));
   },
 
   isOver,
 
-  status(state, names) {
-    const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
-
-    if (state.phase === 'setup') {
-      const waiting = [0, 1].filter((seat) => state.secrets[seat] === null);
-      if (waiting.length === 2) return 'Both players are choosing a word';
-      return `Waiting for ${nameFor(waiting[0])} to choose a word`;
-    }
-
-    if (state.phase === 'over') {
-      if (state.winner !== null) {
-        const count = state.solvedIn[state.winner];
-        return `${nameFor(state.winner)} wins in ${count} ${count === 1 ? 'guess' : 'guesses'}`;
-      }
-      if (state.solvedIn[0] !== null) {
-        return `A draw — both solved it in ${state.solvedIn[0]}`;
-      }
-      return 'A draw. Neither word was cracked.';
-    }
-
-    const done = [0, 1].filter((seat) => isFinished(state, seat));
-    if (done.length === 1) return `Waiting on ${nameFor(opponentOf(done[0]))}`;
-    return 'Both guessing';
+  /**
+   * The soonest anyone's minute runs out. Only one clock is ever running, so
+   * in practice this is that clock — written as the earliest of the two
+   * anyway, so it cannot quietly start returning the wrong one if that ever
+   * changes.
+   */
+  deadline(state) {
+    if (state.phase !== 'play') return null;
+    const due = state.dueBy.filter((at): at is number => at !== null);
+    return due.length === 0 ? null : Math.min(...due);
   },
 
   /**
-   * The one secret in the game: the word your opponent set for you. Everything
-   * else — their guesses, their marks, how close they are — is information you
-   * could derive yourself, so hiding it would only cost you the tension of
-   * watching them close in.
+   * A minute gone finishes the player it ran out on. Called by the room off a
+   * timer, so it lands whether or not anyone is still watching — which is the
+   * point of a clock — and again before any move that arrives late.
    *
-   * An opponent who has chosen shows as `HIDDEN` rather than `null`, so the
-   * board can tell "chosen, not for your eyes" from "still thinking". Revealed
-   * outright once the game is over, so a player who ran out of guesses still
-   * finds out what the word was — and earlier to a player who has already
-   * solved it, who is only being kept from something they typed themselves.
+   * Whether that also ends the *game* is the interesting part. A timeout is a
+   * player abandoning the duel rather than playing it out, so once it leaves
+   * fewer than two people still able to guess there is no duel left to decide
+   * and the game is settled there and then. At two players that is the whole
+   * of the old rule: one clock goes, the other player wins, immediately. Above
+   * two, the rest carry on without the player who stopped.
+   *
+   * Note what this does *not* do: a player finishing honestly — solving, or
+   * spending their guesses — never ends anyone else's game early, because the
+   * others are still entitled to the guesses they have left.
+   */
+  expire(state, now) {
+    if (state.phase !== 'play') return null;
+    const seats = seatsOf(state);
+    const late = seats.filter((seat) => outOfTime(state, seat, now));
+    if (late.length === 0) return null;
+
+    const timedOut = state.timedOut.concat(late);
+    const stopped: WordleState = { ...state, timedOut };
+    const live = seats.filter((seat) => canAct(stopped, seat));
+
+    if (live.length <= 1) {
+      const { winner, draw } = decide(stopped);
+      return { ...stopped, dueBy: stopped.dueBy.map(() => null), phase: 'over', winner, draw };
+    }
+
+    // Still a game. Everyone left who is not already on a clock goes on one:
+    // the clock that just expired may have been the only one running, and a
+    // game with no clock at all is the stall this mechanism exists to stop.
+    const dueBy = stopped.dueBy.map((due, seat) =>
+      canAct(stopped, seat) ? (due ?? now + GUESS_MS) : null,
+    );
+    return { ...stopped, dueBy };
+  },
+
+  status(state, names) {
+    const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
+
+    const seats = seatsOf(state);
+
+    if (state.phase === 'setup') {
+      const waiting = seats.filter((seat) => state.secrets[seat] === null);
+      if (waiting.length === seats.length) return 'Everyone is choosing a word';
+      if (waiting.length === 1) return `Waiting for ${nameFor(waiting[0])} to choose a word`;
+      return `Waiting on ${waiting.length} more words`;
+    }
+
+    if (state.phase === 'over') {
+      // A game won on the clock is reported as one. The winner's guess count
+      // is beside the point and may not exist — they can win on time without
+      // ever having solved anything.
+      if (state.winner !== null) {
+        const count = state.solvedIn[state.winner];
+        if (count === null) {
+          // Won by being the last one still trying. Saying "in 0 guesses"
+          // would be worse than saying nothing about the guessing at all.
+          if (state.timedOut.length === 1) {
+            return `${nameFor(state.timedOut[0])} ran out of time — ${nameFor(state.winner)} wins`;
+          }
+          const gone = state.timedOut.map(nameFor).join(', ');
+          return `${nameFor(state.winner)} wins — ${gone} ran out of time`;
+        }
+        return `${nameFor(state.winner)} wins in ${count} ${count === 1 ? 'guess' : 'guesses'}`;
+      }
+      const best = seats
+        .map((seat) => state.solvedIn[seat])
+        .filter((count): count is number => count !== null);
+      if (best.length > 0) {
+        return `A draw — shared at ${Math.min(...best)}`;
+      }
+      return 'A draw. Not one word was cracked.';
+    }
+
+    const live = seats.filter((seat) => canAct(state, seat));
+    if (live.length === 1) return `Waiting on ${nameFor(live[0])}`;
+
+    const ticking = seats.filter((seat) => state.dueBy[seat] !== null);
+    if (ticking.length === 1) return `${nameFor(ticking[0])} is on the clock`;
+    if (ticking.length > 1) return `${ticking.length} players are on the clock`;
+
+    return live.length === 2 ? 'Both guessing' : `${live.length} still guessing`;
+  },
+
+  /**
+   * The secrets are the only hidden thing in the game. Everything else —
+   * everyone's guesses, their marks, how close they are — is information you
+   * could derive yourself, so hiding it would only cost you the tension of
+   * watching people close in.
+   *
+   * A player who has chosen shows as `HIDDEN` rather than `null`, so the board
+   * can tell "chosen, not for your eyes" from "still thinking". You always see
+   * your own, which you typed. You see the one you are guessing once you are
+   * finished with it, because losing without ever learning the word is the
+   * unsatisfying ending — and everything is open once the game is over.
+   *
+   * What you never see, while it could still matter, is a word somebody *else*
+   * is guessing. At two players that distinction did not exist; above two it
+   * is the difference between a duel and a table where one finished player can
+   * hand out answers.
    */
   view(state, seat) {
     if (state.phase === 'over') return state;
-    const solved = state.solvedIn[seat] !== null;
+    const mine = targetOf(state, seat);
+    const done = isFinished(state, seat);
     return {
       ...state,
       secrets: state.secrets.map((word, index) => {
-        if (index === seat || solved) return word;
+        if (index === seat) return word;
+        if (index === mine && done) return word;
         return word === null ? null : HIDDEN;
       }),
     };

@@ -89,7 +89,9 @@ Not implemented: the doubling cube.
 
 Backgammon needs dice, which is why `GameDefinition` takes an `Rng`. It only
 ever runs on the server — the client renders the state it is sent and never
-applies moves locally, so nobody can re-roll until they like the answer.
+applies moves locally, so nobody can re-roll until they like the answer. What
+that rng is used *for* is described under "The dice" below: it seeds a throw
+rather than picking a pair.
 
 **Wheel of Fortune** — two to four players, three rounds, most money wins.
 Spin and name a consonant, buy a vowel for $250 out of what you have won this
@@ -328,6 +330,85 @@ length at which a trace can submit itself, so something has to say "that is the
 word". A trace too short to be a word is dropped in silence rather than
 refused: it is nearly always a tap on the way to somewhere else, and an error
 for that is the app telling the player off for touching it.
+
+## The dice
+
+Backgammon and Yahtzee do not pick a number and draw it. They throw cubes into
+a tray, let them tumble and bounce, and **read the number off whichever face is
+pointing at the player when they stop**. The throw decides.
+
+`src/shared/games/dice.ts` is the solver: oriented boxes sliding on a table
+seen from above, separating-axis collisions, impulses with the angular term so
+a corner strike spins the die, Coulomb friction, and a damping ramp that
+guarantees every throw is over inside a second. About two hundred lines and no
+dependency — five squares in a rectangle does not need a constraint graph, and
+the APK has to work offline.
+
+It lives in `shared/` **because the server runs it**. That is the whole design:
+
+- the reducer simulates the throw, reads the faces off the resting cubes, and
+  puts the throw itself on the wire as a `Toss` — a seed, the flick that threw
+  them, and where the dice were standing;
+- every client re-runs the identical simulation for the animation and arrives
+  at the same dice on the same faces.
+
+So the server still decides, exactly as it does everywhere else, and nobody is
+ever told a number their dice did not land on. It also means everyone at the
+table watches the *same* throw rather than each seeing dice move: the throw is
+state, like everything else here.
+
+That only works because the simulation is exactly reproducible, which is a real
+constraint on that file and not a preference. No `Math.random` — every random
+number comes from a generator seeded by the server. No `Date.now`, and a fixed
+timestep, so a 120Hz phone and a 60Hz phone agree. And the tray is measured in
+its own units rather than pixels, because a phone's tray is half the width of a
+laptop's and a simulation fed pixels would land on different faces on the two
+of them. Break any of the three and the dice disagree across the table, which
+no test of a single client will catch. `dice.test.ts` holds all three, and
+holds the reducer's faces against a replay of its own toss.
+
+**The odds are still even, and not because the tumble looks fair.** Each die
+starts in one of the cube's 24 orientations, drawn uniformly from the server's
+rng and independently of everything else. The simulation then applies some
+rotation to it — a complicated one, but a fixed one, because the tumbling is
+driven entirely by where the die slides and never feeds back into it. A
+uniformly random orientation composed with any fixed rotation is still
+uniformly random. The physics decides which face; the draw decides that it is
+even. The test sweeps all 24 starts through the same throw and asserts exactly
+twenty of each face.
+
+**The flick is the one number a client sends and the server keeps.** It is safe
+because it is not enough to decide anything: the seed is drawn *after* the
+flick arrives, so no amount of aiming lets a player pick their roll. It is
+clamped anyway, because "cannot be aimed" is not "can be anything".
+
+Two things about throwing them, both of which sound small and are not. The dice
+start **where they already are** — dice on a table that you throw to the left
+are dice that were on the table and are now going left, not dice that gathered
+at your finger first. And a die you are keeping in Yahtzee becomes a static
+body: it stays exactly where it stopped and the others bounce off it, which is
+what keeping a die actually looks like.
+
+Everything a throw decides then waits for it. Yahtzee's thirteen score previews
+stay blank, Backgammon draws no legal-move marks, and Liar's Dice holds its
+count — because a sheet that reads "full house" while a die is still rolling
+makes the die stopping into theatre. That is the rule the Wheel already
+follows, and `useLanding` is how a board says it.
+
+Liar's Dice has no tray, deliberately: nothing there is thrown across a table,
+it is rattled under a hand. What it has instead is the reveal, which is the
+same idea at the other end — the hands turn over one at a time in the order the
+bidding went, ending on the hand that was challenged, and the count waits for
+the last one. You watch the count build against the bid instead of being handed
+it.
+
+Sound and haptics split the same way: **sound is the table, haptics are your
+hand.** Everyone hears a throw, because a throw happens at the table; only the
+player who threw feels it, because a phone that buzzed on every opponent's roll
+would be a phone face-down by the third round. Both are synthesised — the gain
+and pitch of a knock come from the impulse the solver actually resolved, so no
+two are alike, and nothing is fetched. Sound is off until asked for, with the
+switch beside the palette switch.
 
 ## Adding a game
 

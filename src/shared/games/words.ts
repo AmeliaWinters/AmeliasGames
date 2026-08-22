@@ -15814,13 +15814,21 @@ zymotize zyrenian zyzzyvas
 ];
 
 /**
- * Recent slang the dictionary has not caught up with. Kept separate so the
+ * Words the imported dictionary predates: recent slang, and the brand names —
+ * drugs, apps, sites — that people use as ordinary words. Kept separate so the
  * imported list can be regenerated wholesale without losing these.
  */
 const MODERN = `
-bruhs detox dorks dorky dweeb frick grody homie inbox janky kinda newbs noobs
-nutso outta pissy scuzz shart shite sicko spazz stans swole twerk vapes vibed
-vibey wanks wimps wimpy yowza zonks
+adderall advil ambien apps bitcoin blog blogger blogs botox bruhs bussin cbd
+cringey deepfake detox dorks dorky dweeb emailing emails emoji emojis fanfic
+fomo frick glitchy google googled googles googling grody hashtag hashtags
+homie inbox janky ketamine kinda laptops lmao lowkey lsd mdma meh meme memes
+newbs noobs npc nutso omg opioid opioids outta ozempic percocet pissy podcast
+podcasts prozac ritalin rizz scuzz selfie selfies sexted sexting shart shite
+shroom shrooms sicko spazz stans swole texted texting thc tiktok
+twerk twerked twerking tylenol unfollow vape vaped vaper vapers vapes vaping
+viagra vibed vibey vibing vicodin vlog vlogs wanks wifi wimps wimpy xanax yeet
+yeeting yeets yowza zoloft zonks
 `;
 
 /** How long a word in Word Duel is: that game plays at one length exactly. */

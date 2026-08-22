@@ -117,16 +117,33 @@ async function seatTwoPlayers() {
   guest.send(hello({ name: 'Guest', code }));
   await guest.nextOf('welcome');
 
-  return { host, guest, code, hostSeat: welcome.seat };
+  // A room now gathers first and is dealt second, so nothing can be played
+  // until the host says everyone is here. Everything from the gathering phase
+  // is dropped, so a test sees only what follows the deal.
+  host.drain();
+  guest.drain();
+  host.send({ t: 'start' });
+  // Loop rather than take the next one: a broadcast from the guest sitting
+  // down can still be in flight, and it is the dealt room we are waiting for.
+  const startedRoom = async (client: TestClient) => {
+    for (let i = 0; i < 12; i++) {
+      const room = (await client.nextOf('room')).room;
+      if (!room.waiting) return room;
+    }
+    throw new Error('the room never started');
+  };
+  const started = await startedRoom(host);
+  await startedRoom(guest);
+
+  return { host, guest, code, hostSeat: welcome.seat, started };
 }
 
 describe('room lifecycle', () => {
   it('seats the creator at 0 and the joiner at 1', async () => {
-    const { host, guest, code } = await seatTwoPlayers();
+    const { host, guest, code, started } = await seatTwoPlayers();
     expect(isRoomCode(code)).toBe(true);
-    const room = (await host.nextOf('room')).room;
-    expect(room.players.map((p) => p.name)).toEqual(['Host', 'Guest']);
-    expect(room.waiting).toBe(false);
+    expect(started.players.map((p) => p.name)).toEqual(['Host', 'Guest']);
+    expect(started.waiting).toBe(false);
     host.close();
     guest.close();
   });
@@ -140,12 +157,33 @@ describe('room lifecycle', () => {
     client.close();
   });
 
-  it('refuses a third player', async () => {
+  it('refuses a third player once the game has been dealt', async () => {
     const { host, guest, code } = await seatTwoPlayers();
     const third = await TestClient.connect();
     third.send(hello({ playerId: 'third', name: 'Third', code }));
     const msg = await third.nextOf('error');
-    expect(msg.message).toMatch(/full/i);
+    // Seating them anyway would hand the reducer a seat its arrays were never
+    // sized for, and every move in the room would fail from then on.
+    expect(msg.message).toMatch(/already started/i);
+    host.close();
+    guest.close();
+    third.close();
+  });
+
+  it('refuses a third player at a game that only seats two', async () => {
+    // Before the deal the answer is different, and so is the reason: Connect
+    // Four seats two, and no amount of waiting changes that.
+    const code = makeRoomCode();
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true }));
+    await host.nextOf('welcome');
+    const guest = await TestClient.connect();
+    guest.send(hello({ name: 'Guest', code }));
+    await guest.nextOf('welcome');
+
+    const third = await TestClient.connect();
+    third.send(hello({ playerId: 'third', name: 'Third', code }));
+    expect((await third.nextOf('error')).message).toMatch(/full/i);
     host.close();
     guest.close();
     third.close();
@@ -327,14 +365,14 @@ describe('server authority', () => {
   });
 
   it('changes the game for both players once one is over', async () => {
-    const { host, guest } = await seatTwoPlayers();
+    const { host, guest, started } = await seatTwoPlayers();
     // Seat 0 takes column 0 four times over; seat 1 answers in column 1. One
     // move at a time: two sockets sending at once arrive in whichever order
     // the loopback feels like, and half of them would be rejected as out of
     // turn. Every frame is read from the host, who is sent every broadcast —
     // reading each mover's own copy would shift whichever stale frame was
     // still queued on that socket instead.
-    let room = (await host.nextOf('room')).room; // the guest arriving
+    let room = started; // the room as dealt
     for (const col of [0, 1, 0, 1, 0, 1, 0]) {
       (col === 0 ? host : guest).send({ t: 'move', move: { type: 'drop', col } });
       room = (await host.nextOf('room')).room;
@@ -394,6 +432,9 @@ describe('hidden state over the wire', () => {
     const guest = await TestClient.connect();
     guest.send(hello({ name: 'Guest', code, gameId: 'wheel' }));
     await guest.nextOf('welcome');
+    // Nothing to redact until there is a game: the room has to be dealt first.
+    host.send({ t: 'start' });
+    await guest.nextOf('room');
 
     // Drive the board hard from both seats: spin, call every letter, and try
     // to buy vowels. Whatever the rng drew, the round gets played out.
@@ -423,6 +464,49 @@ describe('hidden state over the wire', () => {
     // `leaked` means "no answer sent", not "no frames inspected".
     expect(joined).toContain(BLANK);
 
+    host.close();
+    guest.close();
+  });
+});
+
+describe('the heartbeat', () => {
+  it('answers a ping from a socket that has not joined anything', async () => {
+    // Deliberately before hello: the whole point of the heartbeat is to tell a
+    // live socket from a dead one, and a socket is worth that question from the
+    // moment it opens -- including while it sits waiting to be seated.
+    const client = await TestClient.connect();
+    client.send({ t: 'ping' });
+    expect((await client.next()).t).toBe('pong');
+    client.close();
+  });
+
+  it('answers a ping without disturbing the game in progress', async () => {
+    const { host, guest } = await seatTwoPlayers();
+    host.drain();
+    host.send({ t: 'ping' });
+    // nextOf rather than next: a broadcast from the guest sitting down may
+    // still be in flight, and the heartbeat does not promise to jump the queue.
+    expect((await host.nextOf('pong')).t).toBe('pong');
+
+    // The pong must not have cost the pinger their seat or their game: a move
+    // still lands, and the opponent still hears about it.
+    guest.drain();
+    host.send({ t: 'move', move: { type: 'drop', col: 0 } });
+    const room = (await guest.nextOf('room')).room;
+    expect(room.players.map((p) => p.name)).toEqual(['Host', 'Guest']);
+    host.close();
+    guest.close();
+  });
+
+  it('does not mistake a ping for a move', async () => {
+    // A ping arrives on the same socket as everything else, so a handler that
+    // fell through to the move path would hand the reducer `undefined`.
+    const { host, guest } = await seatTwoPlayers();
+    host.drain();
+    host.send({ t: 'ping' });
+    const first = await host.nextOf('pong');
+    expect(first.t).toBe('pong');
+    expect(host.received().every((m) => m.t !== 'error')).toBe(true);
     host.close();
     guest.close();
   });

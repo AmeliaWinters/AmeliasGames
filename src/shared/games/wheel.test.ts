@@ -3,6 +3,7 @@ import {
   ALPHABET,
   BLANK,
   CONSONANTS,
+  FINDS_PER_TURN,
   GUESSES_PER_TURN,
   PUZZLES,
   WEDGE_ARC,
@@ -41,6 +42,7 @@ function position(overrides: Partial<WofState> = {}): WofState {
     wedgeAt: null,
     spins: 0,
     misses: 0,
+    finds: 0,
     bank: Array<number>(seats).fill(0),
     score: Array<number>(seats).fill(0),
     note: null,
@@ -216,9 +218,10 @@ describe('hiding the answer', () => {
   it('is redacted by the room, not merely available to be', () => {
     // `view` only protects anything if the room actually calls it on the way
     // out. This is the assertion that the wiring is real.
-    const room = RoomEngine.create('TEST', 'wheel', seeded(5), 2)!;
+    const room = RoomEngine.create('TEST', 'wheel')!;
     room.join('a', 'Ann');
     room.join('b', 'Bo');
+    room.start(0, seeded(5));
     const sent = room.viewFor(0, new Set([0, 1])).state as WofState;
     expect(sent.answer).not.toMatch(/[A-Z]/);
     expect(sent.answer).toContain(BLANK);
@@ -544,6 +547,87 @@ describe('three guesses to a turn', () => {
     expect(wheel.status(fresh, ['Ann', 'Bo'])).not.toMatch(/left/);
     expect(wheel.status({ ...fresh, misses: 1 }, ['Ann', 'Bo'])).toMatch(/two left/i);
     expect(wheel.status({ ...fresh, misses: 2 }, ['Ann', 'Bo'])).toMatch(/one left/i);
+  });
+});
+
+/**
+ * The other way a turn runs out. Three wrong guesses end it, and so do three
+ * right ones — without the second cap a player who got going kept the wheel
+ * until the puzzle was gone and everyone else watched.
+ */
+describe('three letters to a turn', () => {
+  /** Spin, then call `letter`, as the player to move. */
+  const call = (state: WofState, letter: string) =>
+    ok(apply(spun(state), { type: 'letter', letter }, state.turn));
+
+  it('counts a correct consonant', () => {
+    expect(call(position({ answer: 'A CUP OF TEA' }), 'C').finds).toBe(1);
+  });
+
+  it('counts a bought vowel that was there', () => {
+    const s = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
+    expect(ok(apply(s, { type: 'letter', letter: 'U' }, 0)).finds).toBe(1);
+  });
+
+  it('does not count a letter that was not there', () => {
+    const s = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
+    expect(ok(apply(spun(s), { type: 'letter', letter: 'Z' }, 0)).finds).toBe(0);
+    expect(ok(apply(s, { type: 'letter', letter: 'I' }, 0)).finds).toBe(0);
+  });
+
+  it('passes the turn on the third one, and keeps the money', () => {
+    let s = position({ answer: 'A PIECE OF CAKE' });
+    for (const letter of ['P', 'C', 'F']) s = call(s, letter);
+    expect(s.turn).toBe(1);
+    expect(s.finds).toBe(0);
+    expect(s.roundOver).toBe(false);
+    // The letters paid on the way through; the cap ends the turn, not the run.
+    expect(s.bank[0]).toBeGreaterThan(0);
+    expect(s.note).toEqual({ seat: 0, text: expect.stringMatching(/the turn moves on/) });
+  });
+
+  it('still says what the third letter paid before it says the turn is over', () => {
+    let s = position({ answer: 'A PIECE OF CAKE' });
+    for (const letter of ['P', 'C', 'F']) s = call(s, letter);
+    expect(s.note!.text).toMatch(/^found /);
+  });
+
+  it('lets the third one finish the puzzle rather than passing the turn', () => {
+    // Everything but P, C and K already on the board, so the third find
+    // completes it. Taking the round beats running out of letters.
+    const called = [...'AEIOUF'];
+    let s = position({ answer: 'A PIECE OF CAKE', called });
+    for (const letter of ['P', 'C', 'K']) s = call(s, letter);
+    expect(s.roundOver).toBe(true);
+    expect(s.finds).toBe(0);
+    expect(s.note!.text).toMatch(/that's the puzzle/i);
+    expect(s.note!.text).not.toMatch(/the turn moves on/);
+  });
+
+  it('gives every seat its own three', () => {
+    let s = position({ answer: 'A PIECE OF CAKE' });
+    for (const letter of ['P', 'C', 'F']) s = call(s, letter);
+    expect(s.turn).toBe(1);
+    s = call(s, 'K');
+    expect(s.finds).toBe(1);
+    expect(s.turn).toBe(1);
+  });
+
+  it('clears the count when the turn ends some other way', () => {
+    let s = call(position({ answer: 'A PIECE OF CAKE' }), 'P');
+    expect(s.finds).toBe(1);
+    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(LOSE_TURN))).finds).toBe(0);
+  });
+
+  it('clears the count when a round ends', () => {
+    let s = call(position({ answer: 'A PIECE OF CAKE' }), 'P');
+    s = ok(apply(s, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+    expect(s.finds).toBe(0);
+    expect(ok(apply(s, { type: 'next' }, s.turn, seeded(3))).finds).toBe(0);
+  });
+
+  it('caps at the same number as the guesses, so a turn is three shots either way', () => {
+    expect(FINDS_PER_TURN).toBe(GUESSES_PER_TURN);
   });
 });
 

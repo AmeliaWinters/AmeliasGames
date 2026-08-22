@@ -94,6 +94,17 @@ describe('isWord', () => {
   });
 
   /**
+   * The imported dictionary is old enough to predate a lot of ordinary
+   * vocabulary — brand names people use as words. `xanax` was the one
+   * reported, and it was not being filtered: it simply was not there.
+   */
+  it('knows the brand names people use as ordinary words', () => {
+    for (const word of ['xanax', 'prozac', 'botox', 'tylenol', 'google', 'tiktok', 'vape']) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
+    }
+  });
+
+  /**
    * The list this replaced was hand-written and full of holes — it was missing
    * `below`, `being` and `alias`, which is what a word game must never do. The
    * words below are the ones that were actually reported; the plain English in

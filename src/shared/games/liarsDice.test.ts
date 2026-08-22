@@ -589,9 +589,12 @@ describe('the status line', () => {
 
 describe('in a room', () => {
   it('plays a bid through the engine, hiding the other hand on the way out', () => {
-    const room = RoomEngine.create('LDICE1', 'liarsdice', Math.random, 2)!;
+    const room = RoomEngine.create('LDICE1', 'liarsdice')!;
     room.join('p0', 'Ann');
     room.join('p1', 'Bo');
+    // The room gathers first and is dealt second, so nothing exists to look at
+    // until somebody starts it.
+    expect(room.start(0, Math.random).ok).toBe(true);
 
     const connected = new Set([0, 1]);
     const opener = room.viewFor(0, connected).turn!;

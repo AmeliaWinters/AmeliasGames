@@ -54,4 +54,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- The dice. Without this the Vibration API is a silent no-op in the
+         WebView, so a throw that buzzes in Chrome does nothing in the app and
+         nothing says why. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

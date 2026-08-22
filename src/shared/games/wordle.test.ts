@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  GUESS_MS,
   HIDDEN,
   KEY_ROWS,
   MAX_GUESSES,
@@ -7,17 +8,31 @@ import {
   isFinished,
   keyMarks,
   markGuess,
+  msLeftFor,
+  outOfTime,
   wordle,
 } from './wordle.js';
 import type { WordleState } from './wordle.js';
+import { DUEL_WORDS } from './words.js';
 
-/** The rng is never consulted, so a poisoned one proves the reducer is pure. */
+/**
+ * No move in this game consults the rng, so a poisoned one proves it. `setup`
+ * is the exception and always was going to be: it draws the ring saying who
+ * guesses whose word.
+ */
 const noRng = () => {
-  throw new Error('wordle must not use randomness');
+  throw new Error('wordle must not use randomness once it is under way');
 };
 
+/**
+ * Fixed, and it does not matter: at two players there is exactly one ring
+ * without a seat pointing at itself, so `setup` returns [1, 0] whatever this
+ * says. The multi-player tests below vary it deliberately.
+ */
+const flat = () => 0;
+
 function fresh(): WordleState {
-  return wordle.setup(2, noRng);
+  return wordle.setup(2, flat);
 }
 
 /** Apply a move that is expected to succeed, or fail loudly with its reason. */
@@ -27,11 +42,25 @@ function play(state: WordleState, move: unknown, seat: number): WordleState {
   return result.state;
 }
 
-function refuse(state: WordleState, move: unknown, seat: number): string {
-  const result = wordle.applyMove(state, move as never, seat, noRng);
+function refuse(state: WordleState, move: unknown, seat: number, now?: number): string {
+  const result = wordle.applyMove(state, move as never, seat, noRng, now);
   if (result.ok) throw new Error('expected the move to be rejected');
   return result.error;
 }
+
+/**
+ * A move at a stated moment. The shot clock makes `now` part of the rules, and
+ * a test that let it default to the wall clock would be asserting against a
+ * number it did not choose.
+ */
+function playAt(state: WordleState, move: unknown, seat: number, now: number): WordleState {
+  const result = wordle.applyMove(state, move as never, seat, noRng, now);
+  if (!result.ok) throw new Error(`move rejected: ${result.error}`);
+  return result.state;
+}
+
+/** An arbitrary but fixed epoch to hang the clock tests off. */
+const T0 = 1_700_000_000_000;
 
 /** Both words set: seat 0 must find CRANE, seat 1 must find SLATE. */
 function started(): WordleState {
@@ -214,6 +243,124 @@ describe('finishing', () => {
   });
 });
 
+
+describe('the shot clock', () => {
+  it('leaves everybody untimed until somebody guesses', () => {
+    const state = started();
+    expect(state.dueBy).toEqual([null, null]);
+    expect(wordle.deadline?.(state)).toBeNull();
+    expect(wordle.expire?.(state, T0 + 10 * GUESS_MS)).toBeNull();
+  });
+
+  it('puts the other player on a minute and takes the guesser off', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    expect(state.dueBy).toEqual([null, T0 + GUESS_MS]);
+    expect(wordle.deadline?.(state)).toBe(T0 + GUESS_MS);
+    expect(msLeftFor(state, 1, T0 + 20_000)).toBe(GUESS_MS - 20_000);
+    // No clock is not the same as no time left, and the board draws them
+    // differently, so the two must not collapse into each other.
+    expect(msLeftFor(state, 0, T0)).toBeNull();
+    expect(outOfTime(state, 0, T0 + 10 * GUESS_MS)).toBe(false);
+  });
+
+  it('does not hand out a fresh minute for a second guess in a row', () => {
+    // Otherwise a player could keep their opponent's clock topped up for ever
+    // by guessing at them, and the clock would never actually run out.
+    let state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    state = playAt(state, { type: 'guess', word: 'ledge' }, 0, T0 + 30_000);
+    expect(state.dueBy).toEqual([null, T0 + GUESS_MS]);
+  });
+
+  it('swaps the clock over when the guess is answered', () => {
+    let state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    state = playAt(state, { type: 'guess', word: 'blank' }, 1, T0 + 30_000);
+    expect(state.dueBy).toEqual([T0 + 30_000 + GUESS_MS, null]);
+  });
+
+  it('keeps the last player standing on a clock of their own', () => {
+    // Seat 1 solves and is finished, so no guess of theirs is ever coming to
+    // restart seat 0's clock. Without this, seat 0 could sit on the game.
+    let state = playAt(started(), { type: 'guess', word: 'slate' }, 1, T0);
+    expect(state.solvedIn[1]).toBe(1);
+    expect(state.dueBy).toEqual([T0 + GUESS_MS, null]);
+
+    state = playAt(state, { type: 'guess', word: 'blank' }, 0, T0 + 10_000);
+    expect(state.dueBy).toEqual([T0 + 10_000 + GUESS_MS, null]);
+  });
+
+  it('stops the clock the moment the game ends the ordinary way', () => {
+    let state = started();
+    for (let i = 0; i < MAX_GUESSES; i++) {
+      state = playAt(state, { type: 'guess', word: 'blank' }, 0, T0);
+      state = playAt(state, { type: 'guess', word: 'blank' }, 1, T0);
+    }
+    expect(state.phase).toBe('over');
+    expect(state.dueBy).toEqual([null, null]);
+    expect(state.timedOut).toEqual([]);
+    expect(wordle.deadline?.(state)).toBeNull();
+  });
+
+  it('does nothing while the minute is still running', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    expect(wordle.expire?.(state, T0 + GUESS_MS - 1)).toBeNull();
+  });
+
+  it('loses the game for whoever runs out', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    const settled = wordle.expire?.(state, T0 + GUESS_MS);
+    expect(settled).not.toBeNull();
+    expect(settled?.phase).toBe('over');
+    expect(settled?.timedOut).toEqual([1]);
+    expect(settled?.winner).toBe(0);
+    expect(settled?.draw).toBe(false);
+    // Neither player solved anything. Running out of time is a loss all the
+    // same, where two players simply failing would have been a draw.
+    expect(settled?.solvedIn).toEqual([null, null]);
+    expect(settled?.dueBy).toEqual([null, null]);
+    expect(wordle.isOver(settled as WordleState)).toBe(true);
+  });
+
+  it('says so in the status line', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    expect(wordle.status(state, ['Ada', 'Bo'])).toBe('Bo is on the clock');
+    const settled = wordle.expire?.(state, T0 + GUESS_MS) as WordleState;
+    expect(wordle.status(settled, ['Ada', 'Bo'])).toBe('Bo ran out of time — Ada wins');
+  });
+
+  it('points the turn hint at whoever is under the whistle', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    expect(wordle.turn(state)).toBe(1);
+  });
+
+  it('refuses a guess that arrives after the whistle', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    expect(refuse(state, { type: 'guess', word: 'blank' }, 1, T0 + GUESS_MS)).toMatch(
+      /minute is up/i,
+    );
+  });
+
+  it('never runs two clocks at once', () => {
+    // The board draws one countdown and `expire` names one loser, and both
+    // rest on this. Every guess either side can make, in every order.
+    let state = started();
+    let now = T0;
+    for (let i = 0; i < MAX_GUESSES * 2; i++) {
+      const seat = i % 3 === 0 ? 1 : 0;
+      if (!canAct(state, seat)) continue;
+      state = playAt(state, { type: 'guess', word: 'blank' }, seat, now);
+      expect(state.dueBy.filter((at) => at !== null).length).toBeLessThanOrEqual(1);
+      now += 5_000;
+    }
+  });
+
+  it('does not mutate the state it settles', () => {
+    const state = playAt(started(), { type: 'guess', word: 'blank' }, 0, T0);
+    const before = JSON.stringify(state);
+    wordle.expire?.(state, T0 + GUESS_MS);
+    expect(JSON.stringify(state)).toBe(before);
+  });
+});
+
 describe('what each player is shown', () => {
   it('never shows a player the word they are supposed to be guessing', () => {
     const state = started();
@@ -326,5 +473,176 @@ describe('the keyboard', () => {
     const marks = keyMarks([row('CRANE', 'CIGAR')]);
     expect(marks.Z).toBeUndefined();
     expect('N' in marks).toBe(true);
+  });
+});
+
+// ── More than two at the table ─────────────────────────────────────────
+
+/** Words straight from the list, so every one of them is certain to be legal. */
+const WORDS = [...DUEL_WORDS].slice(0, 8);
+
+/** Deterministic, so a failure here is reproducible. */
+function seeded(seed: number): () => number {
+  let value = seed >>> 0;
+  return () => {
+    value = (value * 1664525 + 1013904223) >>> 0;
+    return value / 4294967296;
+  };
+}
+
+/** A table of `count` players with every word set, so play has begun. */
+function table(count: number, seed = 1): WordleState {
+  let state = wordle.setup(count, seeded(seed));
+  for (let seat = 0; seat < count; seat++) {
+    state = play(state, { type: 'setWord', word: WORDS[seat] }, seat);
+  }
+  expect(state.phase).toBe('play');
+  return state;
+}
+
+describe('who guesses whose word', () => {
+  it('never points a player at their own word, at any table size', () => {
+    // The whole reason `target` exists. Swept rather than sampled: this is the
+    // one property the game is unplayable without.
+    for (let count = 2; count <= 8; count++) {
+      for (let seed = 0; seed < 60; seed++) {
+        const { target } = wordle.setup(count, seeded(seed));
+        expect(target).toHaveLength(count);
+        for (let seat = 0; seat < count; seat++) {
+          expect(target[seat], `seat ${seat} of ${count} was handed its own word`).not.toBe(seat);
+        }
+      }
+    }
+  });
+
+  it('leaves no word unguessed and no player without one', () => {
+    // A permutation, not just a derangement. Anything less means somebody sets
+    // a word nobody is looking for, or sits with nothing to work on.
+    for (let count = 2; count <= 8; count++) {
+      for (let seed = 0; seed < 60; seed++) {
+        const { target } = wordle.setup(count, seeded(seed));
+        expect([...target].sort((a, b) => a - b)).toEqual(
+          Array.from({ length: count }, (_, i) => i),
+        );
+      }
+    }
+  });
+
+  it('does not always draw the same ring', () => {
+    // Otherwise "randomise who gets which word" is a comment rather than a
+    // behaviour. Four players have plenty of rings; two have exactly one, which
+    // is why this asks four.
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 40; seed++) seen.add(wordle.setup(4, seeded(seed)).target.join(''));
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it('still has only one possible ring at two players', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      expect(wordle.setup(2, seeded(seed)).target).toEqual([1, 0]);
+    }
+  });
+});
+
+describe('a table of more than two', () => {
+  it('waits for every word before play starts', () => {
+    let state = wordle.setup(4, seeded(3));
+    state = play(state, { type: 'setWord', word: WORDS[0] }, 0);
+    state = play(state, { type: 'setWord', word: WORDS[1] }, 1);
+    expect(state.phase).toBe('setup');
+    expect(wordle.status(state, ['A', 'B', 'C', 'D'])).toBe('Waiting on 2 more words');
+    state = play(state, { type: 'setWord', word: WORDS[2] }, 2);
+    expect(wordle.status(state, ['A', 'B', 'C', 'D'])).toBe('Waiting for D to choose a word');
+    state = play(state, { type: 'setWord', word: WORDS[3] }, 3);
+    expect(state.phase).toBe('play');
+  });
+
+  it('marks a guess against the word its target set, not seat 0 or 1', () => {
+    const state = table(5, 7);
+    const seat = 2;
+    const secret = state.secrets[state.target[seat]] as string;
+    const next = play(state, { type: 'guess', word: secret }, seat);
+    expect(next.solvedIn[seat]).toBe(1);
+  });
+
+  it('refuses a seat that is not at the table', () => {
+    const state = table(3);
+    expect(refuse(state, { type: 'guess', word: WORDS[0] }, 3)).toMatch(/not playing/i);
+    expect(refuse(state, { type: 'guess', word: WORDS[0] }, -1)).toMatch(/not playing/i);
+  });
+
+  it('puts everyone else on a clock when one player guesses', () => {
+    const state = table(4, 11);
+    const next = playAt(state, { type: 'guess', word: WORDS[0] }, 0, T0);
+    expect(next.dueBy[0]).toBeNull();
+    for (const seat of [1, 2, 3]) expect(next.dueBy[seat]).toBe(T0 + GUESS_MS);
+  });
+
+  it('does not let a fast player keep handing the others a fresh minute', () => {
+    // The rule that stops a guess-spammer resetting everyone else's clock.
+    const state = table(4, 11);
+    let next = playAt(state, { type: 'guess', word: WORDS[0] }, 0, T0);
+    next = playAt(next, { type: 'guess', word: WORDS[1] }, 0, T0 + 30_000);
+    for (const seat of [1, 2, 3]) expect(next.dueBy[seat]).toBe(T0 + GUESS_MS);
+  });
+
+  it('ends the game when a timeout leaves only one player in it', () => {
+    const state = table(4, 11);
+    const ticking = playAt(state, { type: 'guess', word: WORDS[0] }, 0, T0);
+    const settled = wordle.expire?.(ticking, T0 + GUESS_MS) as WordleState;
+
+    expect(settled).not.toBeNull();
+    // All three ran out together, which leaves one player - so it is over.
+    expect(settled.timedOut).toEqual([1, 2, 3]);
+    expect(settled.phase).toBe('over');
+    expect(settled.winner).toBe(0);
+  });
+
+  it('carries on when a timeout still leaves two players in it', () => {
+    const state = table(4, 11);
+    // Seat 0 guesses, putting 1, 2 and 3 on the clock. Two of them answer, so
+    // only seat 3's minute is still running when it runs out.
+    let next = playAt(state, { type: 'guess', word: WORDS[0] }, 0, T0);
+    next = playAt(next, { type: 'guess', word: WORDS[1] }, 1, T0 + 1000);
+    next = playAt(next, { type: 'guess', word: WORDS[2] }, 2, T0 + 2000);
+
+    const settled = wordle.expire?.(next, T0 + GUESS_MS) as WordleState;
+    expect(settled).not.toBeNull();
+    expect(settled.timedOut).toEqual([3]);
+    expect(settled.phase).toBe('play');
+    expect(canAct(settled, 3)).toBe(false);
+    expect(canAct(settled, 0)).toBe(true);
+    // Nobody is left without a clock, or the game could stall all over again.
+    for (const seat of [0, 1, 2]) expect(settled.dueBy[seat]).not.toBeNull();
+  });
+});
+
+describe('what a player at a big table may see', () => {
+  it('hides every word but your own while it could still matter', () => {
+    const state = table(5, 9);
+    const seen = wordle.view?.(state, 2) as WordleState;
+    expect(seen.secrets[2]).toBe(state.secrets[2]);
+    for (const seat of [0, 1, 3, 4]) expect(seen.secrets[seat]).toBe(HIDDEN);
+  });
+
+  it('reveals the word you were hunting once you are finished with it', () => {
+    let state = table(4, 13);
+    const mine = state.target[1];
+    state = play(state, { type: 'guess', word: state.secrets[mine] as string }, 1);
+    const seen = wordle.view?.(state, 1) as WordleState;
+    expect(seen.secrets[mine]).toBe(state.secrets[mine]);
+  });
+
+  it('does not hand a finished player another word to pass on', () => {
+    // The one genuinely new leak above two players: a player who is done could
+    // otherwise read a word that somebody else is still hunting.
+    let state = table(4, 13);
+    const mine = state.target[1];
+    state = play(state, { type: 'guess', word: state.secrets[mine] as string }, 1);
+    const seen = wordle.view?.(state, 1) as WordleState;
+    for (const seat of [0, 1, 2, 3]) {
+      if (seat === 1 || seat === mine) continue;
+      expect(seen.secrets[seat]).toBe(HIDDEN);
+    }
   });
 });

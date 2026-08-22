@@ -85,41 +85,51 @@ describe('seating', () => {
     expect(room.seatOf('b')).toBe(1);
   });
 
-  it('will not accept moves before the room is full', () => {
+  it('will not accept moves before the game is dealt', () => {
     const room = newRoom();
     room.join('a', 'A');
+    room.join('b', 'B');
     const result = room.move(0, { type: 'drop', col: 0 });
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/waiting/i);
+    expect(result.ok === false && result.error).toMatch(/not started/i);
   });
 
   /**
-   * Battleships is the one game that opts out of the rule above, because
-   * setting out a fleet is exactly what there is to do while the invite is
-   * still unanswered. Blocking it made every placement bounce with an error.
+   * Battleships used to be the one game that opted out of the rule above, via
+   * `allowsEarlyMove`: setting out a fleet was exactly what there was to do
+   * while an invite went unanswered, and blocking it made every placement
+   * bounce.
+   *
+   * Open seating removed the problem rather than the exception. A room is
+   * dealt when the people in it say they are all here, so by the time there is
+   * a fleet to place there is nobody still to arrive — placing happens in an
+   * ordinary dealt game like every other move.
    */
-  it('accepts the moves a game marks as playable before the room fills', () => {
+  it('lets a fleet be placed once the room has been dealt', () => {
     const room = newRoom('TEST', 'battleship');
     room.join('a', 'A');
+    room.join('b', 'B');
+    room.start(0, () => 0.5);
     expect(room.move(0, { type: 'place', kind: 'destroyer', row: 0, col: 0, horizontal: true }).ok)
       .toBe(true);
     expect(room.move(0, { type: 'scatter' }).ok).toBe(true);
     expect(room.move(0, { type: 'unplace', kind: 'destroyer' }).ok).toBe(true);
   });
 
-  it('still refuses the moves that game did not mark, while it is short', () => {
+  it('refuses a placement while the room is still gathering', () => {
     const room = newRoom('TEST', 'battleship');
     room.join('a', 'A');
-    room.move(0, { type: 'scatter' });
-    const shot = room.move(0, { type: 'fire', row: 0, col: 0 });
-    expect(shot.ok).toBe(false);
-    expect(shot.ok === false && shot.error).toMatch(/waiting/i);
+    const early = room.move(0, { type: 'scatter' });
+    expect(early.ok).toBe(false);
+    expect(early.ok === false && early.error).toMatch(/not started/i);
   });
 
-  /** One fleet placed early must not start the shooting on its own. */
-  it('does not let an early fleet sail before the other player arrives', () => {
+  /** One fleet placed must not start the shooting on its own. */
+  it('does not let one fleet sail before the other is set out', () => {
     const room = newRoom('TEST', 'battleship');
     room.join('a', 'A');
+    room.join('b', 'B');
+    room.start(0, () => 0.5);
     room.move(0, { type: 'scatter' });
     expect((room.viewFor(0, new Set()).state as { phase: string }).phase).toBe('placing');
   });
@@ -130,6 +140,7 @@ describe('snapshot round-trip', () => {
     const room = newRoom();
     room.join('a', 'Ann');
     room.join('b', 'Bo');
+    room.start(0);
     room.move(0, { type: 'drop', col: 3 });
     room.move(1, { type: 'drop', col: 3 });
 
@@ -168,8 +179,8 @@ describe('snapshot versioning', () => {
   });
 
   it('refuses a snapshot with no version at all', () => {
-    const ancient = { code: 'TEST', gameId: 'connect4', state: {}, seats: [null, null] };
-    expect(RoomEngine.restore(ancient as RoomSnapshot)).toBeNull();
+    const ancient = { code: 'TEST', gameId: 'connect4', state: {}, seats: [] };
+    expect(RoomEngine.restore(ancient as unknown as RoomSnapshot)).toBeNull();
   });
 
   it('stamps the current version on everything it writes', () => {
@@ -188,63 +199,129 @@ describe('view', () => {
   });
 });
 
-describe('table size', () => {
-  /** A four-handed room, seated but for the count given. */
-  function table(count: number, filled = count): RoomEngine {
-    const room = RoomEngine.create('TEST', 'wheel', undefined, count);
-    if (!room) throw new Error('could not create wheel');
+describe('open seating', () => {
+  /** A room for `filled` people who have arrived but not yet started. */
+  function table(filled: number, gameId = 'wheel'): RoomEngine {
+    const room = RoomEngine.create('TEST', gameId);
+    if (!room) throw new Error(`could not create ${gameId}`);
     for (let i = 0; i < filled; i++) room.join(`p${i}`, `P${i}`);
     return room;
   }
 
-  it('lays out as many seats as the room was opened for', () => {
-    expect(table(2, 0).size).toBe(2);
-    expect(table(3, 0).size).toBe(3);
-    expect(table(4, 0).size).toBe(4);
+  it('opens with no seats at all and grows as people arrive', () => {
+    const room = table(0);
+    expect(room.size).toBe(0);
+    expect(room.isFresh()).toBe(true);
+    room.join('a', 'Ann');
+    expect(room.size).toBe(1);
+    room.join('b', 'Bo');
+    expect(room.size).toBe(2);
   });
 
-  it('clamps a size the game cannot seat, rather than refusing the room', () => {
-    expect(table(99, 0).size).toBe(4);
-    expect(table(1, 0).size).toBe(2);
-    // And a game with no range is unaffected by being asked for one.
-    expect(newRoom('TEST', 'connect4').size).toBe(2);
+  it('takes whoever turns up, right up to what the game seats', () => {
+    // The bug this replaced: a third friend arriving at a room "opened for
+    // two" was told the game was full, and the only way to include them was
+    // for everyone to abandon the code and start over.
+    const room = table(4);
+    expect(room.size).toBe(4);
+    expect(room.capacity).toBe(4);
   });
 
-  it('tells the game how big its table is', () => {
+  it('turns away the player who would be one too many', () => {
+    const room = table(4);
+    const late = room.join('late', 'Late');
+    expect(late.ok).toBe(false);
+    expect(late.ok === false && late.error).toMatch(/full/i);
+    expect(late.ok === false && late.kind).toBe('full');
+  });
+
+  it('deals nothing until somebody starts it', () => {
+    const room = table(2);
+    expect(room.started()).toBe(false);
+    const view = room.viewFor(0, new Set([0, 1]));
+    expect(view.waiting).toBe(true);
+    // No state, rather than an improvised one: there is no game yet, and a
+    // board handed a made-up state would draw a lie.
+    expect(view.state).toBeNull();
+    expect(view.turn).toBeNull();
+    expect(view.over).toBe(false);
+  });
+
+  it('refuses every move before the deal', () => {
+    const room = table(2);
+    const result = room.move(0, { type: 'spin' });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/not started/i);
+  });
+
+  it('will not start below the game minimum', () => {
+    const room = table(1);
+    expect(room.canStart()).toBe(false);
+    const result = room.start(0);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/more player/i);
+  });
+
+  it('lets only the player who opened the room start it', () => {
     const room = table(3);
+    expect(room.start(1).ok).toBe(false);
+    expect(room.start(2).ok).toBe(false);
+    expect(room.start(0).ok).toBe(true);
+  });
+
+  it('refuses to start twice', () => {
+    const room = table(2);
+    expect(room.start(0).ok).toBe(true);
+    const again = room.start(0);
+    expect(again.ok).toBe(false);
+    expect(again.ok === false && again.error).toMatch(/already started/i);
+  });
+
+  it('tells the game how many actually sat down', () => {
+    // The whole reason the deal is deferred rather than done at create: the
+    // reducer is told the real number, so no reducer had to learn what an
+    // empty seat is.
+    const room = table(3);
+    room.start(0, () => 0.5);
     const state = room.viewFor(0, new Set([0, 1, 2])).state as { bank: number[] };
     expect(state.bank).toHaveLength(3);
   });
 
-  it('waits for every seat, not merely for the game minimum', () => {
-    // A four-handed room that started as soon as two arrived would deal the
-    // other two out of a game they were invited to.
-    const room = table(4, 3);
-    expect(room.viewFor(0, new Set()).waiting).toBe(true);
-    expect(room.move(0, { type: 'spin' }).ok).toBe(false);
-    expect(room.viewFor(0, new Set()).status).toMatch(/1 more player…/);
+  it('says what it is waiting for, and it is not always the same thing', () => {
+    const short = table(1);
+    expect(short.viewFor(0, new Set()).status).toMatch(/1 more player…/);
+    expect(short.viewFor(0, new Set()).canStart).toBe(false);
 
-    room.join('p3', 'P3');
-    expect(room.viewFor(0, new Set()).waiting).toBe(false);
+    const ready = table(2);
+    expect(ready.viewFor(0, new Set()).canStart).toBe(true);
+    expect(ready.viewFor(0, new Set()).status).toMatch(/can start/i);
   });
 
-  it('counts down how many are still missing', () => {
-    expect(table(4, 1).viewFor(0, new Set()).status).toMatch(/3 more players…/);
-  });
-
-  it('turns away the player who would be one too many', () => {
-    const room = table(3);
+  it('refuses a latecomer once the game is under way', () => {
+    // Seating them anyway hands the reducer a seat its arrays were never
+    // sized for, and every move in the room fails from then on.
+    const room = table(2);
+    room.start(0, () => 0.5);
     const late = room.join('late', 'Late');
     expect(late.ok).toBe(false);
-    expect(late.ok === false && late.error).toMatch(/full/i);
+    expect(late.ok === false && late.error).toMatch(/already started/i);
+    // Not 'full': the room has empty seats, and a player told it was full
+    // would go looking for someone to make space that nobody can make.
+    expect(late.ok === false && late.kind).toBe('started');
   });
 
-  it('replays a rematch at the same table, not at the game maximum', () => {
+  it('still lets a player who was here reclaim their seat mid-game', () => {
+    const room = table(2);
+    room.start(0, () => 0.5);
+    const back = room.join('p1', 'P1');
+    expect(back.ok).toBe(true);
+    expect(back.ok === true && back.seat).toBe(1);
+    expect(back.ok === true && back.reclaimed).toBe(true);
+  });
+
+  it('replays a rematch for whoever is at the table', () => {
     // Wheel of Fortune seats up to four, so a rematch that reached for
     // `maxPlayers` would quietly deal a two-handed room a four-handed game.
-    // Restored from a finished snapshot because `rematch` refuses until the
-    // match is genuinely over, and the answer needed to end one properly is
-    // redacted from every view by design.
     const room = RoomEngine.restore({
       version: SNAPSHOT_VERSION,
       code: 'TEST',
@@ -273,10 +350,11 @@ describe('a game on a clock', () => {
   const ROUND_MS = 120_000;
 
   function hunt(): RoomEngine {
-    const room = RoomEngine.create('TEST', 'wordhunt', () => 0.5, 2, START);
+    const room = RoomEngine.create('TEST', 'wordhunt');
     if (!room) throw new Error('could not create wordhunt');
-    room.join('a', 'A', START);
-    room.join('b', 'B', START);
+    room.join('a', 'A');
+    room.join('b', 'B');
+    room.start(0, () => 0.5, START);
     return room;
   }
 
@@ -289,24 +367,30 @@ describe('a game on a clock', () => {
    * Starting it at `create` meant a hunt could run out while its second player
    * was still reading the invite.
    */
-  it('does not start the clock until every seat is taken', () => {
-    const room = RoomEngine.create('TEST', 'wordhunt', () => 0.5, 2, START);
+  it('does not start the clock until the game is dealt', () => {
+    const room = RoomEngine.create('TEST', 'wordhunt');
     if (!room) throw new Error('could not create wordhunt');
-    room.join('a', 'A', START);
+    room.join('a', 'A');
     expect(room.deadline()).toBe(null);
 
-    // Ten minutes of nobody turning up, and the round is still all there.
+    // Ten minutes of nobody turning up, and the round is still all there —
+    // the clock belongs to the game being played, not to the room being open.
     const late = START + 10 * 60 * 1000;
     expect(room.tick(late)).toBe(false);
     expect(room.viewFor(0, new Set(), late).over).toBe(false);
 
-    room.join('b', 'B', late);
+    room.join('b', 'B');
+    // Still nothing: arriving no longer starts anything by itself. Somebody
+    // has to say the room is ready, which is the whole of open seating.
+    expect(room.deadline()).toBe(null);
+
+    room.start(0, () => 0.5, late);
     expect(room.deadline()).toBe(late + ROUND_MS);
   });
 
   it('does not hand out a fresh round when a player reconnects', () => {
     const room = hunt();
-    room.join('a', 'A', START + 60_000);
+    room.join('a', 'A');
     expect(room.deadline()).toBe(START + ROUND_MS);
   });
 
@@ -395,6 +479,7 @@ describe('changing game', () => {
     const room = newRoom('TEST', 'connect4');
     room.join('a', 'Ann');
     room.join('b', 'Bo');
+    room.start(0);
     const result = room.switchGame('wheel');
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).toMatch(/in progress/i);

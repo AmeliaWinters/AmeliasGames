@@ -5,7 +5,7 @@
  * a deploy reconnects with whatever shape it was built with, so the server
  * checks this and asks that client to refresh rather than misreading it.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message
@@ -16,6 +16,12 @@ export type ErrorKind =
   | 'no-room'
   /** The room exists but every seat at its table is taken. */
   | 'full'
+  /**
+   * The room exists and has room, but the game was already dealt. Distinct
+   * from `full` because the remedy is different: nobody can make space, so
+   * the only way in is the next game.
+   */
+  | 'started'
   /** Client and server disagree about the wire format. */
   | 'protocol'
   /** Understood, but refused: not your turn, illegal move, wrong game. */
@@ -32,13 +38,25 @@ export interface RoomView {
   gameId: string;
   gameName: string;
   players: PlayerView[];
-  /** Already passed through the game's `view()` for the receiving seat. */
+  /**
+   * Already passed through the game's `view()` for the receiving seat, and
+   * null while `waiting` — a room exists before its game is dealt, and there
+   * is no state to send until somebody starts it.
+   */
   state: unknown;
   turn: number | null;
   status: string;
   over: boolean;
-  /** True while the room is still short of the table size it was opened for. */
+  /** True while the room is still gathering people and has not been dealt. */
   waiting: boolean;
+  /**
+   * Whether the game could be started right now: enough people here, and not
+   * already under way. Only seat 0 may actually send `start`, so this says
+   * the room is ready rather than that you personally may press anything.
+   */
+  canStart: boolean;
+  /** The most this game seats, so the lobby can say how many more may come. */
+  capacity: number;
   /**
    * The server's clock when this view was built, in epoch milliseconds.
    *
@@ -63,30 +81,75 @@ export type ClientMessage =
       /** True when this client expects to be opening a brand-new room. */
       create: boolean;
       gameId: string;
-      /**
-       * How many seats to lay out, for the games that play a range. Read only
-       * when this client is the one creating the room — everyone joining
-       * afterwards gets the table that is already there — and clamped to what
-       * the game supports, so it is a request rather than an instruction.
-       */
-      players?: number;
     }
   | { t: 'move'; move: unknown }
   | { t: 'rematch' }
+  /**
+   * Deal the game to whoever is in the room.
+   *
+   * Only seat 0 may send it, and the server checks that rather than trusting
+   * anyone. It exists because open seating removed the moment a game used to
+   * start on its own: a room no longer knows how many people to expect, so
+   * the people in it have to say when they are all here.
+   */
+  | { t: 'start' }
+  /**
+   * Are you still there?
+   *
+   * A WebSocket that dies without a close frame — a phone that locks, a
+   * carrier that rebinds its NAT mapping — leaves `readyState` at OPEN
+   * forever. Nothing arrives, nothing errors, and the player sits in front of
+   * a board that will never move again. This is how the client finds out:
+   * silence in answer to this is the only evidence that the socket is gone.
+   *
+   * This needed no version bump of its own: both adapters ignore a `t` they do
+   * not know and so does the client, so a new client against an old server
+   * just gets silence — which is why the client counts *any* frame as proof of
+   * life, not only the pong. (The version did go to 2, for open seating, which
+   * is a genuinely incompatible change to `hello` and to `RoomView`.)
+   */
+  | { t: 'ping' }
   /**
    * Play something else with the people already here, once the current game
    * is over. The room, its code and its seats all survive — only the reducer
    * changes — so nobody has to swap links to move from Connect Four to
    * Yahtzee.
    *
-   * The table size is not negotiable here: it was settled when the room was
-   * opened and the same players are still in their seats, so a game that
-   * cannot seat exactly this many is refused rather than quietly dropping
-   * somebody.
+   * The table is whoever is sitting here, so a game that cannot seat this
+   * many is refused rather than quietly dropping somebody.
    */
   | { t: 'switch'; gameId: string };
 
 export type ServerMessage =
   | { t: 'welcome'; seat: number; room: RoomView }
   | { t: 'room'; room: RoomView }
-  | { t: 'error'; message: string; kind: ErrorKind };
+  | { t: 'error'; message: string; kind: ErrorKind }
+  /**
+   * Yes. See `ping`.
+   *
+   * In production this is answered by the runtime itself rather than by any
+   * code here — see `setWebSocketAutoResponse` in the worker — so that a
+   * heartbeat on an idle room does not drag the room out of hibernation once
+   * every twenty seconds for as long as somebody holds a tab open.
+   */
+  | { t: 'pong' };
+
+/**
+ * The heartbeat frames as bytes, because Cloudflare's auto-responder matches
+ * the request frame *exactly* — not by shape, by string. If the client built
+ * its ping independently and a key order or a space ever differed, the match
+ * would silently fail, every heartbeat would wake the room, and the bill would
+ * be the first thing to notice. So neither side writes its own.
+ */
+export const PING_FRAME = JSON.stringify({ t: 'ping' } satisfies ClientMessage);
+export const PONG_FRAME = JSON.stringify({ t: 'pong' } satisfies ServerMessage);
+
+/** How often the client proves the socket is alive. */
+export const PING_INTERVAL_MS = 20_000;
+
+/**
+ * How long a socket may go completely silent before the client gives up on it.
+ * Comfortably more than two heartbeats, so a single dropped frame on a slow
+ * train is not mistaken for a dead connection.
+ */
+export const SILENCE_LIMIT_MS = 50_000;

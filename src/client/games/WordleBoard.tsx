@@ -8,9 +8,13 @@ import {
   MAX_GUESSES,
   WORD_LENGTH,
   canAct,
-  isFinished,
+  clockCall,
+  formatClock,
+  guesserOf,
   keyMarks,
-  opponentOf,
+  msLeftFor,
+  seatsOf,
+  targetOf,
 } from "../../shared/games/wordleDisplay.js";
 import type {
   Mark,
@@ -18,13 +22,19 @@ import type {
   WordleMove,
   WordleState,
 } from "../../shared/games/wordleDisplay.js";
+import { useServerNow } from "../clock.js";
 
 interface Props {
   state: WordleState;
   seat: number | null;
   names: string[];
+  /** The server's clock as of this state — see `useServerNow`. */
+  now: number;
   onMove(move: WordleMove): void;
 }
+
+/** Under this much left on the shot clock, it starts shouting about it. */
+const URGENT_MS = 15 * 1000;
 
 /**
  * Note the absence of `myTurn`. Play here is free-simultaneous, so `room.turn`
@@ -223,9 +233,34 @@ function Keyboard({
   );
 }
 
-export function WordleBoard({ state, seat, names, onMove }: Props) {
+export function WordleBoard({ state, seat, names, now, onMove }: Props) {
   const [draft, setDraft] = useState("");
-  const them = seat === null ? null : opponentOf(seat);
+  // Two different people, and above two players they are not the same one:
+  // `hunting` set the word you are guessing, and `setFor` is guessing yours.
+  const hunting = seat === null ? null : targetOf(state, seat);
+  const setFor = seat === null ? null : guesserOf(state, seat);
+
+  // Only tick while a clock is actually running. Before the first guess of the
+  // game nobody is under the whistle, and there is nothing to count.
+  const ticking = state.phase === "play" && state.dueBy.some((at) => at !== null);
+  const clock = useServerNow(now, ticking);
+  const myLeft = seat === null ? null : msLeftFor(state, seat, clock);
+  // Everyone else still under the whistle. At two players this is the one
+  // opponent; above two it is however many have yet to answer.
+  const others =
+    seat === null
+      ? []
+      : seatsOf(state).filter((s) => s !== seat && msLeftFor(state, s, clock) !== null);
+  /** Everyone else who can still guess. */
+  const live =
+    seat === null ? [] : seatsOf(state).filter((s) => s !== seat && canAct(state, s));
+  const alone = seat !== null && live.length === 0;
+  const stillGoing =
+    live.length === 0
+      ? "Everyone else is done too."
+      : live.length === 1
+        ? `Waiting for ${names[live[0]] || `Player ${live[0] + 1}`}.`
+        : `Waiting on ${live.length} others.`;
 
   // A half-typed word means nothing once it has been accepted, or once the
   // phase moves on underneath it.
@@ -238,7 +273,10 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
 
   // A spectator (no seat) watches; everything below reads as "not my move".
   const mine = seat !== null;
-  const myMove = mine && canAct(state, seat);
+  // The clock closes the input the moment it reads zero, rather than a
+  // round-trip later — the server has already stopped taking guesses by then,
+  // and a box that still accepts one is promising something it cannot deliver.
+  const myMove = mine && canAct(state, seat) && myLeft !== 0;
 
   function submit() {
     if (draft.length !== WORD_LENGTH) return;
@@ -250,13 +288,16 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
     const yourWord = mine ? state.secrets[seat] : null;
     // `HIDDEN` rather than null is how a chosen-but-secret word reaches us, so
     // this distinguishes "they are ready" from "they are still thinking".
-    const theyAreReady = them !== null && state.secrets[them] !== null;
+    const waiting = seatsOf(state).filter((s) => s !== seat && state.secrets[s] === null);
 
     return (
       <div className="board wd-board wd-setup">
         <p className="wd-brief">
-          Pick a five-letter word for {nameFor(them) || "your opponent"} to
-          guess. Slang and swearing are fair game.
+          Pick a five-letter word for {nameFor(setFor) || "the next player"} to
+          guess. Slang and swearing are fair game. You will be hunting somebody
+          else's — nobody ever gets their own. Once the guessing starts, every
+          guess puts everyone else on a one-minute clock, and running it out
+          finishes you.
         </p>
 
         {yourWord === null ? (
@@ -276,9 +317,11 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
         )}
 
         <p className="wd-waiting" aria-live="polite">
-          {theyAreReady
-            ? `${nameFor(them)} is ready.`
-            : `Waiting for ${nameFor(them) || "the other player"} to choose.`}
+          {waiting.length === 0
+            ? "Everyone is ready."
+            : waiting.length === 1
+              ? `Waiting for ${nameFor(waiting[0])} to choose.`
+              : `Waiting on ${waiting.length} more words.`}
         </p>
       </div>
     );
@@ -290,17 +333,16 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
     <div className="board wd-board">
       <div className="wd-panels">
         {/*
-          You on the left, them on the right. Each panel shows the word that
-          side is hunting and every attempt they have made on it. Both sides
-          are open, and that gives nothing away: you are each guessing the
-          other's word, so their guesses at yours tell you only what you could
-          already mark yourself.
+          You first, then everybody else in seat order. Each panel shows the
+          word that player is hunting and every attempt they have made on it.
+          All of it is open, and that gives nothing away: the marks against a
+          word are what anyone watching could work out for themselves.
         */}
-        {[seat, them]
-          .filter((side): side is number => side !== null)
+        {seatsOf(state)
+          .sort((a, b) => (a === seat ? -1 : b === seat ? 1 : a - b))
           .map((side) => {
-            // The word this side is hunting is the one their opponent set.
-            const target = state.secrets[opponentOf(side)];
+            // The word this side is hunting is the one their own target set.
+            const target = state.secrets[targetOf(state, side)];
             const solved = state.solvedIn[side];
             const yours = side === seat;
             return (
@@ -328,7 +370,9 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
                   label={
                     yours
                       ? "Your guesses"
-                      : `${nameFor(side)} guessing your word`
+                      : side === setFor
+                        ? `${nameFor(side)} guessing your word`
+                        : `${nameFor(side)}'s guesses`
                   }
                 />
               </section>
@@ -338,25 +382,76 @@ export function WordleBoard({ state, seat, names, onMove }: Props) {
 
       {mine && !over && (
         <>
+          {/*
+            The shot clock, and only when one is running: before the first
+            guess of the game nobody is on one, and a 1:00 sitting there
+            frozen would read as broken rather than as not yet started.
+            Yours or theirs — whose it is changes the whole message, so the
+            two are written out rather than shared.
+          */}
+          {myLeft !== null && (
+            <p
+              className={[
+                "clock compact",
+                myLeft <= URGENT_MS ? "urgent" : "",
+                myLeft === 0 ? "done" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              // Announced when the wording changes, not on every tick: a
+              // countdown read out four times a second is unusable with a
+              // screen reader on.
+              role="timer"
+              aria-live="off"
+            >
+              <span className="clock-face">
+                {myLeft === 0 ? "Time" : formatClock(myLeft)}
+              </span>
+              <span className="clock-note">
+                {myLeft === 0 ? "you ran out" : "to guess"}
+              </span>
+              {/* The announcement the clock above cannot make without reading
+                  itself out four times a second. `clockCall` changes only on
+                  crossing a mark, so this speaks at a minute, thirty, ten and
+                  time — and stays silent in between. */}
+              <span className="sr-only" aria-live="polite">
+                {clockCall(myLeft, true)}
+              </span>
+            </p>
+          )}
+          {others.length === 1 && (
+            <p className="wd-waiting" aria-live="polite">
+              {nameFor(others[0])} has{" "}
+              {formatClock(msLeftFor(state, others[0], clock) as number)} to answer.
+            </p>
+          )}
+          {others.length > 1 && (
+            <p className="wd-waiting" aria-live="polite">
+              {others.length} others are on the clock.
+            </p>
+          )}
+
           <WordInput
             value={draft}
             onChange={setDraft}
             onSubmit={submit}
             disabled={!myMove}
-            label={`Guess ${nameFor(them)}'s word`}
+            label={`Guess ${nameFor(hunting)}'s word`}
             submitLabel="Guess"
             autoFocus
           />
           {!myMove && (
             <p className="wd-waiting" aria-live="polite">
               {state.solvedIn[seat] !== null
-                ? `You got it in ${state.solvedIn[seat]}. Waiting for ${nameFor(them)}.`
-                : `Out of guesses. Waiting for ${nameFor(them)}.`}
+                ? `You got it in ${state.solvedIn[seat]}. ${stillGoing}`
+                : myLeft === 0
+                  ? "Your minute is up."
+                  : `Out of guesses. ${stillGoing}`}
             </p>
           )}
-          {myMove && them !== null && isFinished(state, them) && (
+          {myMove && alone && (
             <p className="wd-waiting" aria-live="polite">
-              {nameFor(them)} is done — the table is yours.
+              Everyone else is done — the table is yours, a minute a guess.
             </p>
           )}
           <Keyboard

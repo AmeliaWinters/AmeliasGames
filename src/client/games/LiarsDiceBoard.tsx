@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 // Values from liarsDiceDisplay.js, which imports nothing — the board must never
 // pull the reducer into the client bundle. The types below are type-only, so
 // they are erased and carry no runtime import.
@@ -15,6 +15,7 @@ import {
 } from "../../shared/games/liarsDiceDisplay.js";
 import type { Bid, LdMove, LdState, Showdown } from "../../shared/games/liarsDiceDisplay.js";
 import { Die } from "./Die.js";
+import { useReveal } from "../dice/useReveal.js";
 
 interface Props {
   state: LdState;
@@ -38,9 +39,33 @@ interface Props {
  * round is dealt.
  */
 
-/** What each seat is holding right now: their real hand, or the reveal. */
-function handFor(state: LdState, index: number): number[] {
-  return state.showdown ? (state.showdown.hands[index] ?? []) : (state.dice[index] ?? []);
+/**
+ * What each seat is holding right now: their real hand, or the reveal — and
+ * for a seat the reveal has not reached yet, still the face-down row it was
+ * showing a moment ago.
+ */
+function handFor(state: LdState, index: number, turned: boolean): number[] {
+  return state.showdown && turned
+    ? (state.showdown.hands[index] ?? [])
+    : (state.dice[index] ?? []);
+}
+
+/**
+ * The order the hands turn over in: the bidding, oldest first, and then
+ * everyone who never said anything.
+ *
+ * It ends on the seat that was challenged, because that is the hand the call
+ * was about — and the run is what a call is reasoned from, so replaying it is
+ * the reveal saying *why* before it says what.
+ */
+function revealOrder(state: LdState): number[] {
+  const call = state.showdown;
+  if (!call) return [];
+  const seats = state.dice.map((_, index) => index);
+  const said = call.bid.seat;
+  const spoke = [...new Set(state.history.map((bid) => bid.seat))].filter((s) => s !== said);
+  const silent = seats.filter((s) => s !== said && !spoke.includes(s));
+  return [...spoke, ...silent, said];
 }
 
 export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
@@ -78,6 +103,27 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
   const bidding = myTurn && state.phase === "bid";
   const canCall = bidding && state.bid !== null;
   const showdown = state.showdown;
+  /*
+    Turning the hands over, one at a time. The key changes exactly when there
+    is a new call to settle — the round it settled plus who made it, since a
+    round can only ever produce one — so a re-render for any other reason does
+    not start the reveal again.
+  */
+  const order = useMemo(
+    () => revealOrder(state),
+    // Exactly what the order is built from. Depending on `state` itself would
+    // rebuild it on every message, which is harmless here and would not be if
+    // anything downstream ever depended on its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.showdown, state.history, state.dice.length],
+  );
+  const reveal = useReveal(
+    showdown ? `${state.round}:${showdown.challenger}` : null,
+    order,
+  );
+  // The count waits for the last hand. Being told the answer while a hand is
+  // still face down is being told rather than shown.
+  const counted = showdown !== null && reveal.done;
   // Every die on the table is claimed already: the bidding is finished and the
   // only moves left are the two calls. Saying so is kinder than a Bid button
   // that refuses everything the spinners can reach.
@@ -111,7 +157,8 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
           them all over. */}
       <div className="ld-hands">
         {state.dice.map((_, index) => {
-          const hand = handFor(state, index);
+          const turned = reveal.shown(index);
+          const hand = handFor(state, index, turned);
           const out = isOut(state, index) && !showdown?.out.includes(index);
           return (
             <div
@@ -135,7 +182,11 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
                     <Die
                       key={i}
                       value={value}
-                      match={showdown !== null && value === showdown.bid.face}
+                      hidden={value < 1 || value > FACES}
+                      // Only once the count has been said. A green die on a
+                      // hand that has only just turned over is the arithmetic
+                      // arriving before the hand it was done on.
+                      match={counted && value === showdown?.bid.face}
                       label={
                         value >= 1 && value <= FACES
                           ? `${nameFor(index)}: die showing ${value}`
@@ -160,15 +211,20 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
               {describeBid(showdown.bid)}
               {showdown.call === "exact" ? " spot on" : ""}
             </span>
+            {/* The count, and what it cost, held until every hand is up. The
+                block keeps its height either way, so the board does not jump
+                when the answer arrives. */}
             <span className="ld-outcome">
-              {showdown.call === "exact" && showdown.loser === null
-                ? `Exactly ${describeCount(showdown.actual, showdown.bid.face)}`
-                : `There ${showdown.actual === 1 ? "was" : "were"} ${describeCount(
-                    showdown.actual,
-                    showdown.bid.face,
-                  )}`}
+              {!counted
+                ? "Turning them over…"
+                : showdown.call === "exact" && showdown.loser === null
+                  ? `Exactly ${describeCount(showdown.actual, showdown.bid.face)}`
+                  : `There ${showdown.actual === 1 ? "was" : "were"} ${describeCount(
+                      showdown.actual,
+                      showdown.bid.face,
+                    )}`}
             </span>
-            <span className="ld-consequence">{consequence(showdown)}</span>
+            <span className="ld-consequence">{counted ? consequence(showdown) : ""}</span>
           </>
         ) : state.bid ? (
           <>

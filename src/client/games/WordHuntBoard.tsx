@@ -7,6 +7,7 @@ import {
   MIN_WORD,
   canAct,
   canExtend,
+  clockCall,
   countOf,
   formatClock,
   hasStarted,
@@ -17,6 +18,7 @@ import {
   wordScore,
 } from "../../shared/games/wordHuntDisplay.js";
 import type { WhMove, WhState } from "../../shared/games/wordHuntDisplay.js";
+import { useServerNow } from "../clock.js";
 
 interface Props {
   state: WhState;
@@ -31,40 +33,6 @@ interface Props {
 const URGENT_MS = 20 * 1000;
 
 /**
- * Milliseconds left, ticking, measured against the server's clock rather than
- * this device's.
- *
- * The deadline is a server timestamp, so counting down to it with a local
- * `Date.now()` shows the wrong number on any device whose clock is off — and
- * phones are off by minutes more often than you would hope. Every state
- * message carries the server's time, so the gap between the two clocks is
- * remeasured whenever one arrives and the skew cancels out.
- *
- * This only ever decides what the player *sees*. Whether a word counts is the
- * server's business, and it has already made up its mind by the time this runs.
- */
-function useCountdown(state: WhState, serverNow: number): number {
-  const skew = useRef(0);
-  const [left, setLeft] = useState(() => msLeft(state, serverNow));
-
-  useEffect(() => {
-    skew.current = serverNow - Date.now();
-  }, [serverNow]);
-
-  useEffect(() => {
-    const read = () => setLeft(msLeft(state, Date.now() + skew.current));
-    read();
-    if (state.phase !== "play") return;
-    // Four times a second: fast enough that the seconds never visibly stick,
-    // cheap enough not to matter.
-    const id = setInterval(read, 250);
-    return () => clearInterval(id);
-  }, [state, serverNow]);
-
-  return left;
-}
-
-/**
  * Note the absence of `myTurn`. Everyone hunts the same grid at the same time,
  * so `room.turn` says nothing about whether *you* may drag — `canAct` does.
  *
@@ -77,14 +45,70 @@ function useCountdown(state: WhState, serverNow: number): number {
  * itself; something has to say "that is the word", and that is the lift.
  */
 
-/** The cell under a point, for touch: pointerenter does not fire mid-drag. */
-function cellUnder(x: number, y: number): number | null {
-  const element = document.elementFromPoint(x, y);
-  const cell = element?.closest<HTMLElement>("[data-cell]");
-  if (!cell) return null;
-  const index = Number(cell.dataset.cell);
-  return Number.isInteger(index) ? index : null;
+/**
+ * How near a cell's centre a finger has to be for that cell to count, as a
+ * fraction of the cell.
+ *
+ * Well under half, and that is the whole of the fix for tracing diagonals with
+ * a thumb. Treating a cell's own box as its hit area tiles the grid with no
+ * space in between, so a finger cutting the corner from one letter to the one
+ * diagonally beyond it clips whichever orthogonal neighbour it passes nearest
+ * and drags a letter nobody asked for into the middle of the word. At 0.42 the
+ * live areas are circles that sit clear of the edges: the straight line between
+ * two diagonal neighbours passes 0.71 of a cell from either of the two cells
+ * beside it, so it misses both, while a finger heading for an orthogonal
+ * neighbour still walks through the middle of it.
+ */
+const HIT_RADIUS = 0.42;
+
+/** Where the grid is on the screen. Measured once, when a trace starts. */
+interface Reach {
+  /** Cell centres in client coordinates, indexed by cell. */
+  centres: { x: number; y: number }[];
+  /** How near a centre counts as being on it. */
+  radius: number;
+  /** How finely to walk a pointer move — see `trace`. */
+  step: number;
 }
+
+function measure(container: HTMLElement): Reach | null {
+  const centres: { x: number; y: number }[] = [];
+  let size = 0;
+  for (const cell of container.querySelectorAll<HTMLElement>("[data-cell]")) {
+    const index = Number(cell.dataset.cell);
+    if (!Number.isInteger(index)) continue;
+    const box = cell.getBoundingClientRect();
+    centres[index] = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    size = Math.max(size, box.width, box.height);
+  }
+  return size > 0 ? { centres, radius: size * HIT_RADIUS, step: size / 4 } : null;
+}
+
+/**
+ * The cell a point is on: the nearest centre, if the point is near enough to
+ * it. `anywhere` drops the distance test, which is right for the press that
+ * starts a trace — a finger landing in the gutter between two letters plainly
+ * meant one of them — and wrong for every sample after it, where the whole
+ * point is that most of the grid is not on any letter.
+ */
+function cellNear(reach: Reach, x: number, y: number, anywhere = false): number | null {
+  let best = -1;
+  let nearest = Infinity;
+  for (let index = 0; index < reach.centres.length; index += 1) {
+    const centre = reach.centres[index];
+    if (!centre) continue;
+    const distance = Math.hypot(centre.x - x, centre.y - y);
+    if (distance < nearest) {
+      nearest = distance;
+      best = index;
+    }
+  }
+  if (best === -1) return null;
+  return anywhere || nearest <= reach.radius ? best : null;
+}
+
+/** How long after a drag a click is still that drag's parting shot. */
+const CLICK_AFTER_DRAG_MS = 400;
 
 export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
   const [path, setPath] = useState<number[]>([]);
@@ -98,8 +122,20 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
     about what it is.
   */
   const dragging = useRef(false);
+  /** Where the grid was when this trace began, and where the finger last was. */
+  const reach = useRef<Reach | null>(null);
+  const last = useRef<{ x: number; y: number } | null>(null);
+  /*
+    When a drag last ended, or 0. A drag across more than one cell ends with a
+    click on whichever letter it finished on, and without this that click would
+    start a fresh tap-built word out of the last letter of the word just taken.
+    Cleared by the next press as well as by time, so a keypress arriving long
+    after a drag is never mistaken for its tail.
+  */
+  const dragEnded = useRef(0);
 
-  const left = useCountdown(state, now);
+  const clock = useServerNow(now, state.phase === "play");
+  const left = msLeft(state, clock);
   const mine = seat !== null;
   const started = hasStarted(state);
   // The clock closes the grid the moment it reads zero, rather than a
@@ -116,6 +152,8 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
     if (!myMove) {
       setPath([]);
       dragging.current = false;
+      reach.current = null;
+      last.current = null;
     }
   }, [myMove]);
 
@@ -132,6 +170,30 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
       }
       return canExtend(current, cell) ? current.concat(cell) : current;
     });
+  }
+
+  /**
+   * Walk the finger from where it last was to where it is now, picking up
+   * every cell on the way.
+   *
+   * Sampling only the point each event reports drops letters whenever the
+   * finger outruns the grid, and a flick easily covers a whole cell between
+   * two moves. On a diagonal that is worse than a dropped letter: the cell
+   * jumped is the one joining the two ends of the step, so the trace refuses
+   * to grow at all and the word dies under the thumb.
+   */
+  function trace(x: number, y: number) {
+    const here = reach.current;
+    if (!here) return;
+    const from = last.current ?? { x, y };
+    const dx = x - from.x;
+    const dy = y - from.y;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / here.step));
+    for (let i = 1; i <= steps; i += 1) {
+      const cell = cellNear(here, from.x + (dx * i) / steps, from.y + (dy * i) / steps);
+      if (cell !== null) extend(cell);
+    }
+    last.current = { x, y };
   }
 
   /**
@@ -155,7 +217,7 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
       {!over && (
         <p
           className={[
-            "wh-clock",
+            "clock",
             started && left <= URGENT_MS ? "urgent" : "",
             started && left === 0 ? "done" : "",
           ]
@@ -166,9 +228,16 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
           role="timer"
           aria-live="off"
         >
-          <span className="wh-clock-face">{left === 0 ? "Time" : formatClock(left)}</span>
-          <span className="wh-clock-note">
+          <span className="clock-face">{left === 0 ? "Time" : formatClock(left)}</span>
+          <span className="clock-note">
             {!started ? "on the whistle" : left === 0 ? "pencils down" : "left"}
+          </span>
+          {/* The announcement the clock above cannot make without reading
+              itself out four times a second. `clockCall` changes only on
+              crossing a mark, so this speaks at a minute, thirty, ten and
+              time — and stays silent in between. */}
+          <span className="sr-only" aria-live="polite">
+            {clockCall(left, started)}
           </span>
         </p>
       )}
@@ -202,27 +271,39 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
         style={{ ["--wh-size" as string]: GRID_SIZE }}
         onPointerDown={(event) => {
           if (!myMove) return;
-          const cell = cellUnder(event.clientX, event.clientY);
+          const here = measure(event.currentTarget);
+          if (!here) return;
+          const cell = cellNear(here, event.clientX, event.clientY, true);
           if (cell === null) return;
           // Capture on the container, so a finger that leaves the grid and
           // comes back is still the same trace.
           grid.current?.setPointerCapture(event.pointerId);
+          reach.current = here;
+          last.current = { x: event.clientX, y: event.clientY };
           dragging.current = true;
+          dragEnded.current = 0;
           setPath([]);
           extend(cell);
         }}
         onPointerMove={(event) => {
           if (!dragging.current) return;
-          const cell = cellUnder(event.clientX, event.clientY);
-          if (cell !== null) extend(cell);
+          trace(event.clientX, event.clientY);
         }}
         onPointerUp={() => {
           if (!dragging.current) return;
           dragging.current = false;
+          reach.current = null;
+          last.current = null;
+          // A one-cell drag is a tap, and the click it ends with is how a
+          // tapped word gets built. Anything longer was a trace, and its
+          // click is noise.
+          dragEnded.current = path.length > 1 ? Date.now() : 0;
           submit();
         }}
         onPointerCancel={() => {
           dragging.current = false;
+          reach.current = null;
+          last.current = null;
           setPath([]);
         }}
       >
@@ -236,8 +317,15 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
               className={step === -1 ? "wh-cell" : "wh-cell picked"}
               disabled={!myMove}
               // The pointer path above handles the drag; this is the tap and
-              // the keypress, which land as a click either way.
-              onClick={() => extend(cell)}
+              // the keypress, which land as a click either way — except for
+              // the click a finished drag leaves behind, which is neither.
+              onClick={() => {
+                if (Date.now() - dragEnded.current < CLICK_AFTER_DRAG_MS) {
+                  dragEnded.current = 0;
+                  return;
+                }
+                extend(cell);
+              }}
               aria-label={
                 step === -1
                   ? letter

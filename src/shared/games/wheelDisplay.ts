@@ -32,6 +32,16 @@ export const SOLVE_BONUS = 2000;
  */
 export const GUESSES_PER_TURN = 3;
 
+/**
+ * Correct letters a player may find before the turn moves on.
+ *
+ * Without it a good spin was the whole round: find a letter, spin again, find
+ * another, and a player who got going never handed the wheel back. Three is
+ * the same number as the wrong guesses on purpose — a turn is three shots,
+ * and it ends whichever way you use them up.
+ */
+export const FINDS_PER_TURN = 3;
+
 export const VOWELS = 'AEIOU';
 /** Y is a consonant here, exactly as it is on the show. */
 export const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXYZ';
@@ -90,7 +100,15 @@ export const WHEEL: readonly Wedge[] = [
 /** Degrees of arc each wedge takes up. */
 export const WEDGE_ARC = 360 / WHEEL.length;
 
-/** What a wedge says on its face. Short, because it is written on a 15° slice. */
+/**
+ * What a wedge says on its face.
+ *
+ * In practice only the cash wedges reach it: a 15° slice has no room for a
+ * word, so the board draws Bankrupt and Lose a Turn as marks instead and says
+ * them in full in the readout underneath. The other two labels are kept
+ * because this is what a wedge is called, and a function that answers for two
+ * thirds of its type is a trap for the next caller.
+ */
 export function wedgeLabel(wedge: Wedge): string {
   if (wedge.kind === 'cash') return String(wedge.value);
   return wedge.kind === 'bankrupt' ? 'BANKRUPT' : 'LOSE TURN';

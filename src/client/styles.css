@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Amelia's Games — Playbill
+   Rebellia Games — Playbill
 
    One dark stage, four channels. Everything below the palette blocks — type,
    layout, motion — is shared, so switching palette changes only colour.
@@ -36,6 +36,14 @@
   --point-dark: #12161a;
   --point-light: #3f4a52;
   --tray: #08080a;
+
+  /* The unlit piece in a card motif: an empty hole, an unplayed tile, a point
+     with nothing on it. The board-relative tokens above are all deliberately
+     close to --board, because on a real board something bright sits on top of
+     them. In a motif nothing does, so the shape has to carry itself -- this
+     clears 3:1 on --board in both palettes and is used as an edge, not a fill,
+     so an empty square still reads as empty. */
+  --motif-off: #7a7a86;
 
   --action: var(--accent);
   --action-text: #0c0c0f;
@@ -89,6 +97,8 @@
   --point-dark: #c6bfa7;
   --point-light: #f8f5ef;
   --tray: #d3cfc0;
+
+  --motif-off: #7d7a6b;
 
   --action: var(--accent);
   --action-text: #ffffff;
@@ -248,6 +258,26 @@ input {
   color: var(--accent);
 }
 
+/* The wordmark is the way back to the start, so it is a real button — but it
+   has to keep looking like the heading it sits in, not like a control. */
+.topbar h1 .home {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Full-height target without pushing the bar taller than the label. */
+  min-height: 44px;
+  padding: 0 6px;
+  margin-left: -6px;
+  cursor: pointer;
+}
 .room-meta {
   display: flex;
   align-items: center;
@@ -557,6 +587,82 @@ input {
   }
 }
 
+/* ── Clocks ────────────────────────────────────────────────────────────
+   Two games run on one, and they run on the same clock face: Word Hunt's
+   two-minute round and Word Duel's one-minute shot clock. Big, tabular so the
+   digits never jostle, and quiet until it has something to say.
+
+   `.compact` is the Word Duel size. There the clock sits beside the guess box
+   rather than over the whole board, and a 2rem countdown next to a text field
+   reads as the point of the screen, which it is not -- the grids are. */
+.clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.clock-face {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+  /* Tabular, or every tick shifts the digits and the clock jitters. */
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-note {
+  font-family: var(--body);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.clock.compact .clock-face {
+  font-size: 1.35rem;
+}
+
+/* The closing seconds. The colour is the message; the pulse is a second
+   channel for anyone reading the board rather than the clock, which is where
+   every player is looking by then. One beat a second, matching the count. */
+.clock.urgent {
+  color: var(--alert);
+}
+.clock.urgent .clock-face {
+  animation: clock-tick 1s steps(1, end) infinite;
+}
+.clock.urgent .clock-note {
+  color: var(--alert);
+}
+
+/* Time. Nothing left to count, so the pulse stops -- a clock still flashing
+   after the whistle reads as a game still running. */
+.clock.done .clock-face {
+  animation: none;
+}
+
+@keyframes clock-tick {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock.urgent .clock-face {
+    animation: none;
+  }
+}
+
 /* ── Controls ──────────────────────────────────────────────────────── */
 /* Button labels are names, not sentences, so they take the condensed face in
    caps like every other name in the app. The ones that are really surfaces
@@ -583,7 +689,7 @@ button {
    `.bs-cell:disabled { opacity: 1 }` further down lost to this rule on
    specificity, so it never took effect. A playing surface belongs on this
    list, not in a rule trying to argue with it. */
-button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key):not(.bs-cell) {
+button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key):not(.bs-cell):not(.die-hold) {
   opacity: 0.45;
   cursor: default;
 }
@@ -680,9 +786,18 @@ input:focus-visible {
 }
 
 .setup .swap {
-  align-self: flex-start;
-  margin-top: 6px;
   padding-left: 0;
+}
+
+/* The two things you can set, side by side. Both are `.swap`: they are the
+   same kind of thing — a preference remembered between visits — and giving
+   the second one its own treatment would say it was not. */
+.preferences {
+  display: flex;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin-top: 6px;
 }
 
 /* ── Hover ─────────────────────────────────────────────────────────────
@@ -690,6 +805,15 @@ input:focus-visible {
    after a tap, which left the tapped column highlighted for the rest of
    the turn. */
 @media (hover: hover) {
+  /* Moved in here with the rest of them. A bare :hover sticks on a touch
+     screen, and while tapping the wordmark navigates away on the same tap --
+     so nothing is left visibly underlined today -- that is a property of what
+     .home happens to do, not of the rule. */
+  .topbar h1 .home:hover .tail {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
   .code:hover {
     color: var(--ink);
     border-color: var(--ink);
@@ -716,6 +840,14 @@ input:focus-visible {
      hover rule above does nothing for them. */
   .bs-cell:hover:not(:disabled) {
     box-shadow: inset 0 0 0 2px var(--accent);
+  }
+
+  /* A picker card is a <label>, so the button rule above never reaches it and
+     the whole grid sat inert under a pointer while everything around it moved.
+     The card answers in its own channel colour, which is also what picking it
+     does -- so the hover is a preview of the commitment. */
+  .game:hover {
+    border-color: var(--accent);
   }
 }
 
@@ -905,48 +1037,273 @@ input:focus-visible {
   font-size: 0.85rem;
 }
 
-.dice {
-  display: flex;
-  gap: 6px;
-}
+/* ── Dice ──────────────────────────────────────────────────────────────
+   Pips rather than numerals: a die reads as a die, and a hand is countable at
+   a glance without being read — which is also what makes a face-down die read
+   as a die rather than as an empty box.
 
-/* Pips rather than numerals: a die reads as a die, and the count is legible
-   at a glance without being read. A cream face with ground-coloured pips is
-   the highest-contrast pair either palette has. */
-.die {
-  width: 32px;
-  height: 32px;
-  padding: 5px;
+   Cream with dark pips in *either* palette, deliberately. Dice are objects
+   sitting on the stage rather than interface, and one that inverted with the
+   theme would stop looking like a die. The four literals in this block are the
+   only colours in the file that do not come from a token, and that is the
+   reason: they are the colour of the object, not of the app. */
+.pips {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  background: var(--ink);
-  border: 0;
-  border-radius: 6px;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  gap: calc(var(--die) * 0.04);
+  padding: calc(var(--die) * 0.145);
+  background: #f5f1e8;
 }
 
-/* A die whose face is somebody else's business. It has to read as a die with
-   nothing on it rather than as a gap in the row, so it keeps the shape and
-   gives up the cream. */
-.die.down {
-  background: var(--board);
+/* Six pip slots, always. A face shows the ones it needs and hides the rest, so
+   a tumbling die changes face with one attribute write rather than by
+   re-rendering its children forty times a second. */
+.pips i {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #0c0c0f;
+  display: none;
+}
+
+.pips[data-face="1"] i:nth-child(-n + 1),
+.pips[data-face="2"] i:nth-child(-n + 2),
+.pips[data-face="3"] i:nth-child(-n + 3),
+.pips[data-face="4"] i:nth-child(-n + 4),
+.pips[data-face="5"] i:nth-child(-n + 5),
+.pips[data-face="6"] i:nth-child(-n + 6) {
+  display: block;
+}
+
+/* Pip placement, one rule per face. The alternative -- an image per face --
+   would be six assets the offline APK has to carry. */
+.pips[data-face="1"] i:nth-child(1) { grid-area: 2 / 2; }
+
+.pips[data-face="2"] i:nth-child(1) { grid-area: 1 / 1; }
+.pips[data-face="2"] i:nth-child(2) { grid-area: 3 / 3; }
+
+.pips[data-face="3"] i:nth-child(1) { grid-area: 1 / 1; }
+.pips[data-face="3"] i:nth-child(2) { grid-area: 2 / 2; }
+.pips[data-face="3"] i:nth-child(3) { grid-area: 3 / 3; }
+
+.pips[data-face="4"] i:nth-child(1) { grid-area: 1 / 1; }
+.pips[data-face="4"] i:nth-child(2) { grid-area: 1 / 3; }
+.pips[data-face="4"] i:nth-child(3) { grid-area: 3 / 1; }
+.pips[data-face="4"] i:nth-child(4) { grid-area: 3 / 3; }
+
+.pips[data-face="5"] i:nth-child(1) { grid-area: 1 / 1; }
+.pips[data-face="5"] i:nth-child(2) { grid-area: 1 / 3; }
+.pips[data-face="5"] i:nth-child(3) { grid-area: 2 / 2; }
+.pips[data-face="5"] i:nth-child(4) { grid-area: 3 / 1; }
+.pips[data-face="5"] i:nth-child(5) { grid-area: 3 / 3; }
+
+.pips[data-face="6"] i:nth-child(1) { grid-area: 1 / 1; }
+.pips[data-face="6"] i:nth-child(2) { grid-area: 1 / 3; }
+.pips[data-face="6"] i:nth-child(3) { grid-area: 2 / 1; }
+.pips[data-face="6"] i:nth-child(4) { grid-area: 2 / 3; }
+.pips[data-face="6"] i:nth-child(5) { grid-area: 3 / 1; }
+.pips[data-face="6"] i:nth-child(6) { grid-area: 3 / 3; }
+
+/* ── A die lying flat ──────────────────────────────────────────────────
+   For dice that sit in a row and are there to be counted: the hands in Liar's
+   Dice, where nothing is ever thrown and twenty cubes would be twenty times
+   the elements for a picture of the same six faces. */
+.die {
+  --die: 32px;
+  width: var(--die);
+  height: var(--die);
+  flex: none;
+  display: block;
+  /* The brighter rule, not the plain one: in daylight a cream die sits on a
+     light board, and the edge is the only thing separating them. */
   border: 1px solid var(--rule-hi);
+  border-radius: calc(var(--die) * 0.15);
+  overflow: hidden;
+}
+.die .pips {
+  width: 100%;
+  height: 100%;
+}
+
+/* A die whose face is somebody else's business, and one nobody has thrown yet.
+   Both have to read as a die with nothing on it rather than as a gap in the
+   row, so they keep the shape and give up the cream. */
+.die.down .pips,
+.die .pips[data-face="0"] {
+  background: var(--board);
 }
 /* The dice a call turned out to be counting — the same green that marks a
    letter in the right place, doing the same job. */
-.die.match {
+.die.match .pips {
   background: var(--mark-hit);
 }
-.die.match .pip {
+.die.match .pips i {
   background: var(--mark-text);
 }
 
-.pip {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ground);
-  place-self: center;
+/* ── A die as a cube ───────────────────────────────────────────────────
+   For dice that are thrown. The number is not written on a die, it is on a
+   *side* of one — the simulation tumbles the cube and the face pointing at you
+   when it stops is the face you get — and a flat square spun about one axis is
+   a flat square pretending.
+
+   Placed to match `FACE_AXES` in `dice.ts`, in the same coordinates: x right,
+   y down, z towards the player. Those are CSS's own, which is what lets the
+   solver's rotation go straight into `matrix3d`. */
+.cube {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  /* The solver writes a rotation here every frame. */
+  will-change: transform;
+}
+
+.cube-face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--rule-hi);
+  border-radius: calc(var(--die) * 0.14);
+  /* Five of the six always face away; not painting them is most of the frame
+     budget back. */
+  backface-visibility: hidden;
+}
+
+/* Shaded flat, one tone per pair of faces, so the cube has form without a
+   gradient in it. Two more literals, for the same reason as the cream: this is
+   the colour of the object under the light, not of the interface. */
+.cube-face.f3,
+.cube-face.f4 {
+  background: #e6ded0;
+}
+.cube-face.f2,
+.cube-face.f5 {
+  background: #d7cdba;
+}
+
+.cube-face.f1 { transform: translateZ(calc(var(--die) / 2)); }
+.cube-face.f6 { transform: rotateY(180deg) translateZ(calc(var(--die) / 2)); }
+.cube-face.f3 { transform: rotateY(90deg) translateZ(calc(var(--die) / 2)); }
+.cube-face.f4 { transform: rotateY(-90deg) translateZ(calc(var(--die) / 2)); }
+.cube-face.f2 { transform: rotateX(-90deg) translateZ(calc(var(--die) / 2)); }
+.cube-face.f5 { transform: rotateX(90deg) translateZ(calc(var(--die) / 2)); }
+
+/* A die nobody has thrown yet: the shape of a die with nothing on it, rather
+   than a die that happens to be showing a one. */
+.cube.blank .pips {
+  background: var(--board);
+}
+.cube.blank i {
+  display: none;
+}
+
+/* A die already played this turn. Dimmed rather than removed: the row
+   shrinking as you spent them made the dice left harder to count, because the
+   thing being counted kept moving. */
+.cube.spent {
+  opacity: 0.34;
+}
+
+/* ── The tray ──────────────────────────────────────────────────────────
+   A surface you throw dice onto, and the only thing in the app with a
+   simulation behind it.
+
+   Its shape is fixed rather than left to the layout, because the throw is
+   simulated in the tray's own units and read for its faces on the server: a
+   tray a different shape here than there would land the dice on different
+   numbers. `--tray-ratio` and `--die` are both set from the same constant the
+   reducer uses.
+
+   A playing surface, so it takes the board treatment rather than the panel
+   one — it is a thing on the stage, not another card. */
+.dice-tray {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--tray-ratio);
+  border: 1px solid var(--rule);
+  border-radius: var(--board-radius);
+  background: var(--board);
+  overflow: hidden;
+  /* Enough to see the sides of a die at the edge of the tray, not so much that
+     the near ones loom. */
+  perspective: 900px;
+  /* A finger drags across this; the browser must not read that as a scroll. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dice-tray.live {
+  cursor: pointer;
+}
+/* The pip count and the buttons sit beside each other; the tray gets a line to
+   itself, because it is the board rather than another control on it. */
+.bg-controls .dice-tray {
+  flex: 1 0 100%;
+}
+/* While the tray has the pointer. The only feedback a flick gets before the
+   dice move, and what tells you the gesture was picked up at all. */
+.dice-tray.armed {
+  border-color: var(--accent);
+}
+
+/* What the solver actually moves. Sized as a share of the tray, so one number
+   in `dice.ts` sets both the simulation and the drawing. */
+.die-slot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--die);
+  aspect-ratio: 1;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+/* Keeping a die is a button, so it is reachable by tab and not only by
+   finger — but it is a die, not a control, so it gives up everything a button
+   is otherwise given here. */
+.die-hold {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+}
+.die-hold:disabled {
+  cursor: default;
+}
+/* Kept dice are ringed on every side, since any of them may be the one facing
+   you. The ring is the information, and it is the accent because keeping is a
+   choice you made rather than something the rules did to you.
+
+   Two rings, though, not one colour. A die face is a fixed cream in both
+   palettes — deliberately, see `.pips` — and Yahtzee's accent is `--seat-3`,
+   which in `stage` is #ffc24b: about 1.4:1 against that cream, which is a mark
+   you cannot see, in the palette most people play in. (It passes in daylight,
+   where the same token is #9a6a00 — which is how it came to be written this
+   way.) The ink ring is what makes the state visible at all, at roughly 18:1,
+   and being a difference in lightness rather than hue it survives colour
+   blindness too; the accent still says whose choice it was. */
+.die-hold.held .cube-face {
+  border-color: #0c0c0f;
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 0 4px #0c0c0f;
+}
+
+.dice-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5px;
+  margin: 0;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  pointer-events: none;
 }
 
 /* ── Wheel of Fortune ────────────────────────────────────────
@@ -1129,7 +1486,13 @@ input:focus-visible {
 /* The turn itself. Heavily eased out, so it flies and then creeps the last few
    degrees the way a real wheel does. The rotation is set from React as an
    absolute angle that only ever grows, so this never has to work out which way
-   round to go. */
+   round to go.
+
+   `center` here means half the box measured from the element's own origin, so
+   the wheel is drawn about (0, 0) and then moved to the middle of a box that
+   starts at (0, 0) — see CENTRE in WheelBoard.tsx. Drawing it about the middle
+   of a viewBox that starts at -110 put the pivot a full radius off the wheel
+   and threw it clean off the screen on the first spin. */
 .wof-disc > g {
   transform-box: view-box;
   transform-origin: center;
@@ -1163,13 +1526,16 @@ input:focus-visible {
   font-variant-numeric: tabular-nums;
   fill: var(--ink);
 }
-/* BANKRUPT and LOSE TURN are words on a 15° slice, so they take what room is
-   left. Both sit on a filled wedge, so both need the reversed ink. */
-.wof-face.small {
-  font-family: var(--display);
-  font-size: 6.5px;
-  letter-spacing: 0.04em;
-  fill: var(--ground);
+/* Bankrupt and Lose a Turn, as marks. A 15° slice is about nineteen units of
+   arc where the labels sit, which is not room for a word — so those two wedges
+   carry a drawing instead, and say what they are in the readout below. Both
+   sit on a filled wedge, so both are struck in the reversed ink. */
+.wof-glyph {
+  fill: none;
+  stroke: var(--ground);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .wof-hub {
@@ -1232,6 +1598,16 @@ input:focus-visible {
 .wof-guesses .wof-pips i.spent {
   background: none;
   box-shadow: inset 0 0 0 1px var(--rule-hi);
+}
+
+/* Guesses left and letters left, side by side — two ways the same turn ends,
+   so they are read as a pair. They wrap on a narrow phone rather than shrink:
+   a meter nobody can count is not a meter. */
+.wof-meters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1359,6 +1735,7 @@ input:focus-visible {
 .game[data-game="yahtzee"] { --accent: var(--seat-3); }
 .game[data-game="battleship"] { --accent: var(--seat-1); }
 .game[data-game="liarsdice"] { --accent: var(--seat-3); }
+.game[data-game="wordhunt"] { --accent: var(--seat-2); }
 
 .game.picked {
   border-color: var(--accent);
@@ -1379,6 +1756,16 @@ input:focus-visible {
 .game:has(input:focus-visible) {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+/* The APK ships its own WebView, and an older one has no :has() -- which would
+   leave the whole picker with no focus indicator at all. :focus-within is a
+   decade older and reaches the same card; it also fires on a mouse press,
+   which is the price of the fallback and only paid where :has() is missing. */
+@supports not selector(:has(*)) {
+  .game:focus-within {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
 }
 
 .game .name {
@@ -1405,12 +1792,18 @@ input:focus-visible {
   background: var(--accent);
 }
 
-/* ── Card motifs ───────────────────────────────────────────────────────
+/* ── Card motifs ───────────────────────────────────────────
    Built from each game's own pieces in CSS rather than drawn as artwork: the
    Android build ships offline with no image assets, and a disc grid says
-   "Connect Four" more honestly than an illustration would. */
+   "Connect Four" more honestly than an illustration would.
+
+   Every size below is a multiple of --m rather than a literal, so the desktop
+   pass at the foot of this file scales all eight motifs by changing one
+   number instead of eight blocks. --m is a length, so `calc(12 * var(--m))`
+   reads as "twelve units" and comes out as 12px at phone size. */
 .art {
-  min-height: 66px;
+  --m: 1px;
+  min-height: calc(66 * var(--m));
   display: grid;
   place-items: center;
   background: var(--board);
@@ -1420,16 +1813,27 @@ input:focus-visible {
   display: block;
   font-style: normal;
 }
+/* The unlit pieces, given an edge rather than a brighter fill: --hole sits
+   about 1.2:1 from --board in both palettes, so without this the empty half
+   of a motif simply is not there and Connect Four reads as four loose dots.
+   An outline keeps "empty" looking empty while the grid still reads. */
+.art-connect4 i,
+.art-wordle i,
+.art-wheel i,
+.art-battleship i,
+.art-wordhunt i {
+  box-shadow: inset 0 0 0 1px var(--motif-off);
+}
 
 .art-connect4 {
   grid-auto-flow: column;
-  grid-template-columns: repeat(4, 12px);
-  grid-template-rows: repeat(3, 12px);
-  gap: 4px;
+  grid-template-columns: repeat(4, calc(12 * var(--m)));
+  grid-template-rows: repeat(3, calc(12 * var(--m)));
+  gap: calc(4 * var(--m));
 }
 .art-connect4 i {
-  width: 12px;
-  height: 12px;
+  width: calc(12 * var(--m));
+  height: calc(12 * var(--m));
   border-radius: 50%;
   background: var(--hole);
 }
@@ -1437,23 +1841,28 @@ input:focus-visible {
 .art-connect4 i:nth-child(6),
 .art-connect4 i:nth-child(8) {
   background: var(--seat-0);
+  box-shadow: none;
 }
 .art-connect4 i:nth-child(3),
 .art-connect4 i:nth-child(5),
 .art-connect4 i:nth-child(12) {
   background: var(--seat-1);
+  box-shadow: none;
 }
 
 .art-backgammon {
   grid-auto-flow: column;
-  gap: 3px;
+  gap: calc(3 * var(--m));
   align-items: start;
 }
+/* A clip-path cuts an inset ring off with everything else, so the unlit points
+   take the motif colour as a fill -- the alternation is the whole shape here,
+   and --point-dark against --board leaves half of it missing. */
 .art-backgammon i {
-  width: 11px;
-  height: 36px;
+  width: calc(11 * var(--m));
+  height: calc(36 * var(--m));
   clip-path: polygon(0 0, 100% 0, 50% 100%);
-  background: var(--point-dark);
+  background: var(--motif-off);
 }
 .art-backgammon i:nth-child(even) {
   background: var(--seat-3);
@@ -1461,61 +1870,68 @@ input:focus-visible {
 
 .art-wheel {
   grid-auto-flow: column;
-  gap: 3px;
+  gap: calc(3 * var(--m));
 }
 .art-wheel i {
-  width: 14px;
-  height: 20px;
+  width: calc(14 * var(--m));
+  height: calc(20 * var(--m));
   display: grid;
   place-items: center;
-  border-radius: 2px;
+  border-radius: calc(2 * var(--m));
   background: var(--hole);
   font-family: var(--display);
-  font-size: 0.72rem;
+  font-size: calc(10 * var(--m));
   font-weight: 700;
   color: var(--ink);
 }
 .art-wheel i:not(:empty) {
   background: var(--ink);
   color: var(--ground);
+  box-shadow: none;
 }
 
 .art-wordle {
   grid-auto-flow: column;
-  gap: 3px;
+  gap: calc(3 * var(--m));
 }
 .art-wordle i {
-  width: 15px;
-  height: 15px;
-  border-radius: 3px;
+  width: calc(15 * var(--m));
+  height: calc(15 * var(--m));
+  border-radius: calc(3 * var(--m));
   background: var(--hole);
 }
 .art-wordle i:nth-child(1),
 .art-wordle i:nth-child(5) {
   background: var(--mark-hit);
+  box-shadow: none;
 }
 .art-wordle i:nth-child(3) {
   background: var(--mark-near);
+  box-shadow: none;
 }
 
 .art-yahtzee,
 .art-liarsdice {
   grid-auto-flow: column;
-  gap: 4px;
+  gap: calc(4 * var(--m));
 }
 .art-yahtzee i,
 .art-liarsdice i {
-  width: 13px;
-  height: 13px;
-  border-radius: 2px;
+  width: calc(13 * var(--m));
+  height: calc(13 * var(--m));
+  border-radius: calc(2 * var(--m));
   background: var(--ink);
   /* The pip. One inset ring rather than a drawn face, because at 13px a five
      is a smudge and a single dot still reads as a die. */
-  box-shadow: inset 0 0 0 5px var(--ink), inset 0 0 0 6px var(--ground);
+  box-shadow:
+    inset 0 0 0 calc(5 * var(--m)) var(--ink),
+    inset 0 0 0 calc(6 * var(--m)) var(--ground);
 }
 .art-yahtzee i:nth-child(3) {
   background: var(--seat-3);
-  box-shadow: inset 0 0 0 5px var(--seat-3), inset 0 0 0 6px var(--ground);
+  box-shadow:
+    inset 0 0 0 calc(5 * var(--m)) var(--seat-3),
+    inset 0 0 0 calc(6 * var(--m)) var(--ground);
 }
 
 /* Two dice you can see and one you cannot, which is the game in three shapes.
@@ -1523,46 +1939,56 @@ input:focus-visible {
    table. */
 .art-liarsdice i:nth-child(3) {
   background: var(--board);
-  box-shadow: inset 0 0 0 1px var(--rule-hi);
+  box-shadow: inset 0 0 0 1px var(--motif-off);
 }
 
-/* Ten squares of sea with a ship laid across them, which is the game in one
-   glance and needs no letters to say so. */
+/* Nine squares of sea with a ship laid across them and two shots taken, which
+   is the game in one glance and needs no letters to say so. */
 .art-battleship {
-  grid-template-columns: repeat(3, 15px);
-  grid-auto-rows: 15px;
-  gap: 3px;
+  grid-template-columns: repeat(3, calc(15 * var(--m)));
+  grid-auto-rows: calc(15 * var(--m));
+  gap: calc(3 * var(--m));
 }
+/* Sized explicitly, because .art centres its grid items rather than stretching
+   them: a track is 15 units wide but an empty <i> with no size of its own
+   still collapses to nothing inside it. */
 .art-battleship i {
-  border-radius: 2px;
+  width: calc(15 * var(--m));
+  height: calc(15 * var(--m));
+  border-radius: calc(2 * var(--m));
   background: var(--hole);
 }
 .art-battleship i:nth-child(4),
 .art-battleship i:nth-child(5),
 .art-battleship i:nth-child(6) {
   background: var(--seat-1);
+  box-shadow: none;
 }
 .art-battleship i:nth-child(2),
 .art-battleship i:nth-child(9) {
   background: var(--alert);
+  box-shadow: none;
 }
 
 /* Nine letter tiles with a word traced through them, which is the whole game
    in one glance -- and the only art here that shares a shape with another
    card, because Word Duel's tiles are the same tiles. */
 .art-wordhunt {
-  grid-template-columns: repeat(3, 15px);
-  grid-auto-rows: 15px;
-  gap: 3px;
+  grid-template-columns: repeat(3, calc(15 * var(--m)));
+  grid-auto-rows: calc(15 * var(--m));
+  gap: calc(3 * var(--m));
 }
 .art-wordhunt i {
-  border-radius: 3px;
+  width: calc(15 * var(--m));
+  height: calc(15 * var(--m));
+  border-radius: calc(3 * var(--m));
   background: var(--hole);
 }
 .art-wordhunt i:nth-child(1),
 .art-wordhunt i:nth-child(5),
 .art-wordhunt i:nth-child(9) {
   background: var(--seat-2);
+  box-shadow: none;
 }
 
 /* ── Seat picker ───────────────────────────────────────────────────────
@@ -1603,9 +2029,14 @@ input:focus-visible {
   background: var(--board);
 }
 
+/* Two across on a phone, and as many more as fit on anything wider. The game
+   plays from two up to eight now, so a hardcoded pair of columns would put
+   eight grids in one tall stack of two and push the input off the screen.
+   `auto-fit` with a floor keeps a panel readable rather than letting eight of
+   them share a phone's width. */
 .wd-panels {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
 }
 
@@ -2094,78 +2525,9 @@ input:focus-visible {
   color: var(--muted);
 }
 
-.yz-dice {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
-
-/* A die: a 3x3 grid of pip slots, filled by the face below. Cream with dark
-   pips in either palette -- dice are objects rather than interface, and one
-   that inverted with the theme would stop looking like a die. */
-.yz-die {
-  width: 48px;
-  height: 48px;
-  padding: 7px;
-  display: grid;
-  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
-  gap: 2px;
-  background: #f5f1e8;
-  /* The brighter rule, not the plain one: in daylight a cream die sits on a
-     light board, and the edge is the only thing separating them. */
-  border: 1px solid var(--rule-hi);
-  border-radius: 7px;
-  cursor: pointer;
-}
-.yz-die i {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: #0c0c0f;
-}
-.yz-die.blank {
-  background: var(--hole);
-  border: 1px dashed var(--rule-hi);
-}
-
-/* Kept dice sit forward of the ones about to be thrown again: the ring is the
-   information, the lift is what makes it findable without reading it. */
-.yz-die.held {
-  box-shadow: 0 0 0 2px var(--accent);
-  transform: translateY(-3px);
-}
-.yz-die:disabled {
-  cursor: default;
-}
-
-/* Pip placement, one rule per face. The alternative -- an image per face --
-   would be six assets the offline APK has to carry. */
-.yz-die[data-face="1"] i:nth-child(1) { grid-area: 2 / 2; }
-
-.yz-die[data-face="2"] i:nth-child(1) { grid-area: 1 / 1; }
-.yz-die[data-face="2"] i:nth-child(2) { grid-area: 3 / 3; }
-
-.yz-die[data-face="3"] i:nth-child(1) { grid-area: 1 / 1; }
-.yz-die[data-face="3"] i:nth-child(2) { grid-area: 2 / 2; }
-.yz-die[data-face="3"] i:nth-child(3) { grid-area: 3 / 3; }
-
-.yz-die[data-face="4"] i:nth-child(1) { grid-area: 1 / 1; }
-.yz-die[data-face="4"] i:nth-child(2) { grid-area: 1 / 3; }
-.yz-die[data-face="4"] i:nth-child(3) { grid-area: 3 / 1; }
-.yz-die[data-face="4"] i:nth-child(4) { grid-area: 3 / 3; }
-
-.yz-die[data-face="5"] i:nth-child(1) { grid-area: 1 / 1; }
-.yz-die[data-face="5"] i:nth-child(2) { grid-area: 1 / 3; }
-.yz-die[data-face="5"] i:nth-child(3) { grid-area: 2 / 2; }
-.yz-die[data-face="5"] i:nth-child(4) { grid-area: 3 / 1; }
-.yz-die[data-face="5"] i:nth-child(5) { grid-area: 3 / 3; }
-
-.yz-die[data-face="6"] i:nth-child(1) { grid-area: 1 / 1; }
-.yz-die[data-face="6"] i:nth-child(2) { grid-area: 1 / 3; }
-.yz-die[data-face="6"] i:nth-child(3) { grid-area: 2 / 1; }
-.yz-die[data-face="6"] i:nth-child(4) { grid-area: 2 / 3; }
-.yz-die[data-face="6"] i:nth-child(5) { grid-area: 3 / 1; }
-.yz-die[data-face="6"] i:nth-child(6) { grid-area: 3 / 3; }
+/* The dice live in a tray now — see `.dice-tray`. Yahtzee's own die block
+   used to sit here, drawing the same six faces by a different mechanism; it
+   is folded into `.die`, because one die is the precondition for one throw. */
 
 .yz-note {
   margin: 0;
@@ -2374,16 +2736,11 @@ input:focus-visible {
   gap: 5px;
   margin-left: auto;
 }
-/* Smaller than the backgammon pair: five of them sit on one line beside a
-   name, and they are there to be counted rather than read one at a time. */
+/* Smaller than a thrown die: five of them sit on one line beside a name, and
+   they are there to be counted rather than read one at a time. These are not
+   in a tray — the showdown turns hands over, it does not throw them. */
 .ld-hand .die {
-  width: 26px;
-  height: 26px;
-  padding: 4px;
-}
-.ld-hand .pip {
-  width: 5px;
-  height: 5px;
+  --die: 26px;
 }
 
 /* The bid and what became of it, in one block: they are the same thing at two
@@ -2671,73 +3028,6 @@ input:focus-visible {
   background: var(--board);
 }
 
-/* The clock. Two minutes is the game, so it sits above everything and is read
-   from across the room -- big, tabular so the digits never jostle, and quiet
-   until it has something to say. */
-.wh-clock {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 8px;
-  margin: 0;
-  font-family: var(--display);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-}
-
-.wh-clock-face {
-  font-size: 2.1rem;
-  font-weight: 700;
-  line-height: 1;
-  /* Tabular, or every tick shifts the digits and the clock jitters. */
-  font-variant-numeric: tabular-nums;
-}
-
-.wh-clock-note {
-  font-family: var(--body);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-}
-
-/* The last twenty seconds. The colour is the message; the pulse is a second
-   channel for anyone reading the grid rather than the clock, which is where
-   every player is looking by then. One beat a second, matching the count. */
-.wh-clock.urgent {
-  color: var(--alert);
-}
-.wh-clock.urgent .wh-clock-face {
-  animation: wh-tick 1s steps(1, end) infinite;
-}
-.wh-clock.urgent .wh-clock-note {
-  color: var(--alert);
-}
-
-/* Time. Nothing left to count, so the pulse stops -- a clock still flashing
-   after the whistle reads as a game still running. */
-.wh-clock.done .wh-clock-face {
-  animation: none;
-}
-
-@keyframes wh-tick {
-  0%,
-  60% {
-    opacity: 1;
-  }
-  61%,
-  100% {
-    opacity: 0.45;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wh-clock.urgent .wh-clock-face {
-    animation: none;
-  }
-}
-
 /* The tallies. Every seat, always, because watching someone else's number
    climb while you are stuck is most of what this game is. The score leads and
    the word count follows it in small type: length is what scores here, so
@@ -2795,9 +3085,13 @@ input:focus-visible {
   grid-template-columns: repeat(var(--wh-size, 4), 1fr);
   gap: 6px;
   /* A finger drags across this; the browser must not read that as a scroll or
-     as a text selection, or half of every trace is lost to the page moving. */
+     as a text selection, or half of every trace is lost to the page moving.
+     The callout is the iOS half of the same thought: a thumb that pauses on a
+     letter mid-word must not be answered with a copy-and-share menu. */
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .wh-cell {
@@ -2808,6 +3102,9 @@ input:focus-visible {
   /* Thumbs, not cursors -- and on the narrowest phone four of these still fit
      across with room to spare. */
   min-height: 56px;
+  /* Restated rather than left to the grid: touch-action is not inherited, and
+     the element a finger lands on is a cell, not the grid behind it. */
+  touch-action: none;
   padding: 0;
   background: var(--surface);
   color: var(--ink);
@@ -2961,4 +3258,64 @@ input:focus-visible {
 .wh-key ul {
   margin-top: 8px;
   color: var(--muted);
+}
+
+/* ── Wider than a phone ────────────────────────────────────────────────
+   Everything above is written for a phone held in one hand, and stayed that
+   way at every width: the only media queries in this file were for reduced
+   motion and for hover. On a laptop the whole setup screen sat in a 480px
+   column with half the viewport empty on either side, eight cards stacked two
+   abreast, and motifs drawn at thumb scale.
+
+   The form itself does not want the extra room -- a name field 640px wide is
+   still not a better name field, which is what the cap at the top of this file
+   is about. The game grid does: it is the one part of the screen that is a
+   grid of things to look at. So the column widens, everything that is a
+   control is held back to its old width, and the grid alone spends it. */
+@media (min-width: 760px) {
+  .app.setup {
+    max-width: 760px;
+    gap: 18px;
+  }
+
+  /* Held to the phone's column and centred, so widening the page above did not
+     quietly stretch the name field with it. .games is the deliberate
+     exception; .seats is three digits and wants the narrow column too. */
+  .app.setup > *:not(.games),
+  .app.setup > .games.seats {
+    width: 100%;
+    max-width: 480px;
+    align-self: center;
+  }
+
+  /* Eight games in two rows of four, rather than four rows of two. */
+  .games {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  /* The pieces grow with the cards. One number, because every size in the
+     motif block is a multiple of it. */
+  .art {
+    --m: 1.5px;
+  }
+
+  .game .name {
+    font-size: 1.15rem;
+    padding: 12px 13px 4px;
+  }
+  .game .meta {
+    padding: 0 13px 12px;
+  }
+}
+
+/* A desktop wide enough to stop the grid growing with it -- past this the
+   cards would be bigger than anything else on the page rather than better. */
+@media (min-width: 1180px) {
+  .app.setup {
+    max-width: 880px;
+  }
+  .art {
+    --m: 1.75px;
+  }
 }

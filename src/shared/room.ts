@@ -1,4 +1,4 @@
-import { canSeat, clampSeats, getGame } from './games/index.js';
+import { canSeat, getGame } from './games/index.js';
 // Re-exported so the adapters still import room helpers from one place, while
 // the client can import roomCode.js directly and never pull in a reducer.
 export { CODE_LENGTH, makeRoomCode, isRoomCode, normalizeRoomCode } from './roomCode.js';
@@ -15,20 +15,31 @@ export interface SeatRecord {
  * itself. A stored room from an older shape is discarded rather than fed to a
  * reducer that would misread it.
  */
-export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_VERSION = 4;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {
   version: number;
   code: string;
   gameId: string;
+  /**
+   * Null until the game is dealt. A room now exists before its game does —
+   * see the note on `RoomEngine` — and there is no honest state to store for
+   * a game that has not been set up yet.
+   */
   state: unknown;
-  seats: Array<SeatRecord | null>;
+  /** Only the people actually here. No holes: the list grows as they arrive. */
+  seats: SeatRecord[];
 }
 
 export type JoinResult =
   | { ok: true; seat: number; reclaimed: boolean }
-  | { ok: false; error: string };
+  /**
+   * `kind` travels with the refusal because the two ways in are not the same
+   * problem, and the heading the player reads should not say "full" about a
+   * room with six empty seats.
+   */
+  | { ok: false; kind: 'full' | 'started'; error: string };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -36,6 +47,22 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
  * Transport-agnostic room logic. It knows about seats, turns and rules but
  * nothing about sockets — which is what lets the Node dev server and the
  * Cloudflare Durable Object share it verbatim.
+ *
+ * **A room has two phases.** It opens empty and gathers people; then somebody
+ * starts it and the game is dealt. That split is the whole of open seating,
+ * and it replaced a model where the table size was chosen by the host before
+ * anyone had turned up and fixed for the life of the room.
+ *
+ * The old way had one failure that could not be recovered from inside the
+ * product: a third friend arriving at a room opened for two was told "That
+ * game is full", and the only way to include them was for everybody to abandon
+ * the code and start again. Now the room takes whoever comes, up to whatever
+ * ceiling the game itself has, and the deal happens when the people who are
+ * here say they are ready.
+ *
+ * The deal is deferred rather than re-run, which matters more than it looks:
+ * `setup(playerCount)` is called once, with the number of people actually
+ * sitting down. No reducer had to learn what an empty seat is.
  */
 export class RoomEngine {
   readonly code: string;
@@ -45,10 +72,16 @@ export class RoomEngine {
    * whole point of being able to play something else without regrouping.
    */
   def: GameDefinition<any, any>;
+  /** Null until `start` deals. See the class note. */
   private state: unknown;
-  private seats: Array<SeatRecord | null>;
+  private seats: SeatRecord[];
 
-  private constructor(code: string, def: GameDefinition<any, any>, state: unknown, seats: Array<SeatRecord | null>) {
+  private constructor(
+    code: string,
+    def: GameDefinition<any, any>,
+    state: unknown,
+    seats: SeatRecord[],
+  ) {
     this.code = code;
     this.def = def;
     this.state = state;
@@ -60,24 +93,14 @@ export class RoomEngine {
    * socket and must answer the client rather than throw, so an unknown game id
    * is a return value here, not an exception.
    *
-   * `playerCount` is how big a table the room was opened for, clamped to what
-   * the game supports. It is fixed for the life of the room: seats are sized
-   * to it and `setup` is told about it, so a game that plays two to four
-   * knows which it is dealing with. Omitting it takes the smallest table the
-   * game allows, which is the friendliest failure — a room asking for more
-   * players than turn up is a room nobody can play in.
+   * No player count: the room opens with no seats at all and grows as people
+   * arrive. What size table this turns out to be is settled by who shows up,
+   * and not before.
    */
-  static create(
-    code: string,
-    gameId: string,
-    rng: Rng = Math.random,
-    playerCount?: number,
-    now: number = Date.now(),
-  ): RoomEngine | null {
+  static create(code: string, gameId: string): RoomEngine | null {
     const def = getGame(gameId);
     if (!def) return null;
-    const seats = clampSeats(def, playerCount);
-    return new RoomEngine(code, def, def.setup(seats, rng, now), Array(seats).fill(null));
+    return new RoomEngine(code, def, null, []);
   }
 
   /**
@@ -90,7 +113,7 @@ export class RoomEngine {
     if (snapshot?.version !== SNAPSHOT_VERSION) return null;
     const def = getGame(snapshot.gameId);
     if (!def) return null;
-    return new RoomEngine(snapshot.code, def, snapshot.state, snapshot.seats);
+    return new RoomEngine(snapshot.code, def, snapshot.state ?? null, snapshot.seats ?? []);
   }
 
   snapshot(): RoomSnapshot {
@@ -105,58 +128,106 @@ export class RoomEngine {
 
   /** True before anyone has ever taken a seat — used to detect code collisions. */
   isFresh(): boolean {
-    return this.seats.every((s) => s === null);
+    return this.seats.length === 0;
   }
 
   seatOf(playerId: string): number {
-    return this.seats.findIndex((s) => s?.playerId === playerId);
+    return this.seats.findIndex((s) => s.playerId === playerId);
   }
 
-  join(playerId: string, name: string, now: number = Date.now()): JoinResult {
-    // An existing player always gets their own seat back, so a dropped
-    // connection is recoverable rather than fatal.
-    const existing = this.seatOf(playerId);
-    if (existing !== -1) {
-      this.seats[existing] = { playerId, name };
-      this.tick(now);
-      return { ok: true, seat: existing, reclaimed: true };
-    }
-    const free = this.seats.findIndex((s) => s === null);
-    if (free === -1) return { ok: false, error: 'That game is full.' };
-    this.seats[free] = { playerId, name };
-    // This may be the arrival that fills the room, which is when a timed
-    // game's clock starts.
-    this.tick(now);
-    return { ok: true, seat: free, reclaimed: false };
+  /** Whether the game has been dealt. Before this, there is no state at all. */
+  started(): boolean {
+    return this.state !== null;
   }
 
-  private filled(): number {
-    return this.seats.filter((s) => s !== null).length;
-  }
-
-  /** How many seats this room was opened for — not the game's ceiling. */
+  /** How many people are sitting here. */
   get size(): number {
     return this.seats.length;
   }
 
-  /**
-   * Play starts when every seat this room laid out is taken, rather than at
-   * the game's minimum. A four-handed room that started as soon as two arrived
-   * would deal the other two out of a game they were invited to.
-   */
+  /** The most this game will seat. The room's ceiling is the game's. */
+  get capacity(): number {
+    return this.def.maxPlayers;
+  }
+
+  /** How many more are needed before this game could be started at all. */
   private short(): number {
-    return this.seats.length - this.filled();
+    return Math.max(0, this.def.minPlayers - this.seats.length);
   }
 
   /**
-   * A move is refused while the room is short a player, unless the game says
-   * this particular one is setup rather than play — see `allowsEarlyMove`.
-   * Battleships is the only game that says yes, and only to placing.
+   * Whether the game can be dealt right now: enough people, and not already
+   * under way. Sent to the client so the host's start control knows whether to
+   * offer itself, and re-checked here because a client is never the authority.
+   */
+  canStart(): boolean {
+    return !this.started() && this.short() === 0;
+  }
+
+  join(playerId: string, name: string): JoinResult {
+    // An existing player always gets their own seat back, so a dropped
+    // connection is recoverable rather than fatal. Checked before anything
+    // else, so reconnecting into a game already under way still works.
+    const existing = this.seatOf(playerId);
+    if (existing !== -1) {
+      this.seats[existing] = { playerId, name };
+      return { ok: true, seat: existing, reclaimed: true };
+    }
+    // Arriving after the deal. The alternative — seating them anyway — hands
+    // the reducer a seat index its arrays were never sized for, and every
+    // move in the room fails from then on.
+    if (this.started()) {
+      return { ok: false, kind: 'started', error: 'That game has already started.' };
+    }
+    if (this.seats.length >= this.capacity) {
+      return {
+        ok: false,
+        kind: 'full',
+        error: `${this.def.name} seats ${this.capacity}, and it is full.`,
+      };
+    }
+    this.seats.push({ playerId, name });
+    return { ok: true, seat: this.seats.length - 1, reclaimed: false };
+  }
+
+  /**
+   * Deal the game to the people who are here.
+   *
+   * Somebody has to say when, and it is seat 0 — whoever opened the room. The
+   * alternative, starting the moment the minimum is met, deals a friend who is
+   * still loading the page out of a game they were invited to, which is the
+   * failure this whole change exists to remove.
+   *
+   * This is also where a timed game's clock starts: `tick` runs immediately
+   * after the deal, so the round is already running by the time the first
+   * view goes out rather than a message later.
+   */
+  start(seat: number, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
+    if (this.started()) return { ok: false, error: 'The game has already started.' };
+    if (seat !== 0) return { ok: false, error: 'Only the player who opened the room can start.' };
+    if (this.short() > 0) {
+      const more = this.short();
+      return {
+        ok: false,
+        error: `${this.def.name} needs ${more} more player${more === 1 ? '' : 's'}.`,
+      };
+    }
+    this.state = this.def.setup(this.seats.length, rng, now);
+    this.tick(now);
+    return { ok: true };
+  }
+
+  /**
+   * A move is refused until the game has been dealt. There is no state to
+   * apply it to, which is a blunter version of the rule this replaced — moves
+   * used to be turned away while the room was short a player, with an
+   * exception (`allowsEarlyMove`) so Battleships could set out its fleet
+   * while waiting. That exception is gone with the thing it worked around:
+   * once a room starts, everybody in it is already sitting down, so placing
+   * happens in an ordinary dealt game like everything else.
    */
   move(seat: number, move: unknown, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
-    if (this.short() > 0 && !this.def.allowsEarlyMove?.(this.state, move, seat)) {
-      return { ok: false, error: 'Waiting for another player.' };
-    }
+    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
     // A move that arrives after the whistle meets a game that is already over,
     // rather than one that is still open because no timer happened to have
     // fired yet. The clock decides, not the scheduler.
@@ -173,30 +244,27 @@ export class RoomEngine {
    * for the next housekeeping sweep.
    */
   deadline(): number | null {
+    if (!this.started()) return null;
     return this.def.deadline?.(this.state) ?? null;
   }
 
   /**
-   * Bring the room's clock up to date: start a timed game once every seat is
-   * filled, and settle it once its time is up. Returns whether anything
-   * changed, so a caller knows whether to broadcast.
+   * Bring the room's clock up to date: start a timed game's round, and settle
+   * it once its time is up. Returns whether anything changed, so a caller
+   * knows whether to broadcast.
    *
    * Safe to call as often as you like — a game that is not timed, not yet
-   * full, or not yet out of time says no and does nothing. Both halves run in
-   * order, so a room that fills and expires between two ticks still ends up
+   * dealt, or not yet out of time says no and does nothing. Both halves run in
+   * order, so a room that starts and expires between two ticks still ends up
    * settled rather than stuck half-started.
    */
   tick(now: number = Date.now()): boolean {
+    if (!this.started()) return false;
     let changed = false;
-    // Nothing starts until everyone is here: the room refuses moves while it
-    // is short, so a clock running before then is running on a game nobody can
-    // play.
-    if (this.short() === 0) {
-      const started = this.def.start?.(this.state, now);
-      if (started) {
-        this.state = started;
-        changed = true;
-      }
+    const started = this.def.start?.(this.state, now);
+    if (started) {
+      this.state = started;
+      changed = true;
     }
     const settled = this.def.expire?.(this.state, now);
     if (settled) {
@@ -207,11 +275,12 @@ export class RoomEngine {
   }
 
   rematch(rng: Rng = Math.random, now: number = Date.now()): ActionResult {
+    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
     if (!this.def.isOver(this.state)) {
       return { ok: false, error: 'That game is still in progress.' };
     }
-    // The same table, not the game's ceiling: a rematch in a three-handed room
-    // is another three-handed game.
+    // Whoever is actually here, which may not be who was here last time: a
+    // rematch is dealt for the table as it stands.
     this.state = this.def.setup(this.seats.length, rng, now);
     // The table is already sitting there, so a timed rematch starts running
     // the moment it is dealt.
@@ -224,11 +293,11 @@ export class RoomEngine {
    *
    * Gated on the current game being over for the same reason a rematch is:
    * otherwise any seat could wipe a game in progress that the others were
-   * still playing. The table size is fixed — these players are already
-   * sitting down — so a game that cannot seat exactly this many is refused
-   * rather than silently dropping somebody or leaving a room short.
+   * still playing. The table is these people, so a game that cannot seat this
+   * many is refused rather than silently dropping somebody.
    */
   switchGame(gameId: string, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
+    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
     if (!this.def.isOver(this.state)) {
       return { ok: false, error: 'That game is still in progress.' };
     }
@@ -249,32 +318,45 @@ export class RoomEngine {
 
   /** Build the payload for one seat, redacted by the game's `view` if it has one. */
   viewFor(seat: number, connected: ReadonlySet<number>, now: number = Date.now()): RoomView {
-    const short = this.short();
-    const waiting = short > 0;
-    const names = this.seats.map((s, i) => s?.name ?? `Player ${i + 1}`);
+    const waiting = !this.started();
+    const names = this.seats.map((s, i) => s.name || `Player ${i + 1}`);
     return {
       code: this.code,
       gameId: this.def.id,
       gameName: this.def.name,
       players: this.seats.map((s, i) => ({
         seat: i,
-        name: s?.name ?? '',
+        name: s.name,
         connected: connected.has(i),
       })),
-      state: this.def.view ? this.def.view(this.state, seat) : this.state,
-      turn: this.def.turn(this.state),
-      // How many are still missing, because "waiting for another player" in a
-      // four-handed room does not tell you whether to go and find one or two.
-      status: waiting
-        ? `Waiting for ${short} more player${short === 1 ? '' : 's'}…`
-        : this.def.status(this.state, names),
-      over: this.def.isOver(this.state),
+      // Null while the room is still gathering. There is no game to look at
+      // yet, and a board handed a made-up state would draw a lie.
+      state: waiting ? null : this.def.view ? this.def.view(this.state, seat) : this.state,
+      turn: waiting ? null : this.def.turn(this.state),
+      status: waiting ? this.lobbyStatus() : this.def.status(this.state, names),
+      over: waiting ? false : this.def.isOver(this.state),
       waiting,
+      canStart: this.canStart(),
+      capacity: this.capacity,
       // The server's clock, sent so a timed game's countdown is measured
       // against the clock that ends it rather than the player's, which may be
       // wrong by minutes and would otherwise show a timer that disagrees with
       // the game.
       now,
     };
+  }
+
+  /**
+   * What the room says about itself before it is dealt. Two different waits,
+   * and telling them apart is the difference between "go and find somebody"
+   * and "we are only waiting on a tap".
+   */
+  private lobbyStatus(): string {
+    const more = this.short();
+    if (more > 0) {
+      return `Waiting for ${more} more player${more === 1 ? '' : 's'}…`;
+    }
+    const host = this.seats[0]?.name || 'Player 1';
+    return `Ready — ${host} can start whenever you are`;
   }
 }

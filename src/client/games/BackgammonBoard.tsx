@@ -1,21 +1,25 @@
 import { useEffect, useState } from "react";
 import {
+  BACKGAMMON_TRAY,
   POINTS,
   barEntry,
   direction,
   legalMoves,
   pipCount,
+  type BgMove,
   type BgState,
   type Source,
 } from "../../shared/games/backgammon.js";
-// The die is shared with Liar's Dice, so it lives in its own file rather than
-// being exported from this board.
-import { Die } from "./Die.js";
+import type { Flick } from "../../shared/games/toss.js";
+import { DiceTray } from "../dice/DiceTray.js";
+import { useLanding } from "../dice/useLanding.js";
 
 interface Props {
   state: BgState;
   seat: number | null;
   myTurn: boolean;
+  /** True while the dice are still rolling. Nothing they decide is drawn yet. */
+  flying: boolean;
   onMove(move: { type: "move"; from: Source; die: number }): void;
 }
 
@@ -84,12 +88,15 @@ function PointOutline() {
   );
 }
 
-export function BackgammonBoard({ state, seat, myTurn, onMove }: Props) {
+export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) {
   const view = seat ?? 0;
   const { top, bottom } = layoutFor(view);
   const [selected, setSelected] = useState<Source | null>(null);
 
-  const moves = myTurn ? legalMoves(state) : [];
+  // Nothing is markable while the dice are still rolling. The marks are read
+  // *off* the dice — a board that lights up the points a 6 can reach before
+  // the 6 has stopped has told you the roll ahead of the die showing it.
+  const moves = myTurn && !flying ? legalMoves(state) : [];
 
   // A selection stops meaning anything the moment the position changes.
   useEffect(() => setSelected(null), [state.points, state.dice, state.turn]);
@@ -222,22 +229,97 @@ export function BackgammonBoard({ state, seat, myTurn, onMove }: Props) {
   );
 }
 
-/** Pip counts and remaining dice, shown beneath the board. */
-export function BackgammonStatus({
+/**
+ * Backgammon, board and controls.
+ *
+ * They are one component because they share one fact: whether the dice have
+ * stopped. The board draws what the roll makes legal and the controls draw the
+ * roll itself, so a flag held separately in each would let one of them answer
+ * before the other — which is exactly the thing the tray exists to prevent.
+ */
+export function BackgammonGame({
   state,
   seat,
   myTurn,
-  onRoll,
-  onPass,
+  onMove,
 }: {
   state: BgState;
   seat: number | null;
   myTurn: boolean;
-  onRoll(): void;
+  onMove(move: BgMove): void;
+}) {
+  const [flying, land] = useLanding(state.toss?.n ?? 0);
+  return (
+    <>
+      <BackgammonBoard
+        state={state}
+        seat={seat}
+        myTurn={myTurn}
+        flying={flying}
+        onMove={onMove}
+      />
+      <BackgammonStatus
+        state={state}
+        seat={seat}
+        myTurn={myTurn}
+        flying={flying}
+        onThrow={(flick) => onMove({ type: "roll", flick })}
+        onPass={() => onMove({ type: "pass" })}
+        onRest={land}
+      />
+    </>
+  );
+}
+
+/**
+ * The pip count, the dice, and whatever the turn is waiting on.
+ *
+ * The pair a turn is played from is a *pair on the table*, so it is thrown
+ * onto one: a tray, at a size worth looking at, rather than two 32px squares
+ * in a status line. Dice already played dim rather than vanish — the row
+ * shrinking as you spent them made the turn's remaining dice harder to count,
+ * not easier, because the thing you are counting kept moving.
+ */
+export function BackgammonStatus({
+  state,
+  seat,
+  myTurn,
+  flying,
+  onThrow,
+  onPass,
+  onRest,
+}: {
+  state: BgState;
+  seat: number | null;
+  myTurn: boolean;
+  flying: boolean;
+  onThrow(flick: Flick): void;
   onPass(): void;
+  onRest(): void;
 }) {
   const view = seat ?? 0;
-  const stuck = myTurn && state.phase === "move" && legalMoves(state).length === 0;
+  const stuck = myTurn && state.phase === "move" && !flying && legalMoves(state).length === 0;
+  const canRoll = myTurn && state.phase === "roll" && !flying;
+
+  // The whole throw, not what is left of it: doubles are four dice and the
+  // tray has to hold the same bodies for the length of a turn.
+  const thrown =
+    state.roll === null
+      ? [0, 0]
+      : state.roll[0] === state.roll[1]
+        ? [state.roll[0], state.roll[0], state.roll[0], state.roll[0]]
+        : [...state.roll];
+  // Which of them are gone, matched by value rather than by count: `dice`
+  // holds what is unplayed, and playing the 5 of a 3-and-5 leaves [3] — so
+  // counting from the end would strike out the 3, which is the one you still
+  // have.
+  const unplayed = [...state.dice];
+  const spent = thrown.map((face) => {
+    const at = unplayed.indexOf(face);
+    if (at === -1) return true;
+    unplayed.splice(at, 1);
+    return false;
+  });
 
   return (
     <div className="bg-controls">
@@ -245,14 +327,24 @@ export function BackgammonStatus({
         {pipCount(state, view)} pips to go · they have {pipCount(state, 1 - view)}
       </span>
 
-      <div className="dice">
-        {state.dice.map((value, i) => (
-          <Die key={i} value={value} />
-        ))}
-      </div>
+      <DiceTray
+        count={thrown.length}
+        tray={BACKGAMMON_TRAY}
+        faces={thrown}
+        spent={spent}
+        toss={state.toss}
+        flying={flying}
+        mine={myTurn}
+        label={diceLabel(thrown, state.dice, flying, state.phase)}
+        hint={canRoll ? "Flick to throw" : undefined}
+        onThrow={canRoll ? onThrow : undefined}
+        onRest={onRest}
+      />
 
-      {myTurn && state.phase === "roll" && (
-        <button className="primary" onClick={onRoll}>
+      {canRoll && (
+        // The tray is the throw; this is the same throw for a thumb that would
+        // rather press something, and the one a keyboard reaches first.
+        <button className="primary" onClick={() => onThrow({ x: 0, y: 0 })}>
           Roll
         </button>
       )}
@@ -263,4 +355,19 @@ export function BackgammonStatus({
       )}
     </div>
   );
+}
+
+/** The dice read out: what was thrown, and what of it is still to play. */
+function diceLabel(
+  thrown: readonly number[],
+  left: readonly number[],
+  flying: boolean,
+  phase: BgState["phase"],
+): string {
+  if (flying) return "The dice, in the air";
+  if (phase === "roll") return "The dice, not thrown yet";
+  const rolled = `Rolled ${thrown.join(" and ")}`;
+  if (left.length === 0) return `${rolled}, all played`;
+  if (left.length === thrown.length) return rolled;
+  return `${rolled}; ${left.join(" and ")} still to play`;
 }

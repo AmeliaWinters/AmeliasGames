@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   DEFAULT_GAME_ID,
   canSeat,
-  clampSeats,
   gameEntry,
   gameList,
   type GameEntry,
@@ -20,7 +19,7 @@ import type { BsState } from "../shared/games/battleshipDisplay.js";
 import type { LdState } from "../shared/games/liarsDiceDisplay.js";
 import type { WhState } from "../shared/games/wordHuntDisplay.js";
 import { Connect4Board } from "./games/Connect4Board.js";
-import { BackgammonBoard, BackgammonStatus } from "./games/BackgammonBoard.js";
+import { BackgammonGame } from "./games/BackgammonBoard.js";
 import { WheelBoard } from "./games/WheelBoard.js";
 import { WordleBoard } from "./games/WordleBoard.js";
 import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
@@ -37,11 +36,12 @@ import {
   PALETTES,
   type Palette,
 } from "./palette.js";
+import { applySound, loadSound } from "./feel.js";
 
 /**
  * A name in two parts, so the channel colour can land on the second half.
  *
- * Splitting at the last space is what makes "Amelia's Games" and "Wheel of
+ * Splitting at the last space is what makes "Rebellia Games" and "Wheel of
  * Fortune" read the way they should without a lookup table to keep in step
  * with the manifest. A one-word name has no second half, so it takes the
  * accent whole — which is the same rule, not an exception to it.
@@ -117,6 +117,7 @@ function hashIsBroken(): boolean {
 function joinFailureHeading(kind: ErrorKind | null): string {
   if (kind === "no-room") return "That game has gone";
   if (kind === "full") return "That game is full";
+  if (kind === "started") return "They have already started";
   if (kind === "protocol") return "Time for a refresh";
   return "Couldn't join that game";
 }
@@ -128,18 +129,24 @@ function seatSummary(table: GameEntry): string {
     : `${table.minPlayers}–${table.maxPlayers} players`;
 }
 
-/** Every table size a game will seat, smallest first. */
-function seatOptions(table: GameEntry): number[] {
-  return Array.from(
-    { length: table.maxPlayers - table.minPlayers + 1 },
-    (_, i) => table.minPlayers + i,
-  );
-}
-
 function usePalette(): [Palette, () => void] {
   const [palette, setPalette] = useState<Palette>(loadPalette);
   useEffect(() => applyPalette(palette), [palette]);
   return [palette, () => setPalette((current) => otherPalette(current))];
+}
+
+/**
+ * Whether the dice make a noise, remembered like the palette is.
+ *
+ * Off until asked for. A dice game that is silent is missing half of itself,
+ * and a page that makes a noise the first time you open it on a bus is a page
+ * you close — so the switch sits beside the palette switch, where it is found
+ * rather than buried, and the first sound anyone hears is one they asked for.
+ */
+function useSound(): [boolean, () => void] {
+  const [sound, setSound] = useState<boolean>(loadSound);
+  useEffect(() => applySound(sound), [sound]);
+  return [sound, () => setSound((on) => !on)];
 }
 
 /**
@@ -161,16 +168,12 @@ export function App() {
   const [intent, setIntent] = useState<"idle" | "play">(codeFromHash() ? "play" : "idle");
   const [create, setCreate] = useState(false);
   const [gameId, setGameId] = useState(DEFAULT_GAME_ID);
-  // A preference rather than a setting: it is remembered while you look at
-  // other games, and clamped to whatever the one you settle on can seat, so
-  // there is no stale value to keep in step with the picker.
-  const [preferredSeats, setPreferredSeats] = useState(2);
   const [copied, setCopied] = useState(false);
   const [linkProblem, setLinkProblem] = useState(hashIsBroken);
   const [palette, swapPalette] = usePalette();
+  const [sound, toggleSound] = useSound();
 
   const table = gameEntry(gameId);
-  const seats = table ? clampSeats(table, preferredSeats) : preferredSeats;
 
   useEffect(() => {
     const onHash = () => {
@@ -186,17 +189,36 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const { room, seat, status, error, errorKind, sendMove, requestRematch, switchGame, dismissError } =
-    useRoom({
+  const {
+    room,
+    seat,
+    status,
+    error,
+    errorKind,
+    sendMove,
+    requestRematch,
+    switchGame,
+    startGame,
+    dismissError,
+  } = useRoom({
       active: intent === "play" && Boolean(name),
       name,
       code,
       create,
       gameId,
-      players: seats,
     });
 
   useChannel(room?.gameId ?? gameId);
+
+  // One way out of a room, shared by the wordmark and the recovery screens, so
+  // the hash, the socket and the setup screen can never fall out of step.
+  const goHome = () => {
+    dismissError();
+    history.replaceState(null, "", location.pathname + location.search);
+    setCode(null);
+    setCreate(false);
+    setIntent("idle");
+  };
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
 
@@ -208,11 +230,11 @@ export function App() {
         linkProblem={linkProblem}
         swapLabel={swapLabel}
         onSwapPalette={swapPalette}
+        sound={sound}
+        onToggleSound={toggleSound}
         gameId={gameId}
         onPickGame={setGameId}
         table={table}
-        seats={seats}
-        onPickSeats={setPreferredSeats}
         onStart={(chosenName, joinCode) => {
           saveName(chosenName);
           setName(chosenName);
@@ -265,13 +287,7 @@ export function App() {
         ) : (
           <button
             className="primary"
-            onClick={() => {
-              dismissError();
-              history.replaceState(null, "", location.pathname + location.search);
-              setCode(null);
-              setCreate(false);
-              setIntent("idle");
-            }}
+            onClick={goHome}
           >
             Back to the start
           </button>
@@ -292,7 +308,9 @@ export function App() {
     <main className="app">
       <header className="topbar">
         <h1>
-          <Wordmark name={room?.gameName ?? "Amelia's Games"} />
+          <button type="button" className="home" onClick={goHome} title="Back to the start">
+            <Wordmark name={room?.gameName ?? "Rebellia Games"} />
+          </button>
         </h1>
         <div className="room-meta">
           {room && (
@@ -360,7 +378,10 @@ export function App() {
         </div>
       )}
 
-      {room ? (
+      {/* No board until the game is dealt. Before that there is no state to
+          draw, and a board improvised out of nothing would be showing the
+          player a game that does not exist yet. */}
+      {room && !room.waiting ? (
         <GameBoard room={room} seat={seat} myTurn={myTurn} sendMove={sendMove} />
       ) : (
         <div className="board placeholder" />
@@ -373,9 +394,28 @@ export function App() {
             <span className="value">{room.code}</span>
           </div>
           <p className="hint">
-            Send the link, or read the code out. The game starts the moment they
-            arrive.
+            Send the link, or read the code out. Whoever turns up gets a seat —
+            up to {room.capacity} for {room.gameName}.
           </p>
+          {/*
+            Somebody has to say when everyone is here, because the room no
+            longer knows how many to expect. It is the player who opened it:
+            seat 0. Everyone else is told what is being waited for rather than
+            being shown a button that would only be refused.
+          */}
+          {seat === 0 ? (
+            <button className="primary" disabled={!room.canStart} onClick={startGame}>
+              {room.canStart
+                ? `Start with ${room.players.length}`
+                : `Waiting for ${room.gameName}'s minimum`}
+            </button>
+          ) : (
+            <p className="hint" aria-live="polite">
+              {room.canStart
+                ? `${room.players[0]?.name || "The host"} can start whenever you are ready.`
+                : "Waiting for more players."}
+            </p>
+          )}
         </>
       )}
 
@@ -448,22 +488,15 @@ function GameBoard({
 
   switch (room.gameId) {
     case "backgammon":
+      // One component for board and controls: they share whether the dice
+      // have stopped, and two copies of that could disagree.
       return (
-        <>
-          <BackgammonBoard
-            state={room.state as BgState}
-            seat={seat}
-            myTurn={myTurn}
-            onMove={sendMove}
-          />
-          <BackgammonStatus
-            state={room.state as BgState}
-            seat={seat}
-            myTurn={myTurn}
-            onRoll={() => sendMove({ type: "roll" })}
-            onPass={() => sendMove({ type: "pass" })}
-          />
-        </>
+        <BackgammonGame
+          state={room.state as BgState}
+          seat={seat}
+          myTurn={myTurn}
+          onMove={sendMove}
+        />
       );
     case "wheel":
       return (
@@ -483,6 +516,7 @@ function GameBoard({
           state={room.state as WordleState}
           seat={seat}
           names={room.players.map((p) => p.name)}
+          now={room.now}
           onMove={sendMove}
         />
       );
@@ -550,11 +584,11 @@ function Setup({
   linkProblem,
   swapLabel,
   onSwapPalette,
+  sound,
+  onToggleSound,
   gameId,
   onPickGame,
   table,
-  seats,
-  onPickSeats,
   onStart,
 }: {
   initialName: string;
@@ -562,11 +596,11 @@ function Setup({
   linkProblem: boolean;
   swapLabel: string;
   onSwapPalette(): void;
+  sound: boolean;
+  onToggleSound(): void;
   gameId: string;
   onPickGame(id: string): void;
   table: GameEntry | undefined;
-  seats: number;
-  onPickSeats(count: number): void;
   onStart(name: string, code: string | null): void;
 }) {
   const [name, setName] = useState(initialName);
@@ -576,9 +610,9 @@ function Setup({
   return (
     <main className="app setup">
       <h1 className="wordmark">
-        <Wordmark name="Amelia's Games" />
+        <Wordmark name="Rebellia Games" />
       </h1>
-      <p className="tagline">Two to four players, one link. No ads, no accounts.</p>
+      <p className="tagline">Two to eight players, one link. No ads, no accounts.</p>
 
       {linkProblem && (
         <p className="banner error" role="alert">
@@ -620,26 +654,6 @@ function Setup({
         ))}
       </fieldset>
 
-      {/* Only for the games that play a range — a picker offering one choice
-          is a decision the player does not have. */}
-      {table && table.maxPlayers > table.minPlayers && (
-        <fieldset className="games seats">
-          <legend>Players</legend>
-          {seatOptions(table).map((count) => (
-            <label key={count} className={count === seats ? "game picked" : "game"}>
-              <input
-                type="radio"
-                name="players"
-                value={count}
-                checked={count === seats}
-                onChange={() => onPickSeats(count)}
-              />
-              {count}
-            </label>
-          ))}
-        </fieldset>
-      )}
-
       {/* Names the game you are about to start, so the card you picked and the
           button you press say the same thing. */}
       <button className="primary" disabled={!trimmed} onClick={() => onStart(trimmed, null)}>
@@ -672,9 +686,18 @@ function Setup({
         Join game
       </button>
 
-      <button className="swap" onClick={onSwapPalette}>
-        {swapLabel}
-      </button>
+      <div className="preferences">
+        <button className="swap" onClick={onSwapPalette}>
+          {swapLabel}
+        </button>
+        <button
+          className="swap"
+          aria-pressed={sound}
+          onClick={onToggleSound}
+        >
+          Dice sound {sound ? "on" : "off"}
+        </button>
+      </div>
     </main>
   );
 }

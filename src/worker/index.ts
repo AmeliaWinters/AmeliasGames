@@ -2,6 +2,8 @@
 import { RoomEngine, isRoomCode, type RoomSnapshot } from '../shared/room.js';
 import { getGame } from '../shared/games/index.js';
 import {
+  PING_FRAME,
+  PONG_FRAME,
   PROTOCOL_VERSION,
   type ClientMessage,
   type ErrorKind,
@@ -49,6 +51,23 @@ export class GameRoom implements DurableObject {
 
   constructor(state: DurableObjectState) {
     this.state = state;
+    // Answer the client's heartbeat in the runtime, below this object. A
+    // hibernating room is one that costs nothing until somebody plays a move;
+    // if the ping arrived as an ordinary message it would wake the object
+    // every twenty seconds per open tab, and a room left open overnight would
+    // bill like a room being played in all night. The pair is matched byte for
+    // byte, which is why both frames come from `protocol.ts` rather than being
+    // written out here.
+    // Guarded because this is a workerd affordance rather than part of the
+    // Durable Object contract: the tests drive this class through a hand-built
+    // state double, which has no such global. Skipping it there costs nothing
+    // — without hibernation there is nothing to protect.
+    if (
+      typeof WebSocketRequestResponsePair === 'function' &&
+      typeof state.setWebSocketAutoResponse === 'function'
+    ) {
+      state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING_FRAME, PONG_FRAME));
+    }
   }
 
   /**
@@ -200,13 +219,12 @@ export class GameRoom implements DurableObject {
         code,
         msg.create === true,
         playerId,
-        msg.players,
       );
       if (!found.ok) return this.fail(ws, found.kind, found.error);
       const engine = found.engine;
 
       const result = engine.join(playerId, name);
-      if (!result.ok) return this.fail(ws, 'full', result.error);
+      if (!result.ok) return this.fail(ws, result.kind, result.error);
 
       // Drop any earlier socket for this same player so it stops receiving
       // updates. 4000 tells that client the close was deliberate, so it stops
@@ -239,7 +257,7 @@ export class GameRoom implements DurableObject {
     const engine = await this.loadEngine();
     if (!engine) return this.fail(ws, 'no-room', 'This room no longer exists.');
 
-    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch') {
+    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch' || msg.t === 'start') {
       // A reducer is not supposed to throw, and the fuzzing says none of them
       // does — but an exception escaping here aborts the Durable Object and
       // takes the other player's game down with it.
@@ -250,7 +268,9 @@ export class GameRoom implements DurableObject {
             ? engine.move(meta.seat, msg.move)
             : msg.t === 'switch'
               ? engine.switchGame(String(msg.gameId ?? ''))
-              : engine.rematch();
+              : msg.t === 'start'
+                ? engine.start(meta.seat)
+                : engine.rematch();
       } catch {
         return this.fail(ws, 'rejected', 'That move could not be played.');
       }
@@ -270,7 +290,6 @@ export class GameRoom implements DurableObject {
     code: string,
     create: boolean,
     playerId: string,
-    players: number | undefined,
   ): Promise<{ ok: true; engine: RoomEngine } | { ok: false; kind: ErrorKind; error: string }> {
     const existing = await this.loadEngine();
 
@@ -299,9 +318,9 @@ export class GameRoom implements DurableObject {
     if (!create) return { ok: false, kind: 'no-room', error: 'No room with that code.' };
     if (!getGame(gameId)) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
 
-    // Only the creating client's request is honoured; the room's size is
-    // settled before anyone else can ask for a different one.
-    const engine = RoomEngine.create(code, gameId, undefined, players);
+    // No size to settle: the room opens empty and takes whoever arrives, up
+    // to whatever the game itself seats.
+    const engine = RoomEngine.create(code, gameId);
     if (!engine) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
     this.engine = engine;
     await this.persist();
@@ -309,17 +328,27 @@ export class GameRoom implements DurableObject {
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
+    await this.departed(ws);
+  }
+
+  /**
+   * A socket can leave either way, and for a while these two did different
+   * things: `close` started the empty-room countdown and `error` did not. A
+   * room whose last socket failed rather than closed was therefore never swept
+   * — it kept its storage and, worse, its room code, for good. Both doors now
+   * lead to the same place.
+   */
+  async webSocketError(ws: WebSocket): Promise<void> {
+    await this.departed(ws);
+  }
+
+  private async departed(ws: WebSocket): Promise<void> {
     // The seat itself is kept in storage, so the player can reclaim it later.
     await this.loadEngine();
     if (this.connectedSeats(ws).size === 0) {
       await this.state.storage.put('emptySince', Date.now());
       await this.ensureAlarm(EMPTY_ROOM_TTL_MS);
     }
-    this.broadcast(ws);
-  }
-
-  async webSocketError(ws: WebSocket): Promise<void> {
-    await this.loadEngine();
     this.broadcast(ws);
   }
 

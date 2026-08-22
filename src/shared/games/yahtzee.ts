@@ -1,10 +1,11 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
-import { die } from './random.js';
+import { throwNext } from './dice.js';
 import {
   CATEGORIES,
   CATEGORY_NAME,
   DICE,
+  YAHTZEE_TRAY,
   EXTRA_YAHTZEE,
   ROLLS,
   YAHTZEE,
@@ -20,6 +21,7 @@ import {
 } from './yahtzeeDisplay.js';
 
 import type { Category, Sheet, YMove, YState } from './yahtzeeDisplay.js';
+import type { Toss } from './toss.js';
 
 // Re-exported so the reducer, its tests and the board all name these in one
 // place, while the board still takes them from the display module.
@@ -38,6 +40,7 @@ export {
   UPPER_BONUS,
   UPPER_TARGET,
   YAHTZEE,
+  YAHTZEE_TRAY,
   counts,
   emptySheet,
   hasRolled,
@@ -91,9 +94,36 @@ const SEATS = {
   max: GAME_MANIFEST.yahtzee.maxPlayers,
 };
 
-/** Five fresh dice. */
-function rollDice(dice: readonly number[], held: readonly boolean[], rng: Rng): number[] {
-  return dice.map((face, index) => (held[index] && face !== 0 ? face : die(rng)));
+/**
+ * Throw the dice that are not being kept, and see what they say.
+ *
+ * The faces are read off the cubes where they stop — see `dice.ts`. A die
+ * being kept stays where it is, so the simulation hands its own face straight
+ * back and there is nothing to merge.
+ */
+function throwDice(
+  state: YState,
+  flick: unknown,
+  rng: Rng,
+): { toss: Toss; dice: number[] } {
+  const keeping = hasRolled(state) ? state.held : Array<boolean>(DICE).fill(false);
+  const thrown = throwNext({
+    previous: state.toss,
+    flick,
+    rng,
+    tray: YAHTZEE_TRAY,
+    count: DICE,
+    held: keeping,
+  });
+  // A kept die's face comes from the record rather than from the cube the
+  // simulation left standing there. They agree in play — the cube is where
+  // the throw that produced that face left it — and this is what keeps them
+  // agreeing if they ever come apart, since `dice` is the thing the score is
+  // computed from.
+  return {
+    toss: thrown.toss,
+    dice: thrown.faces.map((face, i) => (keeping[i] ? state.dice[i] : face)),
+  };
 }
 
 /**
@@ -117,15 +147,24 @@ function isOver(state: YState): boolean {
   return state.over;
 }
 
-function roll(state: YState, rng: Rng): MoveResult<YState> {
+function roll(state: YState, flick: unknown, rng: Rng): MoveResult<YState> {
   if (state.rollsLeft <= 0) {
     return { ok: false, error: 'No rolls left — the hand has to go somewhere.' };
   }
+  // Keeping all five and rolling again spent a roll and changed nothing: the
+  // dice were identical, the board did not move, and the only evidence was
+  // the button counting down. That is not a roll, so it is not allowed to
+  // cost one.
+  if (hasRolled(state) && state.held.every(Boolean)) {
+    return { ok: false, error: 'You are keeping all five — there is nothing to throw.' };
+  }
+  const thrown = throwDice(state, flick, rng);
   return {
     ok: true,
     state: {
       ...state,
-      dice: rollDice(state.dice, state.held, rng),
+      dice: thrown.dice,
+      toss: thrown.toss,
       rollsLeft: state.rollsLeft - 1,
       note: null,
     },
@@ -232,6 +271,7 @@ export const yahtzee: GameDefinition<YState, YMove> = {
     return {
       dice: Array<number>(DICE).fill(0),
       held: Array<boolean>(DICE).fill(false),
+      toss: null,
       rollsLeft: ROLLS,
       turn: 0,
       round: 1,
@@ -250,7 +290,7 @@ export const yahtzee: GameDefinition<YState, YMove> = {
 
     switch (move.type) {
       case 'roll':
-        return roll(state, rng);
+        return roll(state, move.flick, rng);
       case 'hold':
         return hold(state, move.die);
       case 'score':

@@ -11,6 +11,7 @@ import {
   UPPER,
   UPPER_BONUS,
   UPPER_TARGET,
+  YAHTZEE_TRAY,
   jokerApplies,
   legalCategories,
   scoreFor,
@@ -24,6 +25,24 @@ import type {
   YMove,
   YState,
 } from "../../shared/games/yahtzeeDisplay.js";
+import type { Flick } from "../../shared/games/toss.js";
+import { DiceTray } from "../dice/DiceTray.js";
+import { useLanding } from "../dice/useLanding.js";
+
+/**
+ * The tray, read out. One label rather than five, because "die showing three,
+ * die showing three, die showing five" is a worse way to hear a hand than
+ * "3, 3, 5, 2, 6" is — and the dice inside are moved by a solver, so they are
+ * not five things to visit in order.
+ */
+function trayLabel(state: YState, flying: boolean, rolled: boolean): string {
+  if (flying) return "The dice, in the air";
+  if (!rolled) return "The dice, not thrown yet";
+  const faces = state.dice
+    .map((face, i) => `${face}${state.held[i] ? " kept" : ""}`)
+    .join(", ");
+  return `The dice: ${faces}`;
+}
 
 interface Props {
   state: YState;
@@ -31,37 +50,6 @@ interface Props {
   names: string[];
   myTurn: boolean;
   onMove(move: YMove): void;
-}
-
-/** Pip counts, drawn in CSS. A face of 0 is a die that has not been rolled. */
-function Die({
-  face,
-  held,
-  index,
-  usable,
-  onToggle,
-}: {
-  face: number;
-  held: boolean;
-  index: number;
-  usable: boolean;
-  onToggle(): void;
-}) {
-  const label = face === 0 ? `Die ${index + 1}, not rolled` : `Die ${index + 1}, ${face}${held ? ", kept" : ""}`;
-  return (
-    <button
-      className={["yz-die", held ? "held" : "", face === 0 ? "blank" : ""].filter(Boolean).join(" ")}
-      data-face={face}
-      disabled={!usable}
-      onClick={onToggle}
-      aria-pressed={held}
-      aria-label={label}
-    >
-      {Array.from({ length: face }, (_, pip) => (
-        <i key={pip} aria-hidden="true" />
-      ))}
-    </button>
-  );
 }
 
 /**
@@ -107,13 +95,26 @@ function Box({
 }
 
 export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
+  const [flying, land] = useLanding(state.toss?.n ?? 0);
   const rolled = state.rollsLeft < ROLLS;
-  const canRoll = myTurn && state.rollsLeft > 0;
-  const canKeep = myTurn && rolled && state.rollsLeft > 0;
+  const keepingAll = rolled && state.held.every(Boolean);
+  // Keeping all five and rolling again spends a roll and moves nothing, so
+  // there is nothing to press. The reducer refuses it too; this only saves the
+  // round trip and the error.
+  const canRoll = myTurn && state.rollsLeft > 0 && !flying && !keepingAll;
+  const canKeep = myTurn && rolled && state.rollsLeft > 0 && !flying;
   // Which boxes this hand may go in is a rule, not a hint: the reducer refuses
   // the same ones, so greying them out here only saves a round trip.
+  //
+  // Withheld while the dice are in the air. Thirteen previews appearing before
+  // the dice they are computed from have stopped is the sheet answering a
+  // question nobody has finished asking.
   const legal =
-    myTurn && rolled && seat !== null ? legalCategories(state.sheets[seat], state.dice) : [];
+    myTurn && rolled && !flying && seat !== null
+      ? legalCategories(state.sheets[seat], state.dice)
+      : [];
+
+  const throwDice = (flick: Flick) => onMove({ type: "roll", flick });
 
   const nameFor = (index: number) =>
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
@@ -140,18 +141,21 @@ export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
         Round {state.round} of {CATEGORIES.length}
       </p>
 
-      <div className="yz-dice" role="group" aria-label="The dice">
-        {state.dice.map((face, index) => (
-          <Die
-            key={index}
-            face={face}
-            index={index}
-            held={state.held[index]}
-            usable={canKeep}
-            onToggle={() => onMove({ type: "hold", die: index })}
-          />
-        ))}
-      </div>
+      <DiceTray
+        count={state.dice.length}
+        tray={YAHTZEE_TRAY}
+        faces={state.dice}
+        toss={state.toss}
+        flying={flying}
+        mine={myTurn}
+        held={state.held}
+        keepable={canKeep}
+        label={trayLabel(state, flying, rolled)}
+        hint={myTurn && !flying ? (rolled ? "Tap a die to keep it" : "Flick to throw") : undefined}
+        onThrow={canRoll ? throwDice : undefined}
+        onTapDie={(die) => canKeep && onMove({ type: "hold", die })}
+        onRest={land}
+      />
 
       {/* The one thing a player cannot see anywhere else: what just happened,
           and to whom. Same job as the Wheel's note line. */}
@@ -160,17 +164,29 @@ export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
       </p>
 
       <div className="yz-actions">
-        <button className="primary" disabled={!canRoll} onClick={() => onMove({ type: "roll" })}>
+        {/* The button is the floor, not the ceiling: the tray is the throw,
+            and this is the same throw for a thumb that would rather press
+            something, and the one a keyboard reaches without focusing the
+            tray. */}
+        <button
+          className="primary"
+          disabled={!canRoll}
+          onClick={() => throwDice({ x: 0, y: 0 })}
+        >
           {rolled ? `Roll again (${state.rollsLeft})` : "Roll"}
         </button>
         <p className="yz-legend">
           {!myTurn
             ? "Waiting for the dice"
-            : !rolled
-              ? "Three rolls, then fill a box."
-              : state.rollsLeft > 0
-                ? "Tap a die to keep it."
-                : "Tap a score to fill that box."}
+            : flying
+              ? "…"
+              : !rolled
+                ? "Three rolls, then fill a box. Flick the tray to throw."
+                : keepingAll
+                  ? "You are keeping all five — fill a box."
+                  : state.rollsLeft > 0
+                    ? "Tap a die to keep it, or throw the rest."
+                    : "Tap a score to fill that box."}
         </p>
       </div>
 

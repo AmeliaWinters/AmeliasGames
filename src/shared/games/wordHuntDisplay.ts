@@ -7,11 +7,15 @@
  * reducer and the whole dictionary onto the phone of everyone who opens the
  * lobby. `bundle.test.ts` holds that line.
  *
- * Like `wordleDisplay.ts` it deliberately imports nothing at all.
+ * Like `wordleDisplay.ts`, the only thing it imports is another leaf that
+ * imports nothing itself. The rule is not "no imports" but "nothing that
+ * reaches a reducer".
  *
  * `wordHunt.ts` re-exports everything here, so the reducer and its tests carry
  * on importing from one place.
  */
+
+export { clockCall, formatClock } from '../clock.js';
 
 /**
  * What `view()` leaves where somebody else's word used to be: a run of marks
@@ -101,16 +105,6 @@ export function timeIsUp(state: WhState, now: number): boolean {
 /** Whether the round is under way — false while the room is still filling. */
 export function hasStarted(state: WhState): boolean {
   return state.endsAt !== null;
-}
-
-/**
- * A countdown as `M:SS`. Rounds up, so the clock reads 1:00 for the whole of
- * the last minute's first second and only shows 0:00 when the time really has
- * gone — a timer that displays zero while play continues reads as broken.
- */
-export function formatClock(ms: number): string {
-  const seconds = Math.ceil(Math.max(0, ms) / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 export interface WhState {

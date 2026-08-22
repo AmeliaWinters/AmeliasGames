@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RoomEngine, isRoomCode } from '../shared/room.js';
 import { getGame } from '../shared/games/index.js';
 import {
+  PONG_FRAME,
   PROTOCOL_VERSION,
   type ClientMessage,
   type ErrorKind,
@@ -96,6 +97,16 @@ function handleConnection(socket: WebSocket): void {
       return fail(socket, 'protocol', 'Malformed message.');
     }
 
+    // Before `hello`, and before anything else: a heartbeat is how the client
+    // tells a live socket from one that died without saying so, and it has to
+    // be answerable by a socket that has not joined anything yet. Production
+    // answers this in the runtime itself (see the worker's auto-response);
+    // there is no hibernation to protect here, so a plain reply will do.
+    if (msg.t === 'ping') {
+      if (socket.readyState === WebSocket.OPEN) socket.send(PONG_FRAME);
+      return;
+    }
+
     if (msg.t === 'hello') {
       if (joined) return;
 
@@ -114,9 +125,9 @@ function handleConnection(socket: WebSocket): void {
       if (!room) {
         if (!msg.create) return fail(socket, 'no-room', 'No room with that code.');
         if (!getGame(gameId)) return fail(socket, 'rejected', 'Could not create that game.');
-        // Only the creating client's request is honoured; the room's size is
-        // settled before anyone else can ask for a different one.
-        const engine = RoomEngine.create(code, gameId, undefined, msg.players);
+        // No size to settle: the room opens empty and takes whoever arrives,
+        // up to whatever the game itself seats.
+        const engine = RoomEngine.create(code, gameId);
         if (!engine) return fail(socket, 'rejected', 'Could not create that game.');
         room = { engine, sockets: new Map(), emptySince: Date.now(), timer: null };
         rooms.set(code, room);
@@ -136,7 +147,7 @@ function handleConnection(socket: WebSocket): void {
       }
 
       const result = room.engine.join(playerId, name);
-      if (!result.ok) return fail(socket, 'full', result.error);
+      if (!result.ok) return fail(socket, result.kind, result.error);
 
       // A second tab for the same player takes over the seat rather than
       // leaving a zombie socket receiving updates. 4000 tells that client the
@@ -165,7 +176,7 @@ function handleConnection(socket: WebSocket): void {
     if (!joined) return fail(socket, 'rejected', 'Join a room first.');
     const { room, seat } = joined;
 
-    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch') {
+    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch' || msg.t === 'start') {
       // The server runs the same reducer the client does, and its answer wins.
       // A reducer is not supposed to throw, but an exception escaping a `ws`
       // message handler is an uncaught exception, which is fatal to the
@@ -177,7 +188,9 @@ function handleConnection(socket: WebSocket): void {
             ? room.engine.move(seat, msg.move)
             : msg.t === 'switch'
               ? room.engine.switchGame(String(msg.gameId ?? ''))
-              : room.engine.rematch();
+              : msg.t === 'start'
+                ? room.engine.start(seat)
+                : room.engine.rematch();
       } catch {
         return fail(socket, 'rejected', 'That move could not be played.');
       }
