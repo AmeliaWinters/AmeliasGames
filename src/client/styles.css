@@ -243,13 +243,27 @@ input {
    second half of it, which is the wordmark's only job for the channel colour. */
 .topbar h1 {
   font-family: var(--display);
-  font-size: 1.35rem;
+  /* Shrinks with the screen rather than off it. The middle term only bites
+     below about 366px, so on every ordinary phone this is still 1.35rem —
+     it is there for the narrow ones, where "Wheel of Fortune" is sixteen
+     characters and the bar has a room code in it too. */
+  font-size: clamp(1.05rem, 5.9vw, 1.35rem);
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   margin: 0;
   min-width: 0;
+  /*
+    The row's spare width, rather than what the button inside claims to need.
+    A <button> with `overflow: hidden` reports an intrinsic width a few pixels
+    short of the word in it, so the heading was sized to less than its own
+    text and ellipsised YAHTZEE to YAHTZE… with a third of the bar standing
+    empty beside it. Growing into the space that is actually there settles it,
+    and the ellipsis stays for the case it was meant for: a name genuinely too
+    long for the room left.
+  */
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -282,6 +296,9 @@ input {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* The code, the sound switch and the connection dot are each the size they
+     need to be; the heading beside them is the part that gives. */
+  flex: 0 0 auto;
 }
 
 .code {
