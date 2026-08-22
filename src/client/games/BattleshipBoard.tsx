@@ -32,9 +32,9 @@ interface Props {
 }
 
 /**
- * Note the absence of `myTurn`. Placing is free-simultaneous and firing
- * alternates, so whether this player may act right now is a question only
- * `canAct` answers correctly in both halves of the game.
+ * Note the absence of `myTurn`. Placing is free-simultaneous, and firing hands
+ * the guns over only on a miss, so whether this player may act right now is a
+ * question only `canAct` answers correctly in both halves of the game.
  */
 
 const ROWS = Array.from({ length: BOARD_SIZE }, (_, i) => i);
@@ -100,6 +100,11 @@ function Sea({
  * information a player really tracks between shots, and counting wrecks off
  * a grid of a hundred squares is exactly the chore a scoreboard exists to
  * spare them.
+ *
+ * The pips are damage, and for an enemy fleet they stay dark until a ship goes
+ * down and fills them all at once — `view()` wipes the damage on anything
+ * still afloat, because which ship a hit belonged to is the thing the player
+ * is supposed to be working out.
  */
 function Roster({ fleet, label }: { fleet: Ship[]; label: string }) {
   return (
@@ -374,7 +379,11 @@ export function BattleshipBoard({ state, seat, names, onMove }: Props) {
       {mine && state.phase === "firing" && (
         <p className="bs-waiting" aria-live="polite">
           {myShot
-            ? "Your shot — pick a square."
+            ? // A hit keeps the guns, so a player mid-streak is told why they
+              // still have them — otherwise a second shot looks like a bug.
+              yourShots.at(-1)?.hit
+              ? "A hit — fire again."
+              : "Your shot — pick a square."
             : `Waiting for ${nameFor(them)} to fire.`}
         </p>
       )}

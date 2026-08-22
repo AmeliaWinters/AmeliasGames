@@ -71,15 +71,6 @@ function laidOut(state: BsState, seat: number): BsState {
   return next;
 }
 
-/**
- * A square with nothing on it, for the shots that are only there to hand the
- * guns back. The fleets above never reach past column 4, so the two right-hand
- * columns are open sea — enough for the seventeen shots it takes to sink one.
- */
-function openWater(index: number): BsMove {
-  return { type: 'fire', row: index % BOARD_SIZE, col: 9 - Math.floor(index / BOARD_SIZE) };
-}
-
 /** Both fleets down, seat 0 to fire. */
 function firing(): BsState {
   return laidOut(laidOut(fresh(), 0), 1);
@@ -223,14 +214,28 @@ describe('scattering a fleet', () => {
 });
 
 describe('firing', () => {
-  it('alternates the guns whether the shot hits or misses', () => {
+  it('keeps the guns on a hit and hands them over on a miss', () => {
     let state = firing();
     state = play(state, { type: 'fire', row: 0, col: 0 }, 0);
     expect(state.shots[0][0].hit).toBe(true);
-    expect(state.turn).toBe(1);
+    expect(state.turn).toBe(0);
 
-    state = play(state, { type: 'fire', row: 9, col: 9 }, 1);
-    expect(state.shots[1][0].hit).toBe(false);
+    // Walking along the carrier: every hit buys another shot.
+    state = play(state, { type: 'fire', row: 0, col: 1 }, 0);
+    expect(state.turn).toBe(0);
+    expect(refuse(state, { type: 'fire', row: 9, col: 9 }, 1)).toMatch(/not your turn/);
+
+    state = play(state, { type: 'fire', row: 9, col: 9 }, 0);
+    expect(state.shots[0].at(-1)?.hit).toBe(false);
+    expect(state.turn).toBe(1);
+  });
+
+  it('gives another shot for the hit that sinks a ship, and for the first hit of a game', () => {
+    let state = firing();
+    // The destroyer is two long at I1–I2: hit, sink, and still holding the guns.
+    state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
+    state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
+    expect(state.shots[0].at(-1)?.sunk).toBe('destroyer');
     expect(state.turn).toBe(0);
   });
 
@@ -252,10 +257,9 @@ describe('firing', () => {
 
   it('reports a sinking on the shot that finishes her', () => {
     let state = firing();
-    // The destroyer is two long at I1–I2. Seat 1 fires at empty water between.
+    // The destroyer is two long at I1–I2.
     state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
     expect(state.shots[0].at(-1)?.sunk).toBeNull();
-    state = play(state, { type: 'fire', row: 9, col: 9 }, 1);
     state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
 
     const shot = state.shots[0].at(-1);
@@ -269,15 +273,11 @@ describe('firing', () => {
 
   it('ends the moment the last ship goes down, and not before', () => {
     let state = firing();
-    const targets = fleetCells(state, 1);
-    let filler = 0;
-    for (const [row, col] of targets) {
+    // Seventeen hits in a row, and seat 1 never gets the guns at all — the
+    // price of a rule that rewards finding a ship.
+    for (const [row, col] of fleetCells(state, 1)) {
       expect(battleship.isOver(state)).toBe(false);
       state = play(state, { type: 'fire', row, col }, 0);
-      if (battleship.isOver(state)) break;
-      // Seat 1 fires into open water: columns 8 and 9 hold no ship, and 17
-      // shots need more than one column's worth of empty sea.
-      state = play(state, openWater(filler++), 1);
     }
 
     expect(state.phase).toBe('over');
@@ -329,10 +329,23 @@ describe('what a player is shown', () => {
     expect(fleetReady(view(fresh(), 0).fleets[1])).toBe(false);
   });
 
+  it('hides which enemy ship a hit landed on, until she goes down', () => {
+    let state = firing();
+    // One hit on the carrier at A1, which leaves her afloat.
+    state = play(state, { type: 'fire', row: 0, col: 0 }, 0);
+    const carrier = view(state, 0).fleets[1].find((ship) => ship.kind === 'carrier') as Ship;
+    expect(carrier.hits).toEqual([false, false, false, false, false]);
+    expect(isHidden(carrier)).toBe(true);
+    // The shooter's own record of the shot is untouched: they know the square
+    // was a hit, just not whose it was.
+    expect(state.shots[0].at(-1)).toMatchObject({ row: 0, col: 0, hit: true, sunk: null });
+    // And seat 1's own view of her own fleet is the truth, damage and all.
+    expect(view(state, 1).fleets[1]).toEqual(state.fleets[1]);
+  });
+
   it('shows the wreck of a ship that has been sunk', () => {
     let state = firing();
     state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
-    state = play(state, { type: 'fire', row: 9, col: 9 }, 1);
     state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
 
     const seen = view(state, 0);
@@ -348,11 +361,8 @@ describe('what a player is shown', () => {
 
   it('opens the whole sea once the game is over', () => {
     let state = firing();
-    let filler = 0;
     for (const [row, col] of fleetCells(state, 1)) {
       state = play(state, { type: 'fire', row, col }, 0);
-      if (battleship.isOver(state)) break;
-      state = play(state, openWater(filler++), 1);
     }
     expect(view(state, 1)).toEqual(state);
   });
@@ -368,13 +378,26 @@ describe('the status line', () => {
     );
   });
 
-  it('reads back the last shot', () => {
+  it('reads back the last shot without saying which ship it found', () => {
     let state = firing();
     expect(battleship.status(state, names)).toBe('Amelia to fire');
+
     state = play(state, { type: 'fire', row: 9, col: 9 }, 0);
-    expect(battleship.status(state, names)).toBe('Sam to fire — a miss at J10');
+    expect(battleship.status(state, names)).toBe('Sam to fire — a miss');
+
+    // Sam finds Amelia's carrier at A1 and keeps the guns.
     state = play(state, { type: 'fire', row: 0, col: 0 }, 1);
-    expect(battleship.status(state, names)).toBe('Amelia to fire — a hit at A1');
+    expect(battleship.status(state, names)).toBe('Sam to fire again — a hit');
+
+    // A ship going down is the one thing called out by name.
+    state = play(state, { type: 'fire', row: 8, col: 0 }, 1);
+    state = play(state, { type: 'fire', row: 8, col: 1 }, 1);
+    expect(battleship.status(state, names)).toBe('Sam to fire again — the Destroyer is sunk');
+
+    // A miss hands them back, and the news is that miss — not Sam's earlier
+    // hits, which the line has already reported.
+    state = play(state, { type: 'fire', row: 9, col: 9 }, 1);
+    expect(battleship.status(state, names)).toBe('Amelia to fire — a miss');
   });
 
   it('falls back to seat numbers when nobody has a name', () => {

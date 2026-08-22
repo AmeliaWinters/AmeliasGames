@@ -39,9 +39,10 @@ export const FLEET: readonly ShipClass[] = [
 /**
  * Where a ship sits, and which of its cells have been hit.
  *
- * `hits` is indexed along the ship from its bow at (row, col), so it survives
- * redaction: an opponent's hits are already public — every one of them was a
- * shot you watched land — while its position is not.
+ * `hits` is indexed along the ship from its bow at (row, col), so its length
+ * still says how big she is once `view()` has blanked both her position and
+ * her damage. Which ship a hit belonged to is a secret until she sinks, and
+ * `hits` is where that secret would otherwise leak.
  */
 export interface Ship {
   kind: ShipKind;
@@ -188,9 +189,9 @@ export function squareName(row: number, col: number): string {
  * Whether `seat` may move right now — the only question the UI should ask.
  *
  * Placing is free-simultaneous, so `room.turn` says nothing about whether you
- * personally may set a ship down; firing is strictly alternating, where it
- * says everything. One predicate covering both is what keeps that difference
- * out of the board component.
+ * personally may set a ship down; once firing starts it says everything, and a
+ * player who has just hit still holds it. One predicate covering both is what
+ * keeps that difference out of the board component.
  */
 export function canAct(state: BsState, seat: number): boolean {
   if (seat !== 0 && seat !== 1) return false;

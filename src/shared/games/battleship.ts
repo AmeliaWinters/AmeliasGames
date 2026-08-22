@@ -51,14 +51,17 @@ export type { BsMove, BsState, Ship, ShipClass, ShipKind, Shot } from './battles
  *    while placing. Anything deciding whether a player may act must ask
  *    `canAct`.
  *
- * 2. **Firing strictly alternates.** One shot each, hit or miss. The "another
- *    go after a hit" variant is a real way to play, and deliberately not this
- *    one: it lets a lucky opening run end the game before the other player has
- *    fired a shot, which is a bad evening for half the table.
+ * 2. **A hit earns another shot.** The guns pass on a miss and only on a miss,
+ *    which is how the game is played on paper: finding a ship and then walking
+ *    along her is the whole hunt, and a turn that ended at the first hit would
+ *    throw that away. It does mean a hot streak can finish things quickly —
+ *    that is the game, not a bug in it.
  *
- * The secret is the fleet, and `view()` is the only thing keeping it — every
- * other function here is written as though positions were public, because on
- * the server they are.
+ * The secret is the fleet: where it is, and which ship a hit landed on. A shot
+ * report says hit, miss, or sunk and nothing more, exactly as it does across a
+ * table. `view()` is the only thing keeping any of it — every other function
+ * here is written as though positions were public, because on the server they
+ * are.
  */
 
 function emptyState(): BsState {
@@ -201,8 +204,8 @@ function fire(state: BsState, row: number, col: number, seat: number): MoveResul
       ...state,
       fleets,
       shots,
-      // A hit passes the guns over, the same as a miss. See the note above.
-      turn: them as 0 | 1,
+      // A hit earns another shot; only a miss hands the guns over.
+      turn: (target ? seat : them) as 0 | 1,
       phase: won ? 'over' : 'firing',
       winner: won ? seat : null,
     },
@@ -285,30 +288,40 @@ export const battleship: GameDefinition<BsState, BsMove> = {
       return `${nameFor(winner)} sinks the fleet in ${shots} shots`;
     }
 
-    // The last shot is the news, and the thing a player looks up to check.
-    const last = state.shots[opponentOf(state.turn)].at(-1);
-    const where = last ? squareName(last.row, last.col) : '';
+    // The last shot is the news. Finding it takes a moment's care now that a
+    // hit keeps the guns: the player to fire only ever gets them back off a
+    // miss, so their own last shot being a hit means they are mid-streak and
+    // that shot is the most recent one on the water. Otherwise the news is the
+    // miss that handed them the guns.
+    const streak = state.shots[state.turn].at(-1);
+    const last = streak?.hit ? streak : state.shots[opponentOf(state.turn)].at(-1);
+    // Hit, miss, or the name of a ship that has gone down — the three things
+    // called out across a table, and never which ship a mere hit landed on.
     const report = !last
       ? ''
       : last.sunk
-        ? ` — ${where} sank the ${shipClass(last.sunk)?.name}`
+        ? ` — the ${shipClass(last.sunk)?.name} is sunk`
         : last.hit
-          ? ` — a hit at ${where}`
-          : ` — a miss at ${where}`;
-    return `${nameFor(state.turn)} to fire${report}`;
+          ? ' — a hit'
+          : ' — a miss';
+    return `${nameFor(state.turn)} to fire${streak?.hit ? ' again' : ''}${report}`;
   },
 
   /**
-   * The one secret in the game: where the enemy ships are. Everything else —
-   * every shot either player has fired, and everything those shots turned up —
-   * is already drawn on both boards.
+   * The secret: where the enemy ships are, and which of them a hit landed on.
    *
-   * A ship that has gone down is revealed outright: her position is exactly
-   * what the hits that sank her already spelled out, and drawing the wreck is
-   * the payoff for finding her. The rest keep their damage but lose their
-   * position, so an enemy fleet is still five ships long and the board can
-   * tell "ready" from "still setting out" without being told where anything
-   * is.
+   * The second half matters as much as the first. You know perfectly well
+   * which squares you have hit — you fired at them and watched — but on paper
+   * nobody tells you that two of those hits were the same cruiser. Working
+   * that out is the game. So an enemy ship that is still afloat is sent with
+   * her position blanked *and* her damage wiped: everything the board draws
+   * about your shots it draws from your own shot log.
+   *
+   * A ship that has gone down is revealed outright, damage and all: her
+   * position is exactly what the hits that sank her already spelled out, and
+   * drawing the wreck is the payoff for finding her. The fleet keeps its
+   * length either way, so the board can tell "ready" from "still setting out"
+   * without being told where anything is.
    *
    * Once the game is over the whole sea is shown, so the loser finds out where
    * that last destroyer was hiding.
@@ -321,7 +334,16 @@ export const battleship: GameDefinition<BsState, BsMove> = {
         index === seat
           ? fleet
           : fleet.map((ship) =>
-              isSunk(ship) ? ship : { ...ship, row: HIDDEN_AT, col: HIDDEN_AT },
+              isSunk(ship)
+                ? ship
+                : {
+                    ...ship,
+                    row: HIDDEN_AT,
+                    col: HIDDEN_AT,
+                    // Length, not damage: the board needs her size to draw a
+                    // roster row, and must not learn where she has been hit.
+                    hits: ship.hits.map(() => false),
+                  },
             ),
       ),
     };
