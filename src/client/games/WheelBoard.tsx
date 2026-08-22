@@ -18,6 +18,7 @@ import {
 } from "../../shared/games/wheelDisplay.js";
 import type { Wedge, WofMove, WofState } from "../../shared/games/wheel.js";
 import { wantsStillness } from "../motion.js";
+import { sectorPath } from "./wheelGeometry.js";
 
 /**
  * How long the wheel takes to come to rest. Matched by the transition in
@@ -29,8 +30,8 @@ const SPIN_MS = 2600;
 /** Whole turns the wheel makes before settling, so it reads as a throw. */
 const SPIN_TURNS = 4;
 
-/** The wheel is drawn in a 220-unit box; these are its two radii. */
-const RADIUS = 100;
+/** Where a wedge's label sits, in the 220-unit box the wheel is drawn in. The
+    rim itself is RADIUS, which comes from `wheelGeometry.ts`. */
 const LABEL_RADIUS = 74;
 
 /**
@@ -56,18 +57,6 @@ function restAngle(at: number | null): number {
   // `at * WEDGE_ARC` — so its middle has to come back by that much plus half
   // a wedge.
   return -(at * WEDGE_ARC + WEDGE_ARC / 2);
-}
-
-/** One wedge, as a pie slice from the centre. */
-function sectorPath(index: number): string {
-  const point = (degrees: number) => {
-    const rad = (degrees * Math.PI) / 180;
-    // Twelve o'clock is zero and the angle runs clockwise, which is how the
-    // wedges are numbered.
-    return `${(RADIUS * Math.sin(rad)).toFixed(2)} ${(-RADIUS * Math.cos(rad)).toFixed(2)}`;
-  };
-  const from = index * WEDGE_ARC;
-  return `M 0 0 L ${point(from)} A ${RADIUS} ${RADIUS} 0 0 1 ${point(from + WEDGE_ARC)} Z`;
 }
 
 /**

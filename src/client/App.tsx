@@ -26,6 +26,8 @@ import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
 import { BattleshipBoard } from "./games/BattleshipBoard.js";
 import { LiarsDiceBoard } from "./games/LiarsDiceBoard.js";
 import { WordHuntBoard } from "./games/WordHuntBoard.js";
+import { Die } from "./games/Die.js";
+import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
@@ -61,41 +63,134 @@ function Wordmark({ name }: { name: string }) {
   );
 }
 
+/** N bare pieces, for the motifs the stylesheet lays out and colours itself. */
+function pieces(count: number) {
+  return Array.from({ length: count }, (_, i) => <i key={i} />);
+}
+
 /**
- * The motif on a game's card: its own pieces, in CSS, rather than artwork.
- * Only the Wheel's tiles carry text — the rest are coloured by nth-child in
- * the stylesheet, so this is a count and nothing more.
+ * Word Hunt's own test grid, with CRANE across the top of it.
+ *
+ * Lifted from `wordHunt.test.ts`, which traces exactly this word through
+ * exactly these letters — so the word on the card is one the game agrees is
+ * there, rather than five letters that look like one.
+ */
+const WORD_HUNT_TILES = ["C", "R", "A", "N", "S", "E", "T", "E"];
+
+/**
+ * The top of the wheel, rising past the crop.
+ *
+ * The whole wheel is drawn and most of it falls outside the box: a circle in a
+ * frame two and a half times wider than it is tall can only ever be an arc of
+ * one. `sectorPath` is the board's, so the lobby and the table cut their wedges
+ * the same way.
+ *
+ * Fills come from classes rather than attributes, which is how the wheel itself
+ * is drawn — a literal here would be the one colour in the app that could not
+ * follow the palette.
+ */
+function WheelArc() {
+  return (
+    <svg viewBox="0 0 220 88">
+      {/* The wheel is drawn about its own origin and moved to its centre, which
+          sits a good way below the bottom edge. */}
+      <g transform="translate(110 110)">
+        {Array.from({ length: WEDGE_COUNT }, (_, i) => (
+          <path
+            key={i}
+            className={i === 22 ? "wedge cash" : i === 2 ? "wedge lose" : "wedge"}
+            d={sectorPath(i)}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </g>
+      <path className="pointer" d="M 110 19 L 101 0 L 119 0 Z" />
+    </svg>
+  );
+}
+
+/**
+ * The motif on a game's card: a crop of that game's own table, mid-play.
+ *
+ * Pieces rather than artwork, because the Android build ships offline with no
+ * image assets and a disc grid says "Connect Four" more honestly than an
+ * illustration would. A crop rather than an emblem, because the same pieces
+ * shrunk to the middle of the well read as a specimen mounted on card instead
+ * of a game being played.
+ *
+ * Most of these are a count and nothing more, laid out and coloured by
+ * nth-child in the stylesheet. Three are not: the Wheel needs arcs, which CSS
+ * cannot cut without a gradient; Word Hunt needs its letters; and the two dice
+ * games use the real `Die`, so their faces are the six the rest of the app
+ * draws rather than a dot standing in for a pip.
+ *
+ * The rules all eight follow, and the register of which game owns which shape,
+ * are in `docs/card-motifs.md`. Read it before adding a ninth.
  */
 function CardArt({ gameId }: { gameId: string }) {
-  if (gameId === "wheel") {
-    return (
-      <span className="art art-wheel" aria-hidden="true">
-        <i>W</i>
-        <i />
-        <i>E</i>
-        <i />
-      </span>
-    );
-  }
-  const pieces =
-    gameId === "connect4"
-      ? 12
-      : gameId === "backgammon"
-        ? 6
-        : gameId === "battleship"
-          ? 9
-          : gameId === "liarsdice"
-            ? 3
-            : gameId === "wordhunt"
-              ? 9
-              : 5;
   return (
     <span className={`art art-${gameId}`} aria-hidden="true">
-      {Array.from({ length: pieces }, (_, i) => (
-        <i key={i} />
-      ))}
+      {motif(gameId)}
     </span>
   );
+}
+
+function motif(gameId: string) {
+  switch (gameId) {
+    // Seven columns and the bottom three rows, cropped on three edges. Ember
+    // has a column of three standing and it is ice to play.
+    case "connect4":
+      return pieces(21);
+    // Ten points, opposed as they are on a board. The <b>s are checkers: they
+    // sit over the triangles, which are clipped and cannot hold anything.
+    case "backgammon":
+      return (
+        <>
+          {pieces(20)}
+          <b />
+          <b />
+          <b />
+          <b />
+          <b />
+        </>
+      );
+    case "wheel":
+      return <WheelArc />;
+    // A guess that has been marked and the empty row under it. No letters: the
+    // marks are the game, and letters here would make this the third card with
+    // writing on it.
+    case "wordle":
+      return pieces(10);
+    // The top four rows of a ten-wide sea: a ship with two hits in it, and
+    // three shots that found nothing.
+    case "battleship":
+      return pieces(40);
+    // A full house, as tidy as the sheet wants it.
+    case "yahtzee":
+      return [3, 3, 3, 5, 5].map((value, i) => <Die key={i} value={value} label="" />);
+    // Your hand, and a hand that is somebody else's business.
+    case "liarsdice":
+      return (
+        <>
+          <span>
+            {[4, 2, 4, 6, 4].map((value, i) => (
+              <Die key={i} value={value} label="" />
+            ))}
+          </span>
+          <span>
+            {Array.from({ length: 5 }, (_, i) => (
+              <Die key={i} value={0} hidden label="" />
+            ))}
+          </span>
+        </>
+      );
+    case "wordhunt":
+      return WORD_HUNT_TILES.map((letter, i) => <i key={i}>{letter}</i>);
+    // A game the manifest knows and this file does not. An empty well reads as
+    // a card with no picture, which is better than a card with a wrong one.
+    default:
+      return null;
+  }
 }
 
 function codeFromHash(): string | null {

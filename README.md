@@ -423,6 +423,9 @@ switch beside the palette switch.
 4. Register it in `src/shared/games/index.ts`.
 5. Add a case to `GameBoard` in `App.tsx` and a board component in
    `src/client/games/`.
+6. Give it a channel colour in all three places that hold the map — the two
+   `[data-game=…]` blocks in `styles.css` and `CHANNELS` in `palette.ts`.
+7. Draw its card motif, against [`docs/card-motifs.md`](docs/card-motifs.md).
 
 The lobby, rooms, join links, reconnection, turn handling and rematch are all
 game-agnostic and come for free.
@@ -444,41 +447,62 @@ room*, not merely available to be.
 
 ## Design
 
-Two palettes, one design. Only colour changes between them; type, layout and
-motion are shared. The switch is in the header and remembers your choice.
+**Playbill: one dark stage, four channels.** Two palettes, one design — only
+colour changes between them; type, layout and motion are shared. The switch is
+on the setup screen and remembers your choice.
 
-| | Plum & Rose (default) | Paper & Ink |
+| | Stage (default) | Daylight |
 |---|---|---|
-| Ground | `#f9eef1` blush | `#f4efe6` warm stock |
-| Ink | `#32172b` aubergine | `#1a1714` near-black |
-| Counters | `#c42a62` raspberry / `#5e3a87` violet | `#c6432e` vermilion / `#1b6b72` teal |
-| Body text contrast | 14.3:1 ink, 7.0:1 muted | 15.6:1 ink, 6.7:1 muted |
+| Ground | `#0c0c0f` near-black | `#f2f1ec` warm stock |
+| Ink | `#f5f1e8` cream | `#14141a` near-black |
+| Seats | `#ff5a47` ember / `#21c7f0` ice / `#8fde4c` lime / `#ffc24b` amber | `#cf3a24` / `#0a7d9e` / `#44861a` / `#9a6a00` |
+| Body text on ground | 17.3:1 ink, 6.0:1 muted | 16.2:1 ink, 5.3:1 muted |
 
-**Type** is a three-role pairing — Georgia (falling back to Noto Serif on
-Android) for headings, the system sans for body, monospace for room codes.
-All system stacks on purpose: the APK has to work with no network, so nothing
-may be fetched at runtime.
+Five neutrals and four hues, and the four do double duty: as **seats** they sit
+on pieces, as **channels** they identify a game. Each game owns one, and the
+channel themes exactly four things — the game's card, the second half of the
+wordmark, the emphasised word in the status line, and the primary button. Let
+it onto borders and dividers and it stops meaning anything. No gradients, no
+glows, no glassmorphism.
 
-**Layout** is one primitive repeated: a hairline-ruled panel at 3px radius.
-The board is the only thing given real room.
+**Type** is condensed caps for display, the system sans for body, monospace for
+data. All system stacks on purpose: the APK has to work with no network, so
+nothing may be fetched at runtime. Numbers break the rule deliberately — a
+score takes the body face with tighter tracking and tabular figures, because it
+is a number rather than a name.
 
-**Motion** is three animations, each carrying information — a counter falling
-so you can see where it landed, a ring closing on the winning line, and a
-puzzle tile turning over as a letter is revealed. On the winning counter the
-first two run in sequence. The third earns its place the same way: one called
-letter can land in four places at once, and without it you are left comparing
-the board to your memory of it. Everything decorative was deleted, and
-`prefers-reduced-motion` disables all three.
+**Layout** is one primitive repeated: a hairline-ruled panel at
+`--panel-radius`. Playing surfaces are the only exception — a rounder corner
+and a border you can actually see. That one rule is where the hierarchy comes
+from.
 
-**Seat colours** run to four, because Wheel of Fortune seats up to four. The
-third and fourth are teal and burnt amber in Plum & Rose, violet and bronze in
-Paper & Ink. Every chip sits beside a name, so at those table sizes colour
-reinforces identity rather than carrying it alone — which is not true of the
-Connect Four board, and is why the counters there also differ by ring.
+**Motion** is four animations, each carrying information — a counter falling so
+you can see where it landed, a ring closing on the winning line, a puzzle tile
+turning over as a letter is revealed, and the clock ticking down. On the
+winning counter the first two run in sequence. The third earns its place the
+same way: one called letter can land in four places at once, and without it you
+are left comparing the board to your memory of it. Everything decorative was
+deleted, and `prefers-reduced-motion` disables all of it.
 
-This was built against `anti-slop-design-guide.md`. The previous build tripped
-four of the sixteen patterns — indigo accent, dark-by-default, all-caps labels,
-undifferentiated sans — plus missing metadata. It now trips none.
+**Whose turn it is gets weight, not a colour wash.**
+
+### Card motifs
+
+Each game's card in the lobby carries a crop of that game's own table,
+mid-play — built from its pieces in CSS rather than drawn as artwork, because
+the Android build ships offline with no image assets and a disc grid says
+"Connect Four" more honestly than an illustration would. The rules they follow,
+and the register of which game owns which silhouette, are in
+[`docs/card-motifs.md`](docs/card-motifs.md). Read it before adding a ninth
+game, or the lobby drifts back towards eight variations on "coloured squares".
+
+### Colour-blindness
+
+Ember and amber are the closest pair in hue, and both are used as seats. Every
+chip sits beside a name, so at four-player tables colour reinforces identity
+rather than carrying it alone — which is not true of the Connect Four board,
+and is why the counters there also differ by ring. Seats 1 and 3 carry that
+ring everywhere they sit on a piece.
 
 `public/og.png` and the Android launcher icons are generated, not hand-drawn:
 
@@ -493,12 +517,10 @@ install. The launcher icon is a two-by-two of counters — the smallest fragment
 of a board that still reads as one at 48px. minSdkVersion is 24, so it ships
 both as an adaptive icon (API 26+) and as pre-baked legacy PNGs.
 
-### Colour-blindness
-
-Raspberry and violet sit closer in hue than the Paper & Ink pairing, so Plum &
-Rose is the weaker of the two for red-green colour blindness. If that ever
-matters, either switch palettes or cool the violet toward indigo; the counters
-also differ in luminance, which carries most of the distinction.
+**These three still carry the pre-Playbill palette** — `#c42a62` raspberry and
+`#5e3a87` violet are hardcoded in `scripts/png.mjs`, and `public/icon.svg` was
+hand-written against the same colours. Regenerating them against Stage is
+outstanding work.
 
 ## The Android app
 

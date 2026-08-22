@@ -1797,15 +1797,35 @@ input:focus-visible {
    Android build ships offline with no image assets, and a disc grid says
    "Connect Four" more honestly than an illustration would.
 
-   Every size below is a multiple of --m rather than a literal, so the desktop
-   pass at the foot of this file scales all eight motifs by changing one
-   number instead of eight blocks. --m is a length, so `calc(12 * var(--m))`
-   reads as "twelve units" and comes out as 12px at phone size. */
+   Each one is a crop of a table mid-play, not an emblem centred on a card.
+   That is the whole difference between these and what they replaced: pieces
+   that fill the well and run off its edges read as a game being played, where
+   the same pieces shrunk to the middle read as a specimen mounted on card.
+   Every motif below bleeds off at least two edges, and every one of them shows
+   a position its game can actually reach.
+
+   The rules all eight follow -- and the register of which game owns which
+   shape, which is what stops the next game added from being a ninth grid of
+   squares -- are in docs/card-motifs.md.
+
+   Every size is a multiple of --m rather than a literal, so all eight motifs
+   scale by changing one number instead of eight blocks. --m is a length, so
+   `calc(12 * var(--m))` reads as "twelve units" and comes out as 12px at phone
+   size. The well is 5:2, which is about 217 x 87 units on a phone; the
+   compositions below are laid out against that box. */
 .art {
   --m: 1px;
-  min-height: calc(66 * var(--m));
+  /* A ratio rather than a height, so the well stays a well at any card width.
+     There is deliberately no min-height here: an unreset one wins against
+     aspect-ratio, which is a bug this project has already shipped once. */
+  aspect-ratio: 5 / 2;
+  /* .game is a column flex container (see the base `label` rule), and a flex
+     item is shrunk out of its ratio without this. */
+  flex: none;
+  position: relative;
+  /* The crop. None of the compositions below work without it. */
+  overflow: hidden;
   display: grid;
-  place-items: center;
   background: var(--board);
   border-bottom: 1px solid var(--rule);
 }
@@ -1819,88 +1839,177 @@ input:focus-visible {
    An outline keeps "empty" looking empty while the grid still reads. */
 .art-connect4 i,
 .art-wordle i,
-.art-wheel i,
 .art-battleship i,
 .art-wordhunt i {
   box-shadow: inset 0 0 0 1px var(--motif-off);
 }
 
+/* The bottom three rows of a seven-column board, cut off on three edges: the
+   grid is both wider and taller than the well and sits on its floor, so the
+   board carries on past the card the way a real one would.
+
+   Ember has a column of three standing and it is ice to play. Every disc rests
+   on the floor or on another disc, which the motif this replaced did not: it
+   lit its cells by nth-child down a column-flow grid and left two of them
+   hanging in mid-air over an empty one. */
 .art-connect4 {
-  grid-auto-flow: column;
-  grid-template-columns: repeat(4, calc(12 * var(--m)));
-  grid-template-rows: repeat(3, calc(12 * var(--m)));
-  gap: calc(4 * var(--m));
+  grid-template-columns: repeat(7, calc(30 * var(--m)));
+  grid-auto-rows: calc(30 * var(--m));
+  gap: calc(6 * var(--m));
+  place-content: end center;
 }
 .art-connect4 i {
-  width: calc(12 * var(--m));
-  height: calc(12 * var(--m));
+  width: calc(30 * var(--m));
+  height: calc(30 * var(--m));
   border-radius: 50%;
   background: var(--hole);
 }
-.art-connect4 i:nth-child(1),
-.art-connect4 i:nth-child(6),
-.art-connect4 i:nth-child(8) {
+.art-connect4 i:nth-child(4),
+.art-connect4 i:nth-child(11),
+.art-connect4 i:nth-child(16),
+.art-connect4 i:nth-child(18),
+.art-connect4 i:nth-child(20) {
   background: var(--seat-0);
   box-shadow: none;
 }
-.art-connect4 i:nth-child(3),
-.art-connect4 i:nth-child(5),
-.art-connect4 i:nth-child(12) {
+.art-connect4 i:nth-child(10),
+.art-connect4 i:nth-child(12),
+.art-connect4 i:nth-child(17),
+.art-connect4 i:nth-child(19) {
   background: var(--seat-1);
   box-shadow: none;
 }
 
+/* Points from both sides of the board, interlocking the way they do on the
+   real one. The motif this replaced hung six triangles off the top edge with
+   nothing facing them, and read as bunting. */
 .art-backgammon {
-  grid-auto-flow: column;
-  gap: calc(3 * var(--m));
-  align-items: start;
+  grid-template-columns: repeat(10, calc(22 * var(--m)));
+  grid-template-rows: calc(40 * var(--m)) calc(40 * var(--m));
+  gap: calc(7 * var(--m)) calc(1 * var(--m));
+  place-content: center;
 }
 /* A clip-path cuts an inset ring off with everything else, so the unlit points
    take the motif colour as a fill -- the alternation is the whole shape here,
-   and --point-dark against --board leaves half of it missing. */
+   and --point-dark against --board leaves half of it missing.
+
+   These are the board's own two polygons, in the same viewBox units as
+   PointOutline in BackgammonBoard.tsx. If either changes, both do. */
 .art-backgammon i {
-  width: calc(11 * var(--m));
-  height: calc(36 * var(--m));
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  width: calc(22 * var(--m));
+  height: calc(40 * var(--m));
   background: var(--motif-off);
 }
-.art-backgammon i:nth-child(even) {
+.art-backgammon i:nth-child(-n + 10) {
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.art-backgammon i:nth-child(n + 11) {
+  clip-path: polygon(0 100%, 100% 100%, 50% 0);
+}
+/* Offset by one between the rows, so no gold point sits opposite a gold one. */
+.art-backgammon i:nth-child(-n + 10):nth-child(even),
+.art-backgammon i:nth-child(n + 11):nth-child(odd) {
   background: var(--seat-3);
 }
+/* The checkers: a made point, and a spare pair facing it. Placed against the
+   middle rather than the left edge, because the grid is centred and overflows
+   -- an offset measured from the edge would slide off its point the moment the
+   card changed width. Point centres are 23 units apart and there are ten of
+   them, so column c sits at (c - 4.5) * 23 from the middle. */
+.art-backgammon b {
+  position: absolute;
+  width: calc(18 * var(--m));
+  height: calc(18 * var(--m));
+  border-radius: 50%;
+  background: var(--seat-0);
+  /* A ring of the well's own colour, which is the gap a real checker leaves
+     around itself on a point. It is also the only thing that makes a checker
+     visible: a piece sits on a point rather than on the board, and every seat
+     colour is within 2:1 of --motif-off in one palette or the other. Against
+     --board both the checker and the point clear 3:1, so the ring separates
+     them from each other by going through it. */
+  box-shadow: 0 0 0 calc(2 * var(--m)) var(--board);
+}
+.art-backgammon b:nth-child(21),
+.art-backgammon b:nth-child(22),
+.art-backgammon b:nth-child(23) {
+  left: calc(50% - 44 * var(--m));
+}
+.art-backgammon b:nth-child(21) {
+  bottom: 0;
+}
+.art-backgammon b:nth-child(22) {
+  bottom: calc(19 * var(--m));
+}
+.art-backgammon b:nth-child(23) {
+  bottom: calc(38 * var(--m));
+}
+.art-backgammon b:nth-child(24),
+.art-backgammon b:nth-child(25) {
+  left: calc(50% + 25 * var(--m));
+  background: var(--seat-1);
+  /* Plus the inset ring seat 1 carries everywhere else it sits on a piece. */
+  box-shadow:
+    0 0 0 calc(2 * var(--m)) var(--board),
+    inset 0 0 0 calc(3 * var(--m)) var(--ring);
+}
+.art-backgammon b:nth-child(24) {
+  top: 0;
+}
+.art-backgammon b:nth-child(25) {
+  top: calc(19 * var(--m));
+}
 
-.art-wheel {
-  grid-auto-flow: column;
-  gap: calc(3 * var(--m));
+/* The top of the wheel, rising past the crop. The card that used to sit here
+   showed four letter tiles and no wheel at all -- it read as a word game, on a
+   screen with two real ones either side of it.
+
+   The one motif that is not CSS, and the shape is the reason: the CSS way to a
+   pie slice is a conic-gradient, and there are no gradients in this stylesheet.
+   An arc gets a path. */
+.art-wheel svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
-.art-wheel i {
-  width: calc(14 * var(--m));
-  height: calc(20 * var(--m));
-  display: grid;
-  place-items: center;
-  border-radius: calc(2 * var(--m));
-  background: var(--hole);
-  font-family: var(--display);
-  font-size: calc(10 * var(--m));
-  font-weight: 700;
-  color: var(--ink);
+/* Unlit, like every other piece that is only there to be counted. At this size
+   what reads is the fan of spokes rather than the wedges between them, so the
+   edge does the work and two filled wedges are all the colour an arc needs. */
+.art-wheel .wedge {
+  fill: var(--hole);
+  stroke: var(--motif-off);
+  stroke-width: 1;
 }
-.art-wheel i:not(:empty) {
-  background: var(--ink);
-  color: var(--ground);
-  box-shadow: none;
+.art-wheel .wedge.cash {
+  fill: var(--seat-1);
+}
+.art-wheel .wedge.lose {
+  fill: var(--alert);
+}
+/* Twelve o'clock, which is where a wheel is read. */
+.art-wheel .pointer {
+  fill: var(--ink);
 }
 
+/* A guess that has been marked, and the empty row waiting under it. Two rows
+   fill the well exactly, which is why there is no third: a row sliced down to
+   a sliver reads as a bug rather than as a crop.
+
+   No letters. The marks are the game, and Word Hunt has the only lettered
+   tiles on this screen. */
 .art-wordle {
-  grid-auto-flow: column;
-  gap: calc(3 * var(--m));
+  grid-template-columns: repeat(5, calc(41 * var(--m)));
+  grid-auto-rows: calc(41 * var(--m));
+  gap: calc(4 * var(--m));
+  place-content: center;
 }
 .art-wordle i {
-  width: calc(15 * var(--m));
-  height: calc(15 * var(--m));
+  width: calc(41 * var(--m));
+  height: calc(41 * var(--m));
   border-radius: calc(3 * var(--m));
   background: var(--hole);
 }
-.art-wordle i:nth-child(1),
+.art-wordle i:nth-child(2),
 .art-wordle i:nth-child(5) {
   background: var(--mark-hit);
   box-shadow: none;
@@ -1909,85 +2018,143 @@ input:focus-visible {
   background: var(--mark-near);
   box-shadow: none;
 }
-
-.art-yahtzee,
-.art-liarsdice {
-  grid-auto-flow: column;
-  gap: calc(4 * var(--m));
-}
-.art-yahtzee i,
-.art-liarsdice i {
-  width: calc(13 * var(--m));
-  height: calc(13 * var(--m));
-  border-radius: calc(2 * var(--m));
-  background: var(--ink);
-  /* The pip. One inset ring rather than a drawn face, because at 13px a five
-     is a smudge and a single dot still reads as a die. */
-  box-shadow:
-    inset 0 0 0 calc(5 * var(--m)) var(--ink),
-    inset 0 0 0 calc(6 * var(--m)) var(--ground);
-}
-.art-yahtzee i:nth-child(3) {
-  background: var(--seat-3);
-  box-shadow:
-    inset 0 0 0 calc(5 * var(--m)) var(--seat-3),
-    inset 0 0 0 calc(6 * var(--m)) var(--ground);
+/* A miss keeps the edge: --mark-miss sits about 1.2:1 from --board, and
+   without one the letters nobody found would be a hole in the row. */
+.art-wordle i:nth-child(1),
+.art-wordle i:nth-child(4) {
+  background: var(--mark-miss);
 }
 
-/* Two dice you can see and one you cannot, which is the game in three shapes.
-   The face-down one borrows the board's own colour, exactly as it does on the
-   table. */
-.art-liarsdice i:nth-child(3) {
-  background: var(--board);
-  box-shadow: inset 0 0 0 1px var(--motif-off);
-}
+/* The top four rows of a ten-wide sea -- the board itself, rather than a
+   nine-square token of it. Ten cells come to the width of the well, so the
+   only crop is the bottom edge, which is where the rest of the fleet is.
 
-/* Nine squares of sea with a ship laid across them and two shots taken, which
-   is the game in one glance and needs no letters to say so. */
+   A ship with two hits in it, and three shots that found nothing. */
 .art-battleship {
-  grid-template-columns: repeat(3, calc(15 * var(--m)));
-  grid-auto-rows: calc(15 * var(--m));
+  grid-template-columns: repeat(10, calc(20 * var(--m)));
+  grid-auto-rows: calc(20 * var(--m));
   gap: calc(3 * var(--m));
+  place-content: start center;
 }
-/* Sized explicitly, because .art centres its grid items rather than stretching
-   them: a track is 15 units wide but an empty <i> with no size of its own
-   still collapses to nothing inside it. */
 .art-battleship i {
-  width: calc(15 * var(--m));
-  height: calc(15 * var(--m));
-  border-radius: calc(2 * var(--m));
+  width: calc(20 * var(--m));
+  height: calc(20 * var(--m));
+  border-radius: calc(1 * var(--m));
   background: var(--hole);
 }
-.art-battleship i:nth-child(4),
-.art-battleship i:nth-child(5),
-.art-battleship i:nth-child(6) {
-  background: var(--seat-1);
+/* The board paints an unhit ship --point-light, which is a pale slab against
+   the sea it sits in and 1.8:1 against --board here. A motif has no board
+   under it to be pale against, so the ship takes the unlit colour instead --
+   which is what --motif-off is for, and what backgammon's spare points use. */
+.art-battleship i:nth-child(26) {
+  background: var(--motif-off);
   box-shadow: none;
 }
-.art-battleship i:nth-child(2),
-.art-battleship i:nth-child(9) {
+.art-battleship i:nth-child(24),
+.art-battleship i:nth-child(25) {
   background: var(--alert);
   box-shadow: none;
 }
+/* A shot that found nothing differs from one that found a ship in shape as
+   well as in colour: a dot against a filled square, exactly as the board draws
+   it. The one gradient in this file, and it is a hard stop -- a dot, not a
+   fade. */
+.art-battleship i:nth-child(7),
+.art-battleship i:nth-child(18),
+.art-battleship i:nth-child(33) {
+  background: radial-gradient(circle at 50% 50%, var(--muted) 0 22%, transparent 23%);
+}
 
-/* Nine letter tiles with a word traced through them, which is the whole game
-   in one glance -- and the only art here that shares a shape with another
-   card, because Word Duel's tiles are the same tiles. */
+/* Five dice on the tray, showing a full house.
+   The dice are the real ones -- the same component and the same six faces the
+   boards draw -- rather than the single inset ring that used to stand in for a
+   pip here, which at thirteen units read as a small hole. */
+.art-yahtzee {
+  grid-auto-flow: column;
+  gap: calc(6 * var(--m));
+  place-content: center;
+}
+/* The tray they are thrown into, running off the bottom edge. Its edge is the
+   motif colour rather than a rule: --tray sits about 1.2:1 from --board in
+   both palettes, and even --rule-hi only reaches 1.6:1 -- so an edge drawn the
+   way the panels draw theirs would leave the tray a slab nobody can see. */
+.art-yahtzee::before {
+  content: "";
+  position: absolute;
+  left: calc(-8 * var(--m));
+  right: calc(-8 * var(--m));
+  top: calc(16 * var(--m));
+  bottom: calc(-12 * var(--m));
+  background: var(--tray);
+  border: 1px solid var(--motif-off);
+  border-radius: var(--board-radius);
+}
+.art-yahtzee .die {
+  --die: calc(38 * var(--m));
+  /* Positioned, so the dice paint over the tray rather than under it. */
+  position: relative;
+}
+
+/* Your hand, and a hand that is somebody else's business.
+   Both games are dice, so neither can be told from the other by its pieces --
+   only by the composition. Yahtzee's five are spaced and face-up on a tray,
+   because everyone can see them and the sheet wants them counted. These are
+   crowded, half of them face-down, and cut off at the bottom: there is more of
+   this table than the card is showing you, which is the game. */
+.art-liarsdice {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--m));
+}
+.art-liarsdice > span {
+  display: flex;
+}
+/* Two hands at two seats, so they do not line up with each other. One runs off
+   the left edge and the other off the right. */
+.art-liarsdice > span:nth-child(1) {
+  margin-left: calc(-16 * var(--m));
+}
+.art-liarsdice > span:nth-child(2) {
+  margin-left: calc(30 * var(--m));
+}
+.art-liarsdice .die {
+  --die: calc(46 * var(--m));
+}
+/* Dice in a hand sit against each other rather than in a row with air between
+   them; the overlap is what makes five of them a handful. */
+.art-liarsdice .die + .die {
+  margin-left: calc(-10 * var(--m));
+}
+
+/* Four columns of Word Hunt's own test grid with CRANE traced across it, cut
+   off at the bottom -- sixteen tiles do not fit a well two and a half times
+   wider than it is tall, and do not need to.
+
+   The traced tiles are marked the way the board marks them, with a fill. A
+   line drawn over them would read well and would be a mark the game does not
+   have; the filled path is what a player sees under their own finger. */
 .art-wordhunt {
-  grid-template-columns: repeat(3, calc(15 * var(--m)));
-  grid-auto-rows: calc(15 * var(--m));
-  gap: calc(3 * var(--m));
+  grid-template-columns: repeat(4, calc(47 * var(--m)));
+  grid-auto-rows: calc(47 * var(--m));
+  gap: calc(5 * var(--m));
+  place-content: start center;
+  font-family: var(--display);
+  font-size: calc(24 * var(--m));
+  font-weight: 700;
+  color: var(--ink);
 }
 .art-wordhunt i {
-  width: calc(15 * var(--m));
-  height: calc(15 * var(--m));
-  border-radius: calc(3 * var(--m));
+  width: calc(47 * var(--m));
+  height: calc(47 * var(--m));
+  display: grid;
+  place-items: center;
+  border-radius: calc(4 * var(--m));
   background: var(--hole);
 }
-.art-wordhunt i:nth-child(1),
-.art-wordhunt i:nth-child(5),
-.art-wordhunt i:nth-child(9) {
-  background: var(--seat-2);
+.art-wordhunt i:nth-child(-n + 4),
+.art-wordhunt i:nth-child(8) {
+  background: var(--mark-hit);
+  color: var(--mark-text);
   box-shadow: none;
 }
 
@@ -3261,61 +3428,17 @@ input:focus-visible {
 }
 
 /* ── Wider than a phone ────────────────────────────────────────────────
-   Everything above is written for a phone held in one hand, and stayed that
-   way at every width: the only media queries in this file were for reduced
-   motion and for hover. On a laptop the whole setup screen sat in a 480px
-   column with half the viewport empty on either side, eight cards stacked two
-   abreast, and motifs drawn at thumb scale.
+   One column, at every width. The setup screen is a single vertical run --
+   name, games, start, room code -- and the eye follows one left edge down it.
+   Letting the game grid alone break out of that column to spend the extra
+   desktop room made the cards the widest thing on the page: they hung out past
+   the field above and the button below, and the column stopped reading as a
+   column at all.
 
-   The form itself does not want the extra room -- a name field 640px wide is
-   still not a better name field, which is what the cap at the top of this file
-   is about. The game grid does: it is the one part of the screen that is a
-   grid of things to look at. So the column widens, everything that is a
-   control is held back to its old width, and the grid alone spends it. */
+   So nothing widens. The grid stays two across and the cards stay the size
+   they are on a phone; a desktop simply gets margins. */
 @media (min-width: 760px) {
   .app.setup {
-    max-width: 760px;
     gap: 18px;
-  }
-
-  /* Held to the phone's column and centred, so widening the page above did not
-     quietly stretch the name field with it. .games is the deliberate
-     exception; .seats is three digits and wants the narrow column too. */
-  .app.setup > *:not(.games),
-  .app.setup > .games.seats {
-    width: 100%;
-    max-width: 480px;
-    align-self: center;
-  }
-
-  /* Eight games in two rows of four, rather than four rows of two. */
-  .games {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-  }
-
-  /* The pieces grow with the cards. One number, because every size in the
-     motif block is a multiple of it. */
-  .art {
-    --m: 1.5px;
-  }
-
-  .game .name {
-    font-size: 1.15rem;
-    padding: 12px 13px 4px;
-  }
-  .game .meta {
-    padding: 0 13px 12px;
-  }
-}
-
-/* A desktop wide enough to stop the grid growing with it -- past this the
-   cards would be bigger than anything else on the page rather than better. */
-@media (min-width: 1180px) {
-  .app.setup {
-    max-width: 880px;
-  }
-  .art {
-    --m: 1.75px;
   }
 }
