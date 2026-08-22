@@ -486,8 +486,16 @@ input {
     0 0 0 2px var(--ink);
 }
 
-/* Where your counter would land. Interaction feedback, not decoration. */
-.ghost {
+/* Where your counter would land. Interaction feedback, not decoration.
+
+   Scoped to `.column`, and that matters: this was a bare `.ghost` in a
+   stylesheet every game shares, and Battleships names its placement preview
+   `.ghost` too. A square of sea therefore inherited `position: absolute` and
+   `inset: 0`, left the grid, stretched to the whole document and painted the
+   entire page red — and `pointer-events: none` meant you could not drop a ship
+   on the squares the preview was pointing at. A class this generic has to say
+   which board it belongs to. */
+.column .ghost {
   position: absolute;
   inset: 0;
   border-radius: 2px;
@@ -570,8 +578,12 @@ button {
 }
 /* Board columns are buttons too, but a column being unplayable says nothing
    about whether its counters should be legible — fading them washes out the
-   whole board on the opponent's turn and after the game ends. */
-button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key) {
+   whole board on the opponent's turn and after the game ends. The same goes
+   for a square of sea: half of Battleships' grid is deliberately inert, and
+   `.bs-cell:disabled { opacity: 1 }` further down lost to this rule on
+   specificity, so it never took effect. A playing surface belongs on this
+   list, not in a rule trying to argue with it. */
+button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key):not(.bs-cell) {
   opacity: 0.45;
   cursor: default;
 }
@@ -1853,10 +1865,23 @@ input:focus-visible {
 }
 
 /* A square of open water. Buttons, because every one of them is somewhere you
-   can fire — including for a keyboard, which walks them in reading order. */
+   can fire — including for a keyboard, which walks them in reading order.
+
+   Both minimums are reset, and that is the whole point of this rule. The
+   global 44px touch floor on `button` applies here too, and against
+   `aspect-ratio: 1` it won: every cell came out 44px square inside a 39px
+   column, so ten of them overlapped, buried the 3px gaps and painted each row
+   as one solid black bar. `min-width: 0` alone was not enough — the floor was
+   getting in through the height.
+
+   `width: 100%` then makes the width definite, so the aspect ratio only ever
+   derives the height from it. Nothing is left to be resolved from an
+   indefinite size, which is what kept this engine-dependent. */
 .bs-cell {
+  width: 100%;
   aspect-ratio: 1;
   min-width: 0;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 1px;
@@ -1864,8 +1889,11 @@ input:focus-visible {
 }
 .bs-cell:disabled {
   /* Water you cannot shoot at is still water: no dimming, because half this
-     grid is deliberately inert and a faded board would read as broken. */
+     grid is deliberately inert and a faded board would read as broken. Held
+     by the `:not(.bs-cell)` above; this states it locally as well so the
+     intent survives someone rewriting that selector. */
   opacity: 1;
+  cursor: default;
 }
 
 /* Your own ships, on your own sea. Never drawn on theirs — what shows there

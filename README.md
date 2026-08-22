@@ -536,6 +536,30 @@ Hover styles now sit behind `@media (hover: hover)`.
 Both were invisible in the accessibility tree and in every computed-style
 check. They were only found by looking at a screenshot of the running app.
 
+**A class name is global, and `.ghost` was taken.** Connect Four names its
+drop preview `.ghost` and styles it `position: absolute; inset: 0`. Battleships
+named its placement preview `.ghost` too — and this is one stylesheet, so a
+square of sea inherited the absolute positioning, left its grid, stretched to
+the size of the whole document and painted the entire page red at 55% opacity.
+`pointer-events: none` came with it, so the squares the preview was pointing at
+were also the squares you could not drop a ship on.
+
+The rule is scoped to `.column .ghost` now. A class generic enough that two
+games reach for it has to say which board it belongs to.
+
+**`aspect-ratio` loses to a `min-height` you forgot to reset.** The global 44px
+touch floor on `button` applies to board squares too. `.bs-cell` reset
+`min-width: 0` to escape it and did not reset `min-height`, so every square came
+out 44px tall — and `aspect-ratio: 1` then made it 44px *wide* inside a 39px
+grid column. Ten of them overlapped, buried the 3px gaps, and each row rendered
+as one solid black bar. The firing view was worse: 44px squares in 25px columns.
+
+Both of these were found by measuring `getBoundingClientRect()` against
+`grid-template-columns` on the running page. Checking that a move was accepted
+and no error banner appeared said nothing at all about it — the server was
+perfectly happy the whole time. When a report says a board "looks wrong",
+measure the boxes; do not re-verify the state machine.
+
 **"Wait for the other player" is not the same rule for every game.** The room
 turns every move away until each seat it laid out is taken, which is right for
 every game where a move is a turn — and wrong for Battleships, where setting
