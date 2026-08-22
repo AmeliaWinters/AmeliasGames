@@ -40,18 +40,47 @@ function targetOf(seat: number, from: Source, die: number): number | "off" {
   return landed >= 0 && landed < POINTS ? landed : "off";
 }
 
-function Checkers({ count, seat }: { count: number; seat: 0 | 1 }) {
+/** A checker you can pick up, and the one you have picked up. */
+type Mark = "live" | "chosen";
+
+function Checkers({ count, seat, mark }: { count: number; seat: 0 | 1; mark?: Mark }) {
   // Beyond five the stack is drawn tighter and the last one carries the count,
   // which is what a real board does when checkers pile up.
   const shown = Math.min(count, 5);
   return (
     <>
       {Array.from({ length: shown }, (_, i) => (
-        <span key={i} className={`checker s${seat}`}>
+        // Only the checker on top of the pile is marked. It is the one that
+        // would actually leave, and ringing all five of them says no more.
+        <span key={i} className={`checker s${seat}${mark && i === shown - 1 ? ` ${mark}` : ""}`}>
           {count > 5 && i === shown - 1 ? count : ""}
         </span>
       ))}
     </>
+  );
+}
+
+/**
+ * The outline marking a point the selected checker may land on.
+ *
+ * It traces the triangle rather than the column the triangle is drawn in: a
+ * rectangle round a point outlines mostly empty board, in a shape that is not
+ * the one being pointed at. Stroked rather than clipped a second time —
+ * insetting the clip-path narrows the line away to nothing towards the apex,
+ * where a non-scaling stroke holds an even two pixels however wide the board
+ * is drawn. The polygon is the `.triangle` clip-path in viewBox units, so the
+ * two are changed together.
+ */
+function PointOutline() {
+  return (
+    <svg
+      className="point-edge"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <polygon points="0,0 100,0 50,92" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -101,33 +130,47 @@ export function BackgammonBoard({ state, seat, myTurn, onMove }: Props) {
     const owner: 0 | 1 = value > 0 ? 0 : 1;
     const isTarget = targets.has(String(index));
     const isSource = sources.has(String(index));
+    // Only your own points are ever sources, so a mark never lands on an
+    // opposing checker. A die is at least one, so nothing is both a source
+    // you have picked up and somewhere that checker can land.
+    const mark: Mark | undefined = active === index ? "chosen" : isSource ? "live" : undefined;
+    const note =
+      mark === "chosen"
+        ? ", picked up"
+        : isTarget
+          ? ", can land here"
+          : mark === "live"
+            ? ", can move"
+            : "";
 
     return (
       <button
         key={index}
-        className={[
-          "point",
-          index % 2 === 0 ? "dark" : "light",
-          isTarget ? "target" : "",
-          active === index ? "chosen" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        className={`point ${index % 2 === 0 ? "dark" : "light"}`}
         onClick={() => choose(index)}
         disabled={!myTurn || (!isSource && !isTarget)}
         aria-label={
           count === 0
-            ? `Point ${index + 1}, empty`
-            : `Point ${index + 1}, ${count} ${owner === view ? "of your" : "opposing"} checkers`
+            ? `Point ${index + 1}, empty${note}`
+            : `Point ${index + 1}, ${count} ${owner === view ? "of your" : "opposing"} checkers${note}`
         }
       >
         <span className="triangle" aria-hidden="true" />
-        <span className="stack">{count > 0 && <Checkers count={count} seat={owner} />}</span>
+        {isTarget && <PointOutline />}
+        <span className="stack">
+          {count > 0 && <Checkers count={count} seat={owner} mark={mark} />}
+        </span>
       </button>
     );
   }
 
   const canBearOff = targets.has("off");
+  // The bar is not a triangle, so it says the same thing the points do in the
+  // only way it can: on the checker rather than on the box it sits in.
+  const barMark: Mark | undefined =
+    active === "bar" ? "chosen" : sources.has("bar") ? "live" : undefined;
+  const barNote =
+    barMark === "chosen" ? ", picked up" : barMark === "live" ? ", can come in" : "";
 
   return (
     <div className="bg">
@@ -139,16 +182,12 @@ export function BackgammonBoard({ state, seat, myTurn, onMove }: Props) {
         </div>
 
         <button
-          className={[
-            "bg-bar",
-            active === "bar" ? "chosen" : "",
-            sources.has("bar") ? "live" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
+          className="bg-bar"
           onClick={() => choose("bar")}
           disabled={!myTurn || !sources.has("bar")}
-          aria-label={`Bar: ${state.bar[0]} and ${state.bar[1]} checkers`}
+          // Seat-indexed counts told a listener nothing: which of the two is
+          // theirs is exactly what they cannot see.
+          aria-label={`Bar: ${state.bar[view]} of yours, ${state.bar[1 - view]} of theirs${barNote}`}
         >
           <span className="bar-stack top">
             {state.bar[view === 1 ? 0 : 1] > 0 && (
@@ -156,7 +195,9 @@ export function BackgammonBoard({ state, seat, myTurn, onMove }: Props) {
             )}
           </span>
           <span className="bar-stack bottom">
-            {state.bar[view] > 0 && <Checkers count={state.bar[view]} seat={view as 0 | 1} />}
+            {state.bar[view] > 0 && (
+              <Checkers count={state.bar[view]} seat={view as 0 | 1} mark={barMark} />
+            )}
           </span>
         </button>
 

@@ -759,13 +759,6 @@ input:focus-visible {
   justify-content: space-between;
   align-items: center;
 }
-.bg-bar.live {
-  border-color: var(--ink);
-}
-.bg-bar.chosen {
-  box-shadow: inset 0 0 0 2px var(--ink);
-}
-
 .bar-stack {
   display: flex;
   flex-direction: column;
@@ -808,12 +801,26 @@ input:focus-visible {
   clip-path: polygon(0 100%, 100% 100%, 50% 8%);
 }
 
-/* Where a selected checker may go, and which checker is selected. */
-.point.target {
-  box-shadow: inset 0 0 0 2px var(--live);
+/* Where a selected checker may land. The outline traces the triangle rather
+   than the column it is drawn in, so the shape that lights up is the shape
+   being looked at; its polygon is the clip-path above in viewBox units and
+   changes with it. Overflow stays visible so the stroke sits centred on the
+   edge instead of being shaved in half by the SVG viewport. */
+.point-edge {
+  position: absolute;
+  inset: 0;
+  /* An SVG is a replaced element, so `inset: 0` positions it but leaves it at
+     its intrinsic size -- it needs to be told to fill the point. */
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: var(--live);
+  stroke-width: 2;
+  stroke-linejoin: round;
 }
-.point.chosen {
-  box-shadow: inset 0 0 0 2px var(--ink);
+.bg-row.bottom .point-edge {
+  transform: scaleY(-1);
 }
 
 .stack {
@@ -853,6 +860,25 @@ input:focus-visible {
 }
 .bar-stack .checker {
   width: 82%;
+}
+
+/* A checker you can pick up, and the one you have. The ring goes round the
+   piece rather than round the point, so what lights up is the thing that
+   moves. It sits outside the disc rather than inside because green on an
+   ice-blue checker is a contrast of 1.07 and may as well not be drawn; on the
+   points behind it that is 4.9, or 2.7 at the worst of daylight -- the pairing
+   the landing outline has always been drawn in. Stacked checkers touch at a
+   single tangent, so a ring barely crosses its neighbour, but it is lifted all
+   the same or the next point along paints over the side of it. */
+.checker.live,
+.checker.chosen {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+.checker.chosen {
+  outline-color: var(--ink);
 }
 
 .bg-tray,
