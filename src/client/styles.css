@@ -48,12 +48,17 @@
      that is not carrying a hue. */
   --hull: #5d6b78;
 
-  /* The unlit piece in a card motif: an empty hole, an unplayed tile, a point
-     with nothing on it. The board-relative tokens above are all deliberately
-     close to --board, because on a real board something bright sits on top of
-     them. In a motif nothing does, so the shape has to carry itself -- this
-     clears 3:1 on --board in both palettes and is used as an edge, not a fill,
-     so an empty square still reads as empty. */
+  /* The unlit piece: an empty hole, an unplayed tile, a point with nothing on
+     it. The board-relative tokens above are all deliberately close to --board,
+     because on a real board something bright sits on top of them. Here nothing
+     does, so the shape has to carry itself -- this clears 3:1 on --board in
+     both palettes and is used as an edge, not a fill, so an empty square still
+     reads as empty.
+
+     Named for the card motifs, where it started, and since put to the same
+     work on a real board: the Morris board is line work drawn straight onto
+     --board with nothing over it either. Anything that has to be seen against
+     the board on its own takes this. */
   --motif-off: #7a7a86;
 
   --action: var(--accent);
@@ -157,6 +162,13 @@
 /* Word Hunt is the other word game, so it takes Word Duel's hue: the family
    is the point, and green already means letters here. */
 :root[data-game="wordhunt"] { --accent: var(--seat-2); }
+/* Morris joins Connect Four on ember. Underneath they are the same game --
+   three of yours in a row before three of theirs -- and ember was the one
+   channel still carrying a single game. */
+:root[data-game="morris"] { --accent: var(--seat-0); }
+/* Ultimate joins them, and for the same reason twice over: it is three in a
+   row about three in a row, and ember is the channel that already means it. */
+:root[data-game="ultimate"] { --accent: var(--seat-0); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
    A condensed signage face for every name, title, status line and button, and
@@ -288,6 +300,26 @@ input {
   color: var(--accent);
 }
 
+/* The brand, above the game's name — see `TopMark`. Small and quiet: it is
+   the half of the title the player already knows, and it is here to say where
+   they are rather than to be read again every turn. */
+.topbar h1 .brand {
+  font-size: 0.56em;
+  line-height: 1.1;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+/* Both lines clip on their own, since the button is a column now and an
+   ellipsis set on the column would never reach the text inside it. */
+.topbar h1 .brand,
+.topbar h1 .playing {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The wordmark is the way back to the start, so it is a real button — but it
    has to keep looking like the heading it sits in, not like a control. */
 .topbar h1 .home {
@@ -297,15 +329,27 @@ input {
   color: inherit;
   background: none;
   border: 0;
-  display: block;
+  /* A column, so the brand can sit above the game's name. Centred in the 44px
+     below, which both lines together still fit inside. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  text-align: left;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   /* Full-height target without pushing the bar taller than the label. */
   min-height: 44px;
-  padding: 0 6px;
-  margin-left: -6px;
+  /*
+    No side padding, and none to outdent. It was six pixels each way, with a
+    matching negative margin so the text still started at the page's edge — so
+    the padding bought nothing but hit area, and cost twelve pixels of the
+    name. That was the difference between WHEEL OF FORTUNE and WHEEL OF
+    FORTUN… on a 320px phone: the heading had 165px, the name wanted 160, and
+    the padding left it 153. A control that is already 44px tall and the width
+    of its own title is not short of somewhere to press.
+  */
+  padding: 0;
   cursor: pointer;
 }
 .room-meta {
@@ -755,11 +799,27 @@ button {
    whole board on the opponent's turn and after the game ends. The same goes
    for a square of sea: half of Battleships' grid is deliberately inert, and
    `.bs-cell:disabled { opacity: 1 }` further down lost to this rule on
-   specificity, so it never took effect. A playing surface belongs on this
-   list, not in a rule trying to argue with it. */
-button:disabled:not(.column):not(.point):not(.bg-bar):not(.wof-key):not(.bs-cell):not(.die-hold) {
-  opacity: 0.45;
+   specificity, so it never took effect.
+
+   This used to be said as a list of exclusions -- `:not(.column):not(.point)`
+   and so on, one clause per board, added by hand as each game arrived. Every
+   game that forgot to add itself shipped a washed-out board: Morris faded all
+   twenty-four points on the opponent's turn, Ultimate faded every square
+   outside the board in play, Word Hunt's own `opacity: 0.55` lost to those
+   seven clauses on specificity and never once applied, and Word Duel's
+   keyboard dimmed twice over -- 0.55 on the row and 0.45 on each key -- for
+   an effective quarter opacity.
+
+   So the list is inverted. A playing surface says what it is, once, on the
+   element: `.surface` marks anything whose job is to stay readable when you
+   cannot press it. Nothing has to remember to add game eleven, because game
+   eleven cannot draw a board without saying which parts of it are the board.
+   `css.test.ts` holds the two halves together. */
+button:disabled {
   cursor: default;
+}
+button:disabled:not(.surface) {
+  opacity: 0.45;
 }
 
 button.primary {
@@ -1339,6 +1399,23 @@ input:focus-visible {
   background: none;
   line-height: 0;
   cursor: pointer;
+  /*
+    The one a button gives that `aspect-ratio` cannot argue with, and the
+    reason a thrown die was not a cube.
+
+    `button` carries `min-height: 44px` — the touch floor the whole app is
+    held to — and a minimum beats an aspect ratio outright. So a die-slot 35px
+    wide came out 35 × 44, the cube inside it `inset: 0` of that, and its
+    faces still `translateZ`-ed by half of `--die`: an upright slab, 35 wide,
+    44 tall and 35 deep. It only showed on a phone. On a laptop `--die` is
+    comfortably over 44px, the minimum never bit, and the dice were square —
+    which is why this could sit in plain sight.
+
+    Nothing is lost by turning it off: `::before` below is the 44px, and it
+    has been since the tray was given room to throw in. `.bs-cell` learned the
+    same lesson; this is the other half of it.
+  */
+  min-height: 0;
 }
 .die-hold:disabled {
   cursor: default;
@@ -1414,7 +1491,11 @@ input:focus-visible {
   flex-wrap: wrap;
   align-content: center;
   justify-content: center;
-  gap: 5px 13px;
+  /* The gap between words has to beat the gap between letters by enough that
+     the eye groups them without counting: about a whole tile, against the 3px
+     inside a word. At 13px it was four letter-gaps and looked like five, and a
+     two-word answer read as one long word nobody could see the shape of. */
+  gap: 7px clamp(15px, 5.4vw, 28px);
   padding: 12px 10px;
   background: var(--board);
   /* Room for two rows, so a short puzzle and a long one sit in the same place
@@ -1555,12 +1636,14 @@ input:focus-visible {
   background: var(--surface);
 }
 
-/* The frame holds the pointer still while the disc turns underneath it. */
+/* A window onto the top of the wheel — see CROP in `WheelBoard.tsx`. The
+   wheel itself is drawn far bigger than this and mostly falls below the bottom
+   edge, which is what makes a wedge big enough to read. */
 .wof-wheel-frame {
   position: relative;
   width: 100%;
-  max-width: 240px;
-  aspect-ratio: 1;
+  max-width: 460px;
+  aspect-ratio: 220 / 92;
 }
 
 .wof-disc {
@@ -1581,8 +1664,17 @@ input:focus-visible {
    and threw it clean off the screen on the first spin. */
 .wof-disc > g {
   transform-box: view-box;
-  transform-origin: center;
-  transition: transform 2600ms cubic-bezier(0.16, 0.84, 0.24, 1);
+  /* The wheel's own middle, handed over by the board. `center` meant half the
+     box, which was the same point only while the box was square — the crop
+     made it a band, and half of that is a good way above the hub. */
+  transform-origin: var(--wof-centre) var(--wof-centre);
+  /* Eased across the whole spin rather than front-loaded into the first fifth
+     of it. The old curve was 45% of the way round by the first tenth of the
+     time and 99.7% by the last sixth, so the wheel snapped and then sat
+     apparently still for four hundred milliseconds — which is why a spin never
+     felt like one. This carries a visible eighth of a wedge into the final
+     stretch, so it slows, crawls, and stops. */
+  transition: transform var(--wof-spin, 2900ms) cubic-bezier(0.25, 0.6, 0.35, 1);
 }
 
 .wof-wedge {
@@ -1605,9 +1697,12 @@ input:focus-visible {
   fill: var(--alert);
 }
 
+/* In viewBox units, so this is a share of the wheel and not a size in pixels:
+   at the crop's scale it comes out around 20px on a phone, against about 12
+   when the whole disc had to fit the same width. */
 .wof-face {
   font-family: var(--body);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   fill: var(--ink);
@@ -1624,24 +1719,15 @@ input:focus-visible {
   stroke-linejoin: round;
 }
 
-.wof-hub {
-  fill: var(--surface);
-  stroke: var(--rule);
-  stroke-width: 1.5;
-}
-
 /* The pointer, at twelve o'clock. A notch rather than an arrow: it overlaps
-   the rim, so the wedge it is sitting on is unmistakable. */
+   the rim, so the wedge it is sitting on is unmistakable. Drawn inside the
+   wheel's own viewBox, so it keeps its place on the rim at every width.
+   The stroke is the ground, which is what lifts it off a dark wedge. */
 .wof-pointer {
-  position: absolute;
-  top: -2px;
-  left: 50%;
-  z-index: 1;
-  width: 14px;
-  height: 18px;
-  transform: translateX(-50%);
-  background: var(--accent);
-  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  fill: var(--accent);
+  stroke: var(--ground);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
 
 .wof-readout {
@@ -1822,6 +1908,8 @@ input:focus-visible {
 .game[data-game="battleship"] { --accent: var(--seat-1); }
 .game[data-game="liarsdice"] { --accent: var(--seat-3); }
 .game[data-game="wordhunt"] { --accent: var(--seat-2); }
+.game[data-game="morris"] { --accent: var(--seat-0); }
+.game[data-game="ultimate"] { --accent: var(--seat-0); }
 
 .game.picked {
   border-color: var(--accent);
@@ -1872,11 +1960,10 @@ input:focus-visible {
   color: var(--muted);
   padding: 0 11px 10px;
 }
-/* The channel colour, stated once per card along the bottom edge. */
-.game .stripe {
-  height: 3px;
-  background: var(--accent);
-}
+/* The channel colour used to be restated as a bar along the bottom edge. It
+   was saying nothing the card was not already saying -- the motif above is
+   drawn in the same accent, and a picked card outlines itself in it. A rail
+   under a card is decoration wearing the clothes of information. */
 
 /* ── Card motifs ───────────────────────────────────────────
    Built from each game's own pieces in CSS rather than drawn as artwork: the
@@ -2277,6 +2364,87 @@ input:focus-visible {
   box-shadow: none;
 }
 
+/* Three nested corners of a morris board and the spoke between them, with four
+   men standing on the points: the top-left of the board, enlarged until it
+   runs off the right edge, the bottom, and a little of the left.
+
+   The second motif that is not CSS, and the shape is the reason again. This is
+   line work with pieces sitting *on* the lines. CSS could draw three nested
+   boxes, but every man would then need a hand-written percentage to stand at,
+   which is a second set of coordinates for points the rules have already
+   placed. The SVG reads `pointXY` from the reducer's own geometry instead, so
+   a man is where the game says his point is.
+
+   The register entry is nested right angles -- the only card here with a drawn
+   board rather than a tiled one. */
+.art-morris svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.art-morris .line {
+  fill: none;
+  stroke: var(--motif-off);
+  stroke-width: 2;
+}
+/* A point with nobody on it. Small, because on this board that is a mark where
+   two lines cross rather than a slot waiting to be filled. */
+.art-morris .spot {
+  fill: var(--board);
+  stroke: var(--motif-off);
+  stroke-width: 2;
+}
+/* The ring of board colour is the gap a real man leaves around himself, and
+   here it also separates him from the line he is standing on: both seat
+   colours clear 3:1 against --board, and neither does against --motif-off in
+   both palettes. Backgammon's checkers are ringed for the same reason. */
+.art-morris .man circle {
+  stroke: var(--board);
+  stroke-width: 4;
+}
+.art-morris .man.s0 circle {
+  fill: var(--seat-0);
+}
+.art-morris .man.s1 circle {
+  fill: var(--seat-1);
+}
+/* Seat 1 carries a ring wherever it has a piece, so the board still reads for
+   anyone who cannot separate the two hues. */
+.art-morris .man.s1 .ring {
+  fill: none;
+  stroke: var(--ring);
+  stroke-width: 3;
+}
+
+/* Three of the nine boards, mid-game -- the middle band, cut off left, right,
+   top and bottom, so the game carries on past the card on every side.
+
+   Drawn in the board's own markup and the board's own CSS: .ut-small and
+   .ut-cell here are the same classes the table uses, so the crosses on the
+   card are cut the way the crosses on the table are and the hash rules are
+   the same gaps. Rule 4 asks for exactly this -- where the board has already
+   decided how something looks, copy the decision rather than inventing a
+   second one -- and the price is that a change to .ut-cell lands on this card
+   too. Everything below is the frame; none of it is a piece.
+
+   The position: crosses hold the left board on its left column, noughts the
+   right board on its middle row, and the centre board is still being fought
+   over. Seven marks each, so noughts have just moved. The other six boards
+   are off the card, which is where the rest of both hands is. */
+.art-ultimate {
+  /* Three boards of 74 across a well that measures 165 x 66 at phone size, and
+     a board taller than the well is high: the composition overflows on all
+     four edges, and the two outer boards are cut about two cells in. --m is a
+     length, so these are units, not pixels. */
+  grid-template-columns: repeat(3, calc(74 * var(--m)));
+  grid-auto-rows: calc(74 * var(--m));
+  gap: calc(3 * var(--m));
+  place-content: center;
+  /* The outer hash, which .art would otherwise paint --board. The cells paint
+     themselves back, so the colour survives only in the gaps. */
+  background: var(--motif-off);
+}
+
 /* ── Seat picker ───────────────────────────────────────────────────────
    Three single digits, which want a chip rather than a card: the card styles
    above are undone rather than worked around. */
@@ -2322,7 +2490,20 @@ input:focus-visible {
    them share a phone's width. */
 .wd-panels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /*
+    Two across at every width, and as many more as fit on anything wider.
+
+    The floor used to be a flat 140px, which quietly broke the promise above
+    it: two of those plus the 10px gap need 290px of panel row, and a 320px
+    phone has about 270px once the board's padding is off. `auto-fit` did
+    exactly what it was asked and dropped to one column — so on the narrowest
+    phones your grid and theirs stacked, and their progress went below the
+    fold, which is the one thing this layout exists to prevent.
+
+    `min()` gives the floor a ceiling: 140px where there is room for it, and
+    otherwise precisely half the row, which always fits two.
+  */
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 50% - 5px), 1fr));
   gap: 10px;
 }
 
@@ -3271,17 +3452,30 @@ input:focus-visible {
 
 /* ── Waiting room ──────────────────────────────────────────────────────
    Sharing the room is the only job on this screen, so the code stops being a
-   0.72rem button in the corner and becomes the thing you read out. The dashed
-   frame says "this is to be copied" without a second colour. */
+   0.72rem button in the corner and becomes the thing you read out -- and the
+   corner one goes away while it does, so the code is on screen once.
+
+   The frame used to be dashed, on the reasoning that dashes say "copy this".
+   They do not; they say "drop a file here", and a cut-out border around the
+   one solid thing on the screen made the code look provisional. It is a
+   button, so it is drawn like the other buttons: one hairline, one surface. */
 .bigcode {
   background: var(--surface);
-  border: 1px dashed var(--rule-hi);
+  border: 1px solid var(--rule-hi);
   border-radius: var(--board-radius);
   padding: 18px 12px;
   text-align: center;
   display: flex;
   flex-direction: column;
   gap: 5px;
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.bigcode:hover {
+  border-color: var(--ink);
 }
 
 .bigcode .label {
@@ -3289,6 +3483,15 @@ input:focus-visible {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* What pressing it does, said once and quietly. The code above already says
+   what this is; without this line the box is a control that never admits it. */
+.bigcode .act {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--muted);
 }
 
@@ -3560,4 +3763,417 @@ input:focus-visible {
   .app.setup {
     gap: 18px;
   }
+}
+
+
+/* ── Nine Men's Morris ──────────────────────────────────
+   A board that is drawn rather than tiled: twenty-four points on three nested
+   squares, and the lines between them are the rules made visible. Everything
+   here is positioned from `pointXY` in morrisDisplay.ts -- the geometry the
+   reducer itself uses -- so a road on the screen is a road a man may walk.
+
+   The men are buttons laid over one SVG of the lines, rather than each point
+   drawing its own: a point has two, three or four roads out of it, and
+   splitting those across twenty-four elements would be twenty-four chances to
+   draw a road that is not there. */
+.mm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mm-board {
+  position: relative;
+  /* Square, and the one board in the app that has to be: the three rings are
+     concentric, and a stretched board would put the men off their own lines. */
+  aspect-ratio: 1;
+  width: 100%;
+  background: var(--board);
+  border-radius: var(--board-radius);
+}
+
+.mm-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  /* The board's own line work, on the board with nothing over it -- which is
+     what --motif-off is for. --rule-hi, the brightest border in the app,
+     manages 1.6:1 here and would leave the board a blank slab. */
+  stroke: var(--motif-off);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* A point. The button is the touch target and stays a comfortable size at
+   every board width; the man inside it is smaller, because two neighbouring
+   points are only a seventh of the board apart and buttons that touch are
+   buttons pressed by mistake. */
+.mm-point {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 13.5%;
+  height: 13.5%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.mm-point:disabled {
+  cursor: default;
+}
+
+.mm-man {
+  width: 82%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+/* An empty point is a node on the line rather than a slot: small, and the
+   colour of the lines it belongs to. */
+.mm-point.empty .mm-man {
+  width: 30%;
+  background: var(--motif-off);
+}
+/* The men. Seat 0 is a plain disc and seat 1 carries a ring, as in every other
+   game here; the ring of board colour underneath is what lifts either of them
+   off the line they stand on. */
+.mm-point.p0 .mm-man {
+  background: var(--seat-0);
+  box-shadow:
+    0 0 0 3px var(--board),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18);
+}
+.mm-point.p1 .mm-man {
+  background: var(--seat-1);
+  box-shadow:
+    0 0 0 3px var(--board),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    inset 0 0 0 3px var(--ring);
+}
+
+/* Where the last man came from, and where he ended up. Marks rather than an
+   animation: this is a fact about the position, and the same board is already
+   using green and ink to say what happens next.
+
+   Both are drawn in --muted, which clears 4.6:1 on the board in both palettes
+   -- an empty point the size the ring needs is otherwise the four-pixel dot,
+   and --rule-hi, the brightest border in the app, manages 1.55:1 here.
+
+   These come first so the marks below can paint over them: last move is the
+   least of what a point might have to say. */
+.mm-point.vacated .mm-man {
+  width: 62%;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.mm-point.landed .mm-man {
+  outline: 1px dashed var(--muted);
+  outline-offset: 3px;
+}
+
+/* A man you can pick up, and the one you have picked up -- the same green and
+   the same ink, in the same order, as the checkers in Backgammon. The outline
+   sits outside the disc, in the ring of board colour: green on an ice-blue man
+   is a contrast of 1.07 and may as well not be drawn, where against --board it
+   is 8.9, or 3.8 at the worst of daylight. */
+.mm-point.live .mm-man,
+.mm-point.chosen .mm-man {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+.mm-point.chosen .mm-man {
+  outline-color: var(--ink);
+}
+/* Somewhere the man you are holding may go. The empty point grows into a
+   hollow ring rather than lighting up where it is: at 30% of a point it is
+   four pixels across, and four pixels is not an invitation. */
+.mm-point.target .mm-man {
+  width: 62%;
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--live);
+}
+/* A man your mill may take. Red, because this is the one press on the board
+   that removes something, and it is aimed at the other player's pieces. It
+   lands on the board ring for the same reason the green does -- red on an
+   ember man would be 1.0. */
+.mm-point.doomed .mm-man {
+  outline: 2px solid var(--alert);
+  outline-offset: 2px;
+}
+/* The mill just closed: the same ink ring Connect Four draws round a winning
+   line, and for the same reason -- it is the line that explains why the turn
+   has not moved on. */
+.mm-point.milled .mm-man {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.mm-point:focus-visible .mm-man {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Men still in hand, per player. Nine pips and a count: the pips are the
+   glanceable half and the count the exact one, which is the bargain the
+   Wheel's guesses-left row already makes. Once a hand is empty the row says
+   how many men are left on the board instead, because that is the same
+   question asked in the second half of the game. */
+.mm-hands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm-hand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-who {
+  font-family: var(--display);
+  color: var(--ink);
+  /* A name is anyone's to choose, so this is the part that gives. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.mm-count {
+  flex: none;
+}
+
+.mm-pips {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+
+.mm-pips .mm-pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--motif-off);
+}
+.mm-pips .mm-pip.held {
+  background: var(--ink);
+  box-shadow: none;
+}
+
+/* ── Ultimate Tic-Tac-Toe ──────────────────────────────
+   Nine boards inside a board, and both grids are drawn the same way: the
+   container is --motif-off and the cells are --board, so the colour shows
+   through only in the gaps. A gap falls between cells and never outside them,
+   which is exactly the four lines of a hash and not the five-sided box a
+   border would draw. Two gap widths, one nested inside the other, are the
+   whole of the board's line work.
+
+   --motif-off rather than --rule-hi for the same reason the Morris board uses
+   it: this is line work straight onto --board with nothing over it, and the
+   brightest border in the app manages 1.6:1 there. */
+.ut {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ut-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  /* Square, because nine square boards will not tile anything else. */
+  aspect-ratio: 1;
+  background: var(--motif-off);
+  border-radius: var(--board-radius);
+  /* The rounded corner would otherwise cut the corner boards, which are the
+     four the big board's lines run through. */
+  overflow: hidden;
+}
+
+.ut-small {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  /* The inner hash, drawn one pixel thinner than the outer one. The two have
+     to differ or the board reads as one nine-by-nine grid, which is a
+     different game entirely. */
+  background: var(--motif-off);
+}
+
+/* A board still in play that the mover may land in. One is an instruction and
+   eight are a permission, so they are drawn at two weights rather than one:
+   an inset ring for "you may", a full outline for "you must".
+
+   Inset, not an outline, on the weaker of the two -- an outline sits in the
+   3px gap between boards and two adjacent ones would touch. */
+.ut-small.target {
+  box-shadow: inset 0 0 0 1px var(--live);
+}
+.ut-small.target.only {
+  box-shadow: inset 0 0 0 3px var(--live);
+}
+
+/* A settled board keeps its marks: it is the record of how it was won, and one
+   big mark laid over nine small ones is two shapes in one colour on a board
+   the size of a phone. What changes is that the marks stop being live -- the
+   three that won it hold their seat colour and every other mark goes to the
+   line colour, which is the same "dead ground" a drawn board is drawn in.
+
+   A cross and a nought have to be deadened separately: one is two bars and the
+   other is a ring, and there is no property they share. */
+.ut-small.settled .ut-cell.m1:not(.line) .ut-mark {
+  box-shadow: inset 0 0 0 3px var(--motif-off);
+}
+.ut-small.settled .ut-cell.m0:not(.line) .ut-mark::before,
+.ut-small.settled .ut-cell.m0:not(.line) .ut-mark::after {
+  background: var(--motif-off);
+}
+
+/* One of the three boards that won the game: the ink ring Connect Four draws
+   round a winning line, on the scale this game wins at. */
+.ut-small.crowned {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
+/* A square. Buttons, because every one of them is somewhere a move can be
+   made, and a keyboard walks them in reading order.
+
+   Both minimums are reset, and that is the whole point of this rule -- the
+   same one the Battleships cell is written around. The global 44px touch floor
+   on `button` beats `aspect-ratio` once the column is narrower than 44px: at
+   375px the cells came out 44 square in a 44 column and looked right, and at
+   320px they came out 44 square in a 31 column, so nine of them overlapped and
+   buried both hashes. Measuring the wide case first produced a confident wrong
+   answer, which is the trap this file has already sprung twice.
+
+   `width: 100%` then makes the width definite, so the ratio only ever derives
+   the height from it and nothing is left to resolve from an indefinite size.
+
+   The floor is genuinely unreachable here: eighty-one squares across a 320px
+   phone is 31px each, and the alternative to a small square is not a big one
+   but a board that scrolls. */
+.ut-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--board);
+  cursor: pointer;
+}
+.ut-cell:disabled {
+  cursor: default;
+}
+.ut-cell:focus-visible {
+  outline: 2px solid var(--ink);
+  /* Inward, because a cell's neighbours are one pixel away and an outline that
+     grew would be drawn over the hash. */
+  outline-offset: -2px;
+}
+
+/* Where the last mark went. The same dashed --muted the Morris board uses to
+   say the same thing, and for the same reason: it is a fact about the
+   position, not something happening. */
+.ut-cell.landed {
+  outline: 1px dashed var(--muted);
+  outline-offset: -3px;
+}
+
+/* The two marks. Shape, not colour, is what tells the seats apart here --
+   which for once is the game's own doing rather than this project's, though
+   both want it. A cross is two bars; a nought is a ring. */
+.ut-mark {
+  position: relative;
+  width: 56%;
+  aspect-ratio: 1;
+}
+.ut-cell.m1 .ut-mark,
+.ut-mark.m1 {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px var(--seat-1);
+}
+.ut-cell.m0 .ut-mark::before,
+.ut-cell.m0 .ut-mark::after,
+.ut-mark.m0::before,
+.ut-mark.m0::after {
+  content: "";
+  position: absolute;
+  /* A bar a tenth of the cell high, run past the corners so the two cross at
+     full width rather than meeting short of them. */
+  inset: 45% -3%;
+  background: var(--seat-0);
+}
+.ut-cell.m0 .ut-mark::before,
+.ut-mark.m0::before {
+  transform: rotate(45deg);
+}
+.ut-cell.m0 .ut-mark::after,
+.ut-mark.m0::after {
+  transform: rotate(-45deg);
+}
+
+/* Boards won, per player, with the mark each is leaving on the board beside
+   the name -- which makes this the legend for everything above it as well as
+   the score. The count is the tiebreak if nobody manages three in a row, so it
+   is worth carrying all game rather than only at the end. */
+.ut-tally {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ut-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ut-side .ut-mark {
+  flex: none;
+  width: 13px;
+}
+
+.ut-who {
+  font-family: var(--display);
+  color: var(--ink);
+  /* A name is anyone's to choose, so this is the part that gives. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.ut-side.you .ut-who::after {
+  content: " (you)";
+  color: var(--muted);
+}
+
+.ut-count {
+  flex: none;
 }

@@ -169,11 +169,20 @@ export function DiceTray({
       if (slot) {
         const x = (body.x * k - size / 2).toFixed(2);
         const y = (body.y * k - size / 2).toFixed(2);
-        // Nearer the eye while it is off the table, which is the only thing
-        // that says a die passing over another is passing *over* it.
-        const lift = 1 + 0.11 * (body.air / P.AIRBORNE);
+        /*
+          Nearer the eye while it is off the table, which is the only thing
+          that says a die passing over another is passing *over* it.
+
+          scale3d, and the 3d is the whole of it: a plain `scale()` is
+          `scale3d(k, k, 1)`, so under `preserve-3d` it stretched the face
+          the player was reading while leaving the half-die `translateZ` that
+          gives the cube its depth exactly where it was. The die left the table
+          as a slab — eleven per cent wider and taller than it was deep, at the
+          one moment in the throw anybody is watching it.
+        */
+        const lift = (1 + 0.11 * (body.air / P.AIRBORNE)).toFixed(3);
         slot.style.transform =
-          "translate(" + x + "px," + y + "px) scale(" + lift.toFixed(3) + ")";
+          "translate(" + x + "px," + y + "px) scale3d(" + lift + "," + lift + "," + lift + ")";
       }
       const cube = cubes.current[i];
       if (cube) cube.style.transform = matrix3d(body.q);
@@ -357,7 +366,7 @@ export function DiceTray({
           <button
             key={i}
             type="button"
-            className={held?.[i] ? "die-slot die-hold held" : "die-slot die-hold"}
+            className={held?.[i] ? "die-slot die-hold surface held" : "die-slot die-hold surface"}
             data-die={i}
             disabled={flying || !keepable}
             aria-pressed={Boolean(held?.[i])}

@@ -28,6 +28,8 @@ export const GAME_MANIFEST = {
   battleship: { id: 'battleship', name: 'Battleships', minPlayers: 2, maxPlayers: 2 },
   yahtzee: { id: 'yahtzee', name: 'Yahtzee', minPlayers: 2, maxPlayers: 4 },
   wordhunt: { id: 'wordhunt', name: 'Word Hunt', minPlayers: 2, maxPlayers: 4 },
+  morris: { id: 'morris', name: "Nine Men's Morris", minPlayers: 2, maxPlayers: 2 },
+  ultimate: { id: 'ultimate', name: 'Ultimate Tic-Tac-Toe', minPlayers: 2, maxPlayers: 2 },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;

@@ -314,7 +314,7 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
               type="button"
               key={cell}
               data-cell={cell}
-              className={step === -1 ? "wh-cell" : "wh-cell picked"}
+              className={step === -1 ? "wh-cell surface" : "wh-cell surface picked"}
               disabled={!myMove}
               // The pointer path above handles the drag; this is the tap and
               // the keypress, which land as a click either way — except for

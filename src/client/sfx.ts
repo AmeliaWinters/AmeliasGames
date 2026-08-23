@@ -157,7 +157,7 @@ function moveCue(gameId: string): Cue | null {
  * The room, turned into sound.
  *
  * Everything here is read off `RoomView`, which is the same shape for all
- * eight games — so a new game gets the whole set (dealt, moved, your turn,
+ * nine games — so a new game gets the whole set (dealt, moved, your turn,
  * joined, over) without this file being touched, which is the same bargain
  * the server already makes.
  *

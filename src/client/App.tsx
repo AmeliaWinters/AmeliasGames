@@ -18,6 +18,13 @@ import type { YState } from "../shared/games/yahtzeeDisplay.js";
 import type { BsState } from "../shared/games/battleshipDisplay.js";
 import type { LdState } from "../shared/games/liarsDiceDisplay.js";
 import type { WhState } from "../shared/games/wordHuntDisplay.js";
+// Runtime, not type-only: the card motif and the board are drawn from the same
+// geometry as the rules. `morrisDisplay.js` imports nothing, so the reducer
+// does not follow it in — the same bargain wheelDisplay and battleshipDisplay
+// already make.
+import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
+import type { MmState } from "../shared/games/morrisDisplay.js";
+import type { UtState } from "../shared/games/ultimateDisplay.js";
 import { Connect4Board } from "./games/Connect4Board.js";
 import { BackgammonGame } from "./games/BackgammonBoard.js";
 import { WheelBoard } from "./games/WheelBoard.js";
@@ -26,6 +33,8 @@ import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
 import { BattleshipBoard } from "./games/BattleshipBoard.js";
 import { LiarsDiceBoard } from "./games/LiarsDiceBoard.js";
 import { WordHuntBoard } from "./games/WordHuntBoard.js";
+import { MorrisBoard } from "./games/MorrisBoard.js";
+import { UltimateBoard } from "./games/UltimateBoard.js";
 import { Die } from "./games/Die.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
@@ -65,6 +74,44 @@ function Wordmark({ name }: { name: string }) {
   );
 }
 
+/**
+ * What the top bar is called: the brand, and the game when a game is open.
+ *
+ * In a room this used to be the game's name *instead of* the brand, so the
+ * one screen a player spends the whole evening on never said what they were
+ * playing on. Both now, stacked — brand small above, game at full size below.
+ *
+ * Stacked rather than run together on one line, because inline the two of them
+ * compete for a phone's width against a room code and a sound button, and the
+ * brand wins by being first: "REBELLIA GAMES · WORD D…" says the half you
+ * already knew and cuts the half you are actually playing. Vertically they
+ * both fit inside the 44px the tap target reserves anyway, so the bar is no
+ * taller for having gained a line.
+ *
+ * The accent stays on the most specific thing on the bar, which is why it
+ * moves to the game's name as soon as there is one.
+ */
+function TopMark({ gameName }: { gameName?: string }) {
+  return (
+    <>
+      {gameName !== undefined && <span className="brand">Rebellia Games</span>}
+      <span className="playing">
+        <Wordmark name={gameName ?? "Rebellia Games"} />
+      </span>
+    </>
+  );
+}
+
+/**
+ * What the tab says before a room is open.
+ *
+ * Read off the document rather than written out again: `index.html` sets a
+ * title built for a search result, and a second copy of it here would be a
+ * second copy to keep in step. Captured at module load, which is before
+ * anything below has had a chance to change it.
+ */
+const LOBBY_TITLE = typeof document === "undefined" ? "" : document.title;
+
 /** N bare pieces, for the motifs the stylesheet lays out and colours itself. */
 function pieces(count: number) {
   return Array.from({ length: count }, (_, i) => <i key={i} />);
@@ -78,6 +125,26 @@ function pieces(count: number) {
  * there, rather than five letters that look like one.
  */
 const WORD_HUNT_TILES = ["C", "R", "A", "N", "S", "E", "T", "E"];
+
+/**
+ * The middle band of an Ultimate board, mid-game: boards 3, 4 and 5.
+ *
+ * Crosses have taken the left board on its left column and noughts the right
+ * board on its middle row; the centre board is still being fought over. Seven
+ * marks each, which is a position with noughts having just moved -- the other
+ * six boards are off the card, and they are where the rest of both hands is.
+ *
+ * A crop cannot show that every move was sent where the rules send it, because
+ * six of the nine boards are outside the frame. What it can show, and does, is
+ * that no board holds a line it has not been credited with and that the two
+ * counts are ones the turn order allows.
+ */
+type Mark = 0 | 1 | null;
+const ULTIMATE_MOTIF: Array<{ marks: Mark[]; won: 0 | 1 | null; line: number[] }> = [
+  { marks: [0, 1, null, 0, 1, null, 0, null, null], won: 0, line: [0, 3, 6] },
+  { marks: [1, null, 0, null, 0, null, null, null, 1], won: null, line: [] },
+  { marks: [0, null, null, 1, 1, 1, null, null, 0], won: 1, line: [3, 4, 5] },
+];
 
 /**
  * The top of the wheel, rising past the crop.
@@ -112,6 +179,76 @@ function WheelArc() {
 }
 
 /**
+ * The top-left corner of a morris board, enlarged until it runs off three
+ * edges of the well.
+ *
+ * The whole board is a square and the well is two and a half times wider than
+ * it is tall, so a board that fitted would be a postage stamp with nine
+ * invisible points along each side. A corner instead: three nested right
+ * angles and the spoke between them, which is a shape no other card here has
+ * and the one thing about this board people misremember — the corners have no
+ * spokes, only the midpoints of the edges do.
+ *
+ * Laid out against the 218 x 87 well at 34 units to a board unit, with the
+ * outer corner at (20, 18). Points come from `pointXY`, which is the reducer's
+ * own geometry, so the men stand exactly where the rules say the points are.
+ *
+ * The position: two men each in the corner being shown, no mill among them.
+ * The rest of both hands is off the card, which is the point of a crop.
+ */
+const MORRIS_UNIT = 34;
+/** Where board (0, 0) — the centre of the board — falls in the well. */
+const MORRIS_CENTRE = { x: 20 + 3 * MORRIS_UNIT, y: 18 + 3 * MORRIS_UNIT };
+
+function morrisAt(point: number): { cx: number; cy: number } {
+  const { x, y } = pointXY(point);
+  return { cx: MORRIS_CENTRE.x + x * MORRIS_UNIT, cy: MORRIS_CENTRE.y + y * MORRIS_UNIT };
+}
+
+function MorrisCorner() {
+  const men: Array<[number, 0 | 1]> = [
+    [pointAt(0, 0), 0],
+    [pointAt(1, 1), 0],
+    [pointAt(0, 1), 1],
+    [pointAt(1, 2), 1],
+  ];
+  const empty = [pointAt(0, 2), pointAt(1, 0), pointAt(2, 0), pointAt(2, 1)];
+  return (
+    <svg viewBox="0 0 218 87">
+      {[3, 2, 1].map((reach) => (
+        <rect
+          key={reach}
+          className="line"
+          x={MORRIS_CENTRE.x - reach * MORRIS_UNIT}
+          y={MORRIS_CENTRE.y - reach * MORRIS_UNIT}
+          width={reach * 2 * MORRIS_UNIT}
+          height={reach * 2 * MORRIS_UNIT}
+        />
+      ))}
+      {[1, 3, 5, 7].map((spot) => {
+        const from = morrisAt(pointAt(0, spot));
+        const to = morrisAt(pointAt(2, spot));
+        return (
+          <line key={spot} className="line" x1={from.cx} y1={from.cy} x2={to.cx} y2={to.cy} />
+        );
+      })}
+      {empty.map((point) => (
+        <circle key={point} className="spot" r={7} {...morrisAt(point)} />
+      ))}
+      {men.map(([point, seat]) => (
+        <g key={point} className={`man s${seat}`}>
+          {/* The ring of board colour is the gap a real man leaves around
+              himself, and it is also what separates him from the line he is
+              standing on. Backgammon's checkers carry the same one. */}
+          <circle r={13} {...morrisAt(point)} />
+          {seat === 1 && <circle className="ring" r={10} {...morrisAt(point)} />}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/**
  * The motif on a game's card: a crop of that game's own table, mid-play.
  *
  * Pieces rather than artwork, because the Android build ships offline with no
@@ -121,13 +258,14 @@ function WheelArc() {
  * of a game being played.
  *
  * Most of these are a count and nothing more, laid out and coloured by
- * nth-child in the stylesheet. Three are not: the Wheel needs arcs, which CSS
- * cannot cut without a gradient; Word Hunt needs its letters; and the two dice
- * games use the real `Die`, so their faces are the six the rest of the app
- * draws rather than a dot standing in for a pip.
+ * nth-child in the stylesheet. Four are not: the Wheel needs arcs, which CSS
+ * cannot cut without a gradient; Morris needs its points at coordinates the
+ * rules already hold; Word Hunt needs its letters; and the two dice games use
+ * the real `Die`, so their faces are the six the rest of the app draws rather
+ * than a dot standing in for a pip.
  *
- * The rules all eight follow, and the register of which game owns which shape,
- * are in `docs/card-motifs.md`. Read it before adding a ninth.
+ * The rules all nine follow, and the register of which game owns which shape,
+ * are in `docs/card-motifs.md`. Read it before adding a tenth.
  */
 function CardArt({ gameId }: { gameId: string }) {
   return (
@@ -192,11 +330,56 @@ function motif(gameId: string) {
       );
     case "wordhunt":
       return WORD_HUNT_TILES.map((letter, i) => <i key={i}>{letter}</i>);
+    // Three nested corners of the board and the spoke between them, with four
+    // men standing on the points. The second motif that is not CSS, for the
+    // same reason as the first: the shape is line work, and a stylesheet with
+    // no gradients in it cannot draw a square with men sitting on its edge
+    // without inventing a second set of coordinates for them.
+    case "morris":
+      return <MorrisCorner />;
+    // Three of the nine boards, in the board's own markup and the board's own
+    // CSS -- so the crosses on the card are cut the same way as the crosses on
+    // the table, and the hash rules are the same gaps. Reuse rather than a
+    // second drawing of the same shape, which is what rule 4 asks for; the
+    // cost is that .ut-* class names now appear inside .art, and a change to
+    // the board's cell lands here too.
+    case "ultimate":
+      return ULTIMATE_MOTIF.map(({ marks, won, line }, board) => (
+        <span key={board} className={`ut-small ${won === null ? "live" : `settled won${won}`}`}>
+          {marks.map((mark, spot) => (
+            <i
+              key={spot}
+              className={`ut-cell${mark === null ? " empty" : ` m${mark}`}${
+                line.includes(spot) ? " line" : ""
+              }`}
+            >
+              <span className="ut-mark" />
+            </i>
+          ))}
+        </span>
+      ));
     // A game the manifest knows and this file does not. An empty well reads as
     // a card with no picture, which is better than a card with a wrong one.
     default:
       return null;
   }
+}
+
+/**
+ * This page, addressed to a room — path, query, then the code.
+ *
+ * The order is the whole of it. Written as `#${code}${location.search}` the
+ * query lands *after* the hash, and everything after a hash is the fragment:
+ * a player who arrived at `?as=b` — or at a link a chat app had decorated
+ * with a tracking parameter, which is most links — got a fragment reading
+ * `ABCD?as=b`. Nothing broke on the spot, because the code had already been
+ * set in state. It broke on the next reload, where `codeFromHash` no longer
+ * recognised four letters, `hashIsBroken` did, and somebody sitting in a
+ * game was shown "that link doesn't look complete" and dropped at the setup
+ * screen.
+ */
+function roomUrl(code: string): string {
+  return `${location.pathname}${location.search}#${code}`;
 }
 
 function codeFromHash(): string | null {
@@ -337,6 +520,14 @@ export function App() {
   useChannel(room?.gameId ?? gameId);
   useTableSounds(room, seat, error);
 
+  // The tab, which is the other place the two names are read together — and
+  // the one `index.html` cannot write, because it can only ever say what was
+  // true before a room was opened.
+  const openGame = room?.gameName;
+  useEffect(() => {
+    document.title = openGame ? `Rebellia Games · ${openGame}` : LOBBY_TITLE;
+  }, [openGame]);
+
   // One way out of a room, shared by the wordmark and the recovery screens, so
   // the hash, the socket and the setup screen can never fall out of step.
   const goHome = () => {
@@ -345,6 +536,16 @@ export function App() {
     setCode(null);
     setCreate(false);
     setIntent("idle");
+  };
+
+  // Copying the invite is one behaviour with two faces: the code in the
+  // topbar, and -- while the room is still filling -- the big code that
+  // replaces it. Only ever one of them is on screen, and they must not drift
+  // apart, because the confirmation state is shared between them.
+  const copyInvite = (roomCode: string) => {
+    navigator.clipboard?.writeText(inviteUrl(roomCode));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
@@ -371,7 +572,7 @@ export function App() {
           setCreate(joinCode === null);
           setCode(target);
           setLinkProblem(false);
-          history.replaceState(null, "", `#${target}${location.search}`);
+          history.replaceState(null, "", roomUrl(target));
           setIntent("play");
         }}
       />
@@ -436,11 +637,15 @@ export function App() {
       <header className="topbar">
         <h1>
           <button type="button" className="home" onClick={goHome} title="Back to the start">
-            <Wordmark name={room?.gameName ?? "Rebellia Games"} />
+            <TopMark gameName={room?.gameName} />
           </button>
         </h1>
         <div className="room-meta">
-          {room && (
+          {/* Not while the room is still filling. Down there the code is the
+              whole screen -- the thing you read down a phone -- and the same
+              four letters twice on one screen reads as two different codes
+              for a moment before it reads as one. */}
+          {room && !room.waiting && (
             <button
               className="code"
               title="Copy the invite link"
@@ -451,11 +656,7 @@ export function App() {
                  text inside them, so speaking the label still matches what is
                  on screen. */
               aria-label={copied ? "Invite link copied" : `Copy the invite link, room ${room.code}`}
-              onClick={() => {
-                navigator.clipboard?.writeText(inviteUrl(room.code));
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
+              onClick={() => copyInvite(room.code)}
             >
               {copied ? "Copied" : room.code}
             </button>
@@ -535,10 +736,16 @@ export function App() {
 
       {room?.waiting && (
         <>
-          <div className="bigcode">
-            <span className="label">Room code</span>
+          {/* The code is the only job on this screen, so it is also the
+              control: the thing you read out is the thing you press to send.
+              It used to be a plain box sitting next to a copy button in the
+              corner, which made the code look like a label rather than the
+              one thing worth acting on. */}
+          <button type="button" className="bigcode" onClick={() => copyInvite(room.code)}>
+            <span className="label">{copied ? "Link copied" : "Room code"}</span>
             <span className="value">{room.code}</span>
-          </div>
+            <span className="act">Tap to copy the invite link</span>
+          </button>
           <p className="hint">
             Send the link, or read the code out. Whoever turns up gets a seat —
             up to {room.capacity} for {room.gameName}.
@@ -553,7 +760,14 @@ export function App() {
             <button className="primary" disabled={!room.canStart} onClick={startGame}>
               {room.canStart
                 ? `Start with ${room.players.length}`
-                : `Waiting for ${room.gameName}'s minimum`}
+                : /*
+                     Not "waiting for <game>'s minimum": two of the nine games
+                     are named with a possessive already, and "Nine Men's
+                     Morris's minimum" is a sentence nobody should have to
+                     read. The plain version says the same thing and says it
+                     the same way for every game.
+                  */
+                  "Waiting for more players"}
             </button>
           ) : (
             <p className="hint" aria-live="polite">
@@ -605,7 +819,6 @@ function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): vo
             onClick={() => onPick(game.id)}
           >
             <span className="name">{game.name}</span>
-            <span className="stripe" />
           </button>
         ))}
       </div>
@@ -703,6 +916,26 @@ function GameBoard({
       return (
         <LiarsDiceBoard
           state={room.state as LdState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          myTurn={myTurn}
+          onMove={sendMove}
+        />
+      );
+    case "morris":
+      return (
+        <MorrisBoard
+          state={room.state as MmState}
+          seat={seat}
+          names={room.players.map((p) => p.name)}
+          myTurn={myTurn}
+          onMove={sendMove}
+        />
+      );
+    case "ultimate":
+      return (
+        <UltimateBoard
+          state={room.state as UtState}
           seat={seat}
           names={room.players.map((p) => p.name)}
           myTurn={myTurn}
@@ -833,7 +1066,6 @@ function Setup({
             <CardArt gameId={game.id} />
             <span className="name">{game.name}</span>
             <span className="meta">{seatSummary(game)}</span>
-            <span className="stripe" />
           </label>
         ))}
       </fieldset>

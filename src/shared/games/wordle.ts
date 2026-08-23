@@ -306,7 +306,7 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
       guesses: Array.from({ length: count }, () => [] as Row[]),
       solvedIn: Array<number | null>(count).fill(null),
       // Nobody is on a clock yet, and nobody is until a word is cracked.
-      // There is no `start` here for the same reason: the room fills,
+      // There is no `start` here for the same reason: the room is dealt,
       // everyone picks a word, and the guessing runs untimed until the first
       // solve puts everyone else under the whistle.
       dueBy: Array<number | null>(count).fill(null),

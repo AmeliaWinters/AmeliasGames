@@ -4,6 +4,9 @@ dist-android/
 *.local
 .DS_Store
 
+# Contact sheets from scripts/render-throw.ts
+preview/
+
 # Built artefacts
 *.apk
 *.aab

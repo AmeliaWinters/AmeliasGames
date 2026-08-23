@@ -263,7 +263,14 @@ export function useRoom(opts: {
           setRoom(msg.room);
           createRef.current = false;
           if (location.hash.slice(1).toUpperCase() !== msg.room.code) {
-            history.replaceState(null, '', `#${msg.room.code}${location.search}`);
+            // Path and query first, code last. A query written after the hash
+            // is inside the fragment, not beside it — see `roomUrl` in
+            // `App.tsx` for what that cost.
+            history.replaceState(
+              null,
+              '',
+              `${location.pathname}${location.search}#${msg.room.code}`,
+            );
           }
         } else if (msg.t === 'room') {
           setRoom(msg.room);

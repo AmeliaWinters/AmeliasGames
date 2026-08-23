@@ -82,7 +82,7 @@ function Sea({
               type="button"
               role="gridcell"
               key={col}
-              className={`bs-cell ${cellClass(row, col)}`}
+              className={`bs-cell surface ${cellClass(row, col)}`}
               disabled={!playable(row, col)}
               aria-label={cellLabel(row, col)}
               onClick={() => onCell(row, col)}

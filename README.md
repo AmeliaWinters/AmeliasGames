@@ -338,6 +338,74 @@ word". A trace too short to be a word is dropped in silence rather than
 refused: it is nearly always a tap on the way to somewhere else, and an error
 for that is the app telling the player off for touching it.
 
+**Nine Men's Morris** — two players, no randomness, nine men each. Place them
+one at a time, then move them along the lines a point at a time; three of yours
+on one of the sixteen lines is a mill, and closing one takes an opposing man off
+the board for good. Down to two men, or out of moves, and you have lost.
+
+Five rules make it the game rather than a drawing of one, and each is a place
+implementations usually go wrong:
+
+- **The phases are per player, not per board.** You place while you have men in
+  hand and move once you have none — and the two do not change over on the same
+  turn, because seat 0 plays their ninth man a turn before seat 1 does. There
+  is no `phase` field for that reason; `hand` is the phase.
+- **Taking is a move of its own.** The mill leaves the turn where it is and
+  waits. It is a real decision — usually the sharpest one in the game — and a
+  client that chose for you would be choosing the thing you came to play.
+- **A man in a mill is safe, until every man they have is in one.** Without the
+  second half a player whose men were all milled could never be taken from
+  again, and the game would stall with two mills staring at each other.
+- **Three men fly.** A player down to their last three may jump to any empty
+  point instead of stepping to a neighbour. It is the standard mercy rule and
+  it is what keeps the end of a game a game: three men who can only shuffle are
+  walled in and beaten on the spot.
+- **A man may leave a mill and step back in**, closing it again and taking
+  another man. That is the rule as written, and it is exactly why the two draws
+  below exist.
+
+Two draws, because without them two stubborn players never finish: the same
+position for the third time, and fifty moves each with nobody taking a man.
+Both counters reset when a man comes off, since a take makes every earlier
+position unreachable — which is also what keeps the record of seen positions
+from growing all game.
+
+Losing is measured on men in hand *and* on the board. A player with two men out
+and five still to place is not beaten, and counting only the board is the bug
+that ends placing-phase games two moves early.
+
+**Ultimate Tic-Tac-Toe** — two players, no randomness, and one rule on top of
+a game everybody already knows. Nine small boards in a three by three grid.
+Play a square in the small board you were sent to; the square you pick — top
+left, centre, whichever — is the small board your opponent has to play in next.
+Win three small boards in a row and you win the game.
+
+That single sentence is the whole of it, and it is the reason this game is
+here: it explains in thirty seconds and does not run out of depth, because
+every move is two moves — the one you make and the one you hand over.
+
+Three variants exist and the code picks one of each, which is the part worth
+writing down:
+
+- **Sent to a board that is already settled, you play anywhere.** The
+  alternative rule needs a second sentence, and the second sentence is what
+  this game is trying not to have. The state says so directly: `sent` is
+  normalised to null on the way in when its target is spent, so the client's
+  only question is "somewhere, or anywhere?" rather than a rule it could get
+  wrong on its own.
+- **A small board that fills with no line in it counts for nobody.** Dead
+  ground. That is why a board's result is not a seat-or-null but a third thing
+  — `'drawn'` and `null` both mean "nobody owns this", and only one of them is
+  still worth playing in.
+- **All nine settled with no line is decided on boards won**, level being the
+  only draw. A game that goes the distance still ends with a result.
+
+A stalemate cannot happen, and it is worth seeing why: a settled board frees
+the mover to go anywhere, and a board that is not settled has an empty square
+in it by definition. So the only ways play stops are the three endings above —
+which is what the two hundred random games in `ultimate.test.ts` check, one
+ply at a time.
+
 ## The dice
 
 Backgammon and Yahtzee do not pick a number and draw it. They throw cubes into
@@ -434,7 +502,7 @@ Two things keep it from becoming noise:
   the preference is off, so a player who never turns it on never downloads a
   byte of this.
 - **One cue per moment.** `useTableSounds` reads `RoomView` — the same shape
-  for all eight games, so a new game gets dealt/moved/your-turn/joined/over
+  for all nine games, so a new game gets dealt/moved/your-turn/joined/over
   without touching the file — and it picks *either* "your turn" or the move
   sound, never both. A board with a better answer says so: Battleships maps to
   null and plays its own hit and miss, and then the generic rule stands down
@@ -530,8 +598,8 @@ mid-play — built from its pieces in CSS rather than drawn as artwork, because
 the Android build ships offline with no image assets and a disc grid says
 "Connect Four" more honestly than an illustration would. The rules they follow,
 and the register of which game owns which silhouette, are in
-[`docs/card-motifs.md`](docs/card-motifs.md). Read it before adding a ninth
-game, or the lobby drifts back towards eight variations on "coloured squares".
+[`docs/card-motifs.md`](docs/card-motifs.md). Read it before adding a tenth
+game, or the lobby drifts back towards nine variations on "coloured squares".
 
 ### Colour-blindness
 
@@ -739,16 +807,17 @@ of every handler. Load from storage, don't assume.
 
 ## Status
 
-All eight games are complete and tested end to end on both transports. Chess is
+All ten games are complete and tested end to end on both transports. Chess is
 the intended next game, as a pure-rules exercise; Wheel of Fortune has since
 taken Hearts' job of proving out `view()`, and Battleships is the second game
 to lean on it.
 
 Live at https://amelias-games.anonylunt.workers.dev and shipping as a
-sideloadable Android APK, with 224 tests — including forty full random games
+sideloadable Android APK, with 600 tests — including forty full random games
 of backgammon played to completion with checker-conservation checked on every
-move, and a hundred and twenty random Wheel of Fortune matches across tables
-of two, three and four.
+move, a hundred and twenty random Wheel of Fortune matches across tables of
+two, three and four, and two hundred games each of Nine Men's Morris and
+Ultimate Tic-Tac-Toe played out against the move list their own boards offer.
 
 Not done yet: no PWA manifest, so the browser version won't install to the home
 screen with its own icon (the APK covers that need for now). The app also uses

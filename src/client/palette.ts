@@ -79,6 +79,8 @@ export const CHANNELS: Record<string, true> = {
   yahtzee: true,
   liarsdice: true,
   wordhunt: true,
+  morris: true,
+  ultimate: true,
 };
 
 export function applyChannel(gameId: string | null): void {

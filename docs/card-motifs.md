@@ -1,10 +1,10 @@
 # Card motifs
 
-The picture on a game's card in the lobby. Eight of them, one per game, in
+The picture on a game's card in the lobby. Ten of them, one per game, in
 `.art` / `.art-{id}` — `CardArt` in `src/client/App.tsx` and the "Card motifs"
 block in `src/client/styles.css`.
 
-This document is the register. Read it before adding a ninth.
+This document is the register. Read it before adding an eleventh.
 
 ---
 
@@ -74,9 +74,17 @@ them. The measured table is at the foot of this page.
 | Wheel of Fortune | A radial arc | The only curve |
 | Word Duel | Rows of unlettered marks | Marks without letters; rows, not a square |
 | Word Hunt | A lettered grid with a traced path | The only letters |
+| Nine Men's Morris | Nested right angles with men on the lines | The only drawn board; the only right-angle line work |
+| Ultimate Tic-Tac-Toe | Crosses and noughts in a grid of grids | The only diagonal strokes; the only grid drawn inside another grid |
 | Battleships | A fine, dense grid with dot-misses | Cell density; the dot mark |
 | Yahtzee | Five dice, spaced and face-up on a tray | Face-up, tidy, tray |
 | Liar's Dice | Crowded dice, half of them face-down | Overlap and concealment, no tray |
+
+Ultimate is the fourth motif to be a grid and the reason the register exists.
+It is separated from all three of the others twice over: its marks are strokes
+rather than filled cells — the only diagonals on any card — and its grid is two
+grids, a thin hash inside a thick one, which no other board has. A crop of it
+showing only filled squares would be Word Duel.
 
 Word Duel, Word Hunt and Battleships are the three that used to collide. They
 are now separated on three axes at once — letters or none, rows or a square
@@ -126,9 +134,11 @@ Three of those lines are not optional:
 
 **Sizes are multiples of `--m`, never literals.** `--m` is a length, so
 `calc(30 * var(--m))` reads as "thirty units" and comes out as 30px at phone
-size. All eight motifs therefore rescale by changing one number rather than
-eight blocks. A literal `30px` in a motif is a bug even though it renders
-identically today.
+size. All nine motifs therefore rescale by changing one number rather than
+nine blocks. A literal `30px` in a motif is a bug even though it renders
+identically today. Morris is the exception that proves the rule: it is drawn in
+an SVG whose viewBox is the well's own 218 x 87, so its units *are* the same
+units, measured from the same box.
 
 The compositions are laid out against a 218 × 87 box. A well two and a half
 times wider than it is tall will not hold a square board, and no motif should
@@ -145,20 +155,40 @@ Seven motifs are CSS: bare `<i>` elements laid out and coloured by `nth-child`
 in the stylesheet, with `CardArt` emitting nothing but a count. Keep it that
 way. The count-plus-a-CSS-block contract is why these are cheap to change.
 
-One is SVG — Wheel of Fortune — and the shape is the whole reason. The CSS
-route to a pie slice is a `conic-gradient`, and there are no gradients in this
-stylesheet. An arc gets a path. It draws its wedges with `sectorPath` from
-`src/client/games/wheelGeometry.ts`, which the board imports too, so the lobby
-and the table cut their wedges the same way.
+Two are SVG, and in both cases the shape is the whole reason.
+
+**Wheel of Fortune.** The CSS route to a pie slice is a `conic-gradient`, and
+there are no gradients in this stylesheet. An arc gets a path. It draws its
+wedges with `sectorPath` from `src/client/games/wheelGeometry.ts`, which the
+board imports too, so the lobby and the table cut their wedges the same way.
+
+**Ultimate Tic-Tac-Toe.** Not a count, and not really its own drawing either:
+the card emits the board's own markup — `.ut-small`, `.ut-cell`, `.ut-mark` —
+and inherits the board's own CSS, so a cross on the card is cut by the same
+rule as a cross on the table and the hash rules are the same gaps. This is rule
+4 taken to its end: where the board has already decided how something looks,
+copy the decision rather than inventing a second one. The price is written into
+the hazards below — `.ut-*` class names now appear inside `.art`, and a change
+to a cell lands on the card too. It imports nothing from `src/shared/`, so
+`bundle.test.ts` is untroubled.
+
+**Nine Men's Morris.** Line work with pieces standing *on* the lines. CSS can
+draw three nested boxes easily enough, but every man would then need a
+hand-written percentage to stand at — a second set of coordinates for points
+the rules have already placed, and the first thing to drift when the board
+changes. The SVG reads `pointXY` from `morrisDisplay.ts`, the reducer's own
+geometry, so a man on the card is standing where the game says his point is.
+That module imports nothing, which is what keeps it on the right side of
+`bundle.test.ts`.
 
 Inside SVG, **fills come from classes, never from `fill="#…"` attributes** — a
 literal there would be the one colour in the app that could not follow the
 palette. This is how `WheelBoard` already draws itself.
 
-Three motifs need structure rather than a count, and that is the bar for
-leaving the count contract: the Wheel needs paths, Word Hunt needs its letters,
-and Yahtzee and Liar's Dice use the real `Die` component so their faces are the
-six the rest of the app draws. `Die` scales entirely off `--die` and is already
+Four motifs need structure rather than a count, and that is the bar for
+leaving the count contract: the Wheel needs paths, Morris needs points at
+coordinates, Word Hunt needs its letters, and Yahtzee and Liar's Dice use the
+real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
 in the main bundle — App.tsx imports every board statically — so reusing it
 costs nothing and replaced a fake pip that read as a small hole at thirteen
 units.
@@ -191,6 +221,14 @@ Recorded here so they stop being re-litigated at every review.
   sits about 1.2:1 from `--board` in both palettes and even `--rule-hi` only
   reaches 1.6:1, so an edge drawn the way the panels draw theirs would leave
   the tray a slab nobody can see.
+- **`--motif-off` is no longer only a motif colour.** The Morris board is line
+  work drawn straight onto `--board` with nothing over it — the same problem a
+  motif has, on a real table — so the board itself takes the token as well.
+  Its comment in `styles.css` says so; the name is historical.
+- **Morris's men are ringed in `--board`, like Backgammon's checkers**, and for
+  a second reason on top of that one: a man stands *on* a line, and both seat
+  colours sit within 2:1 of `--motif-off` in one palette or the other. The ring
+  is what separates the piece from the road it is standing on.
 
 ### The one measured compromise
 
@@ -201,7 +239,7 @@ else clears 3:1 in both palettes.
 
 ---
 
-## Adding a ninth game's motif
+## Adding the next game's motif
 
 1. **Claim a shape.** Check the register. If the silhouette you want is taken,
    either find another or make the case in this file for why two games can
@@ -214,11 +252,12 @@ else clears 3:1 in both palettes.
 4. **Lay it out against 218 × 87 in `--m` units**, sized so it overflows the
    well on at least two edges.
 5. **Add the case to `motif()` in `App.tsx`** — a count if it can be, structure
-   only if it must be — and an `.art-{id}` block in the "Card motifs" section
-   of `styles.css`.
+   only if it must be, the board's own classes if the board has already drawn
+   this shape — and an `.art-{id}` block in the "Card motifs" section of
+   `styles.css`.
 6. **Measure the contrast** of every shape against what is behind it, in both
    palettes. Not text contrast; 3:1 non-text.
-7. **Read it back as a position.** Then look at it next to the other eight and
+7. **Read it back as a position.** Then look at it next to the other nine and
    check it does not read as one of them.
 
 The accent stripe and the card frame are not part of this: the accent comes
@@ -245,6 +284,11 @@ from the channel map, and adding a game means adding it there too — see below.
   pieces are always direct children and a die's pips never are. **Any new
   descendant selector under `.art` must be checked against the board CSS it will
   now also match.**
+- **Ultimate's motif *is* the board.** It renders `.ut-small` / `.ut-cell` /
+  `.ut-mark` and takes its cross, its nought and its two hash gaps from the
+  Ultimate block at the foot of `styles.css`. Deliberate, and the sharpest form
+  of the hazard above: a change to a cell there changes the card. The
+  `.art-ultimate` block holds the frame and nothing else.
 - **Backgammon's motif and the board share two `clip-path` polygons.** They are
   the same shape in the same viewBox units as `PointOutline` in
   `BackgammonBoard.tsx`. If either changes, both do.
@@ -282,6 +326,13 @@ against each other.
 | Yahtzee tray edge / tray | 4.72 | **2.76** |
 | Word Hunt traced tile | 10.04 | 4.04 |
 | Word Hunt letter on trace | 11.83 | 5.24 |
+| Morris line / board | 3.91 | 3.33 |
+| Morris empty point / board | 3.91 | 3.33 |
+| Morris man / its ring of board | 5.37 / 8.29 | 3.78 / 3.65 |
+| Ultimate cross (`--seat-0`) | 5.37 | 3.78 |
+| Ultimate nought (`--seat-1`) | 8.29 | 3.65 |
+| Ultimate hash / board | 3.91 | 3.33 |
+| Ultimate dead mark / board | 3.91 | 3.33 |
 
 Backgammon checkers get a two-unit ring of `--board` because every seat colour
 sits within 2:1 of `--motif-off` in one palette or the other. A checker is on a

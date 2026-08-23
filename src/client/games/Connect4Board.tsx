@@ -19,7 +19,7 @@ export function Connect4Board({ state, myTurn, onDrop }: Props) {
         return (
           <button
             key={col}
-            className="column"
+            className="column surface"
             onClick={() => playable && onDrop(col)}
             disabled={!playable}
             aria-label={`Drop in column ${col + 1}${full ? " (full)" : ""}`}

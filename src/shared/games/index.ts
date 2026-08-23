@@ -8,6 +8,8 @@ import { liarsDice } from './liarsDice.js';
 import { battleship } from './battleship.js';
 import { yahtzee } from './yahtzee.js';
 import { wordHunt } from './wordHunt.js';
+import { morris } from './morris.js';
+import { ultimate } from './ultimate.js';
 
 /**
  * Adding a game means writing one reducer, listing it in `manifest.ts`, and
@@ -26,6 +28,8 @@ export const GAMES: Record<string, GameDefinition<any, any>> = {
   [battleship.id]: battleship,
   [yahtzee.id]: yahtzee,
   [wordHunt.id]: wordHunt,
+  [morris.id]: morris,
+  [ultimate.id]: ultimate,
 };
 
 export { DEFAULT_GAME_ID, GAME_MANIFEST, canSeat, clampSeats, gameEntry, gameList } from './manifest.js';

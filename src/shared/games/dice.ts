@@ -86,8 +86,16 @@ export const P = {
   STEP: 1 / 120,
   /** Substeps per frame, so a tab that stalled cannot spiral catching up. */
   MAX_STEPS: 8,
-  /** The table itself, per second, in tray widths. */
-  LIN_DAMP: 2.4,
+  /**
+   * The table itself, per second, in tray widths.
+   *
+   * Raised along with `THROW`, and the pair is the point. Damping alone
+   * decides how long a throw lasts; speed alone decides how much of the tray
+   * it crosses. Turning both up buys distance without buying time — the dice
+   * now cover twice the ground and strike the walls three times as often, and
+   * still come to rest inside the second they always did.
+   */
+  LIN_DAMP: 2.6,
   /** Higher than linear, or dice keep spinning after they stop travelling. */
   ANG_DAMP: 3.4,
   /** The tray is the hard thing in the room, so it bounces more than a die. */
@@ -102,14 +110,43 @@ export const P = {
   /** And it has to stay slow this long, or dice flicker awake on a nudge. */
   SLEEP_MS: 70,
   /** Damping quadruples here. A throw is a moment, not a cutscene. */
-  DEADLINE: 620,
+  DEADLINE: 660,
   /**
    * Everything sleeps regardless. The promise that a turn always ends — plus
    * `SQUARE_MS` for the last of the fall, which is not a throw carrying on.
    */
-  HARD_STOP: 1150,
+  HARD_STOP: 1200,
   /** Contacts softer than this are the solver settling, not dice landing. */
   QUIET: 4,
+  /**
+   * The least a throw is thrown at, in tray widths a second.
+   *
+   * A flick is measured from a finger, and a finger that moved slowly measures
+   * slowly. At the bottom of the range that put the dice down about a die and
+   * a half from where they picked up — a nudge the player had to be told was
+   * a throw. The floor is applied along whatever line the throw was aimed on,
+   * so aiming survives and half-heartedness does not; a flick already past it
+   * is left exactly as it was thrown, which is what keeps throwing hard worth
+   * doing.
+   *
+   * Deliberately under a third of `MAX_FLICK`, and under the die's own
+   * half-width per step: a die that moved further than half of itself between
+   * two steps could pass through a neighbour without the solver seeing it.
+   */
+  THROW: 4.2,
+  /**
+   * How wide the throw opens, in radians of arc across the whole handful.
+   *
+   * Scaling each die's speed was never enough on its own: five dice given the
+   * same direction and a fifth more or less of the same speed travel on
+   * parallel lines, arrive together and settle in a stripe. Dice leave a hand
+   * fanned, and the fan is most of what makes five of them read as five
+   * objects rather than one object drawn five times.
+   *
+   * It costs nothing in time — the dice are going just as fast, only not all
+   * the same way.
+   */
+  FAN: 1.4,
   /**
    * How long a thrown die is off the table, in milliseconds.
    *
@@ -901,19 +938,51 @@ export function open(opts: {
     } else thrown.push(body);
   });
 
-  // A tap has no direction of its own, so it is given one: across the tray
-  // rather than straight up it. A die thrown at the far wall bounces and
-  // settles somewhere different every time; one thrown straight parks against
-  // the same edge every time.
+  /*
+    A tap has no direction of its own, so it is given one: down the length of
+    the tray, away from whichever end the dice are already lying at.
+
+    Both halves of that are worth stating. **Down the length**, because the
+    tray is well over twice as wide as it is tall, and a throw aimed mostly up
+    it crosses the short way in a few frames and spends the rest of the throw
+    trapped against the top edge. **Away from where they are**, because a
+    throw is a traverse: dice picked up at one end and sent to the other cross
+    the whole tray, where dice sent at the nearest wall pile into the corner
+    they started beside. Drawn at random, half of all throws were that.
+
+    It reads the dice's positions and nothing else — never their orientation —
+    so the fairness argument at the top of this file still holds: every die in
+    the throw gets the same direction whichever of the 24 it started in.
+  */
   const tap = toss.x === 0 && toss.y === 0;
-  const fx = tap ? (rng() < 0.5 ? -1 : 1) * (0.56 + rng() * 0.5) * tray.w : toss.x * tray.w;
-  const fy = tap ? -0.78 * tray.w : toss.y * tray.w;
+  const mid = from.length ? from.reduce((sum, at) => sum + at.x, 0) / from.length : tray.w / 2;
+  // -1 with the dice against the left wall, +1 against the right, 0 in the
+  // middle. A lean and not a rule: decided outright, the direction is a
+  // function of where the last throw finished, so every throw is the mirror
+  // of the one before it and the dice end up on the same side every time.
+  // Leaning keeps the traverse and gives the table its memory back.
+  const lean = (mid - tray.w / 2) / (tray.w / 2);
+  const away = rng() < 0.5 - lean * 0.42 ? 1 : -1;
+  const ax = tap ? away * (0.9 + rng() * 0.24) : toss.x;
+  // A little across the tray as well, either way, so a throw does not run the
+  // same groove down the middle every time.
+  const ay = tap ? (rng() - 0.5) * 0.62 : toss.y;
+  // The direction is the player's, the effort is the table's — see `THROW`.
+  // A tap has no direction to keep, so it lands on the floor exactly.
+  const aim = Math.hypot(ax, ay) || 1;
+  const power = (Math.max(P.THROW, aim) / aim) * tray.w;
+  const fx = ax * power;
+  const fy = ay * power;
 
   for (const body of thrown) {
     body.air = P.AIRBORNE;
     // Jittered per die, or five of them travel as one block and never touch.
-    body.vx = fx * (0.82 + rng() * 0.36);
-    body.vy = fy * (0.82 + rng() * 0.36);
+    const fan = (rng() - 0.5) * P.FAN;
+    const cos = Math.cos(fan);
+    const sin = Math.sin(fan);
+    const push = 0.82 + rng() * 0.36;
+    body.vx = (fx * cos - fy * sin) * push;
+    body.vy = (fx * sin + fy * cos) * push;
     body.w = (rng() - 0.5) * 26 + (fx / tray.w) * 1.9;
   }
 

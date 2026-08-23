@@ -192,7 +192,7 @@ function Keyboard({
           {index === 2 && (
             <button
               type="button"
-              className="wd-key wide"
+              className="wd-key surface wide"
               disabled={disabled || !canSubmit}
               onClick={onEnter}
             >
@@ -205,7 +205,7 @@ function Keyboard({
               <button
                 type="button"
                 key={letter}
-                className={mark ? `wd-key ${mark}` : "wd-key"}
+                className={mark ? `wd-key surface ${mark}` : "wd-key surface"}
                 disabled={disabled}
                 onClick={() => onLetter(letter)}
                 // Untried letters say nothing extra: "K, not yet tried" on
@@ -219,7 +219,7 @@ function Keyboard({
           {index === 2 && (
             <button
               type="button"
-              className="wd-key wide"
+              className="wd-key surface wide"
               disabled={disabled}
               onClick={onBackspace}
               aria-label="Backspace"

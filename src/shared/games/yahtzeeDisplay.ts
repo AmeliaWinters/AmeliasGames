@@ -26,7 +26,7 @@ import type { Flick, Toss } from './toss.js';
  * that device draws it at. The stylesheet holds the same shape as an
  * `aspect-ratio`, and the board scales one to the other.
  */
-export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 10 };
+export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 7.5 };
 
 export const DICE = 5;
 export const FACES = 6;

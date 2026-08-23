@@ -15,6 +15,7 @@ import {
   type Tray,
 } from './dice.js';
 import type { Toss } from './toss.js';
+import { YAHTZEE_TRAY } from './yahtzeeDisplay.js';
 
 /**
  * The dice simulation decides what the dice say, and it runs in two places at
@@ -366,6 +367,91 @@ describe('throwing from the reducer', () => {
       const result = throwNext({ previous: null, flick, rng, tray: TRAY, count: 5 });
       expect(result.faces.every((f) => f >= 1 && f <= 6)).toBe(true);
     }
+  });
+});
+
+/**
+ * The throw has to *look* like a throw, and two things about that turned out
+ * to be measurable.
+ *
+ * Neither is a property of the maths — the simulation was correct, fair and
+ * terminating while failing both — so nothing else here was ever going to
+ * catch them. They are pinned down because they were each found by rendering a
+ * throw and looking at it (`npm run render:throw`), which is not something
+ * that happens on every change.
+ *
+ * The tray these run against is Yahtzee's real one, not this file's `TRAY`.
+ * The point is what ships.
+ */
+describe('a throw uses the tray it is thrown into', () => {
+  /** Two throws from a standing start, since the second begins where the first left off. */
+  function sequences(runs: number) {
+    const grids: number[] = [];
+    const ends: number[] = [];
+    const across = 20;
+    const down = 9;
+    for (let s = 1; s <= runs; s++) {
+      const seen = new Set<number>();
+      let from = row(YAHTZEE_TRAY, 5);
+      for (let t = 0; t < 2; t++) {
+        const t0: Toss = {
+          n: t + 1,
+          seed: (s * 2654435761 + t * 7919) % 0x1_0000_0000,
+          x: 0,
+          y: 0,
+          spin: [0, 5, 11, 17, 22],
+          from,
+          rest: from,
+        };
+        const world = open({ tray: YAHTZEE_TRAY, toss: t0, from });
+        let moving = 1;
+        let steps = 0;
+        while (moving > 0 && steps < 500) {
+          for (const b of world.bodies) {
+            const col = Math.min(across - 1, Math.max(0, Math.floor((b.x / YAHTZEE_TRAY.w) * across)));
+            const rowAt = Math.min(down - 1, Math.max(0, Math.floor((b.y / YAHTZEE_TRAY.h) * down)));
+            seen.add(rowAt * across + col);
+          }
+          moving = step(world, []);
+          steps++;
+        }
+        from = restOf(world);
+      }
+      grids.push(seen.size / (across * down));
+      ends.push(from.reduce((sum, at) => sum + at.x, 0) / from.length);
+    }
+    return { grids, ends };
+  }
+
+  it('crosses most of it rather than dying in the corner it started beside', () => {
+    /*
+      A tap aimed up a tray twice as wide as it is tall left two thirds of it
+      empty in every frame of every throw: the dice crossed the short way in
+      a few frames and spent the rest of the throw pinned against the top
+      edge. Aimed down the length instead, they traverse it.
+
+      The numbers, measured over six independent batches of forty: **0.554 to
+      0.578 as it stands, and 0.394 with the old aim** (holding everything
+      else — die size, damping, `THROW`, `FAN` — at today's values, so this
+      is the aim's contribution alone). 0.48 sits clear of both, which is the
+      only useful place for a floor: tight enough to fail the thing it was
+      written for, loose enough that ordinary retuning does not trip it.
+    */
+    const { grids } = sequences(40);
+    const mean = grids.reduce((a, b) => a + b, 0) / grids.length;
+    expect(mean).toBeGreaterThan(0.48);
+  });
+
+  it('does not leave the dice on the same side every time', () => {
+    // The throw leans away from whichever end the dice are lying at, which is
+    // what makes it a traverse. Decided outright rather than leaned, every
+    // throw became the mirror of the one before it and the dice came to rest
+    // on the same side of the tray a hundred times out of a hundred — correct,
+    // fair, and visibly mechanical.
+    const { ends } = sequences(40);
+    const right = ends.filter((x) => x > YAHTZEE_TRAY.w / 2).length / ends.length;
+    expect(right).toBeGreaterThan(0.2);
+    expect(right).toBeLessThan(0.8);
   });
 });
 

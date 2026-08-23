@@ -154,7 +154,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
     return (
       <button
         key={index}
-        className={`point ${index % 2 === 0 ? "dark" : "light"}`}
+        className={`point surface ${index % 2 === 0 ? "dark" : "light"}`}
         onClick={() => choose(index)}
         disabled={!myTurn || (!isSource && !isTarget)}
         aria-label={
@@ -190,7 +190,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
         </div>
 
         <button
-          className="bg-bar"
+          className="bg-bar surface"
           onClick={() => choose("bar")}
           disabled={!myTurn || !sources.has("bar")}
           // Seat-indexed counts told a listener nothing: which of the two is

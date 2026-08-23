@@ -88,6 +88,44 @@ export class Raster {
     );
   }
 
+  /**
+   * A filled convex polygon — the faces of a tumbling cube, and nothing else
+   * so far. Convex is the whole of the restriction: the distance is the
+   * furthest of the edge half-planes, which is exact for a convex shape and
+   * quietly wrong for a concave one.
+   *
+   * Winding-agnostic on purpose. The projected corners of a cube face reverse
+   * their winding as the die turns past edge-on, and a routine that only
+   * worked one way round would drop half the frames of a throw. The normals
+   * are flipped if the centroid comes out outside.
+   */
+  polygon(points, colour) {
+    if (points.length < 3) return;
+    const cx = points.reduce((s, p) => s + p[0], 0) / points.length;
+    const cy = points.reduce((s, p) => s + p[1], 0) / points.length;
+    const edges = points.map((a, i) => {
+      const b = points[(i + 1) % points.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      // The perpendicular; which side is "out" is settled below.
+      return { a, nx: (b[1] - a[1]) / len, ny: -(b[0] - a[0]) / len };
+    });
+    const at = (x, y) =>
+      edges.reduce((d, e) => Math.max(d, e.nx * (x - e.a[0]) + e.ny * (y - e.a[1])), -Infinity);
+    const flip = at(cx, cy) > 0 ? -1 : 1;
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    this.#shape(
+      Math.min(...xs) - 1,
+      Math.min(...ys) - 1,
+      Math.max(...xs) + 1,
+      Math.max(...ys) + 1,
+      colour,
+      (x, y) =>
+        flip *
+        edges.reduce((d, e) => Math.max(d, e.nx * (x - e.a[0]) + e.ny * (y - e.a[1])), -Infinity),
+    );
+  }
+
   roundedRect(x0, y0, w, h, radius, colour) {
     const r = Math.min(radius, w / 2, h / 2);
     this.#shape(x0 - 1, y0 - 1, x0 + w + 1, y0 + h + 1, colour, (x, y) => {

@@ -20,18 +20,38 @@ import { wantsStillness } from "../motion.js";
 import { sectorPath } from "./wheelGeometry.js";
 
 /**
- * How long the wheel takes to come to rest. Matched by the transition in
- * `styles.css` — the number lives in both because one is what the eye sees and
- * the other is when the value is allowed to appear, and they have to agree.
+ * How long the wheel takes to come to rest.
+ *
+ * Handed to the stylesheet as a custom property rather than written out in
+ * both places. The transition is what the eye sees and this is when the value
+ * is allowed to appear; they have to agree, and two numbers that have to agree
+ * eventually do not.
  */
-const SPIN_MS = 2600;
+const SPIN_MS = 2900;
 
 /** Whole turns the wheel makes before settling, so it reads as a throw. */
-const SPIN_TURNS = 4;
+const SPIN_TURNS = 5;
 
 /** Where a wedge's label sits, in the 220-unit box the wheel is drawn in. The
     rim itself is RADIUS, which comes from `wheelGeometry.ts`. */
 const LABEL_RADIUS = 74;
+
+/**
+ * How much of the wheel the table shows: the top of it, rising past a crop.
+ *
+ * A whole wheel in a phone's width is a wheel about 240px across, and at
+ * twenty-four wedges that is fifteen degrees of arc for a four-figure sum —
+ * so the numbers were small enough to be decoration, and a spin was a disc
+ * going blurry in the middle of the page. Cropped, the same wheel is drawn
+ * two and a half times bigger and the wedges stream past the pointer
+ * *sideways*, which is a thing you can read while it is moving.
+ *
+ * 92 of the 220-unit box, with the rim's top at y = 10: from the top of the
+ * wheel to a little past its widest point, which is about ten wedges in view.
+ * The lobby card has cut the same wheel this way since it was drawn — this is
+ * the table catching up with it.
+ */
+const CROP = 92;
 
 /**
  * Half the box, and so the centre of the wheel in the box's own coordinates.
@@ -84,7 +104,7 @@ function wedgeClass(index: number): string {
   const wedge = WHEEL[index];
   if (wedge.kind === "bankrupt") return "wof-wedge bankrupt";
   if (wedge.kind === "lose-turn") return "wof-wedge lose";
-  // Cash wedges alternate so twenty-one of them do not read as one disc.
+  // Cash wedges alternate so twenty-two of them do not read as one disc.
   return index % 2 === 0 ? "wof-wedge cash" : "wof-wedge cash alt";
 }
 
@@ -121,10 +141,19 @@ function Wheel({ state, spinning }: { state: WofState; spinning: boolean }) {
 
   return (
     <div className="wof-wheel-frame">
-      <span className="wof-pointer" aria-hidden="true" />
       <svg
         className={spinning ? "wof-disc spinning" : "wof-disc"}
-        viewBox={`0 0 ${CENTRE * 2} ${CENTRE * 2}`}
+        viewBox={`0 0 ${CENTRE * 2} ${CROP}`}
+        /* Both numbers the stylesheet needs and cannot know: how long a spin
+           lasts, and where the wheel's middle is. The pivot used to be
+           `center`, which meant half the box — true only while the box was
+           square, and it stopped being square the moment it was cropped. */
+        style={
+          {
+            "--wof-spin": `${SPIN_MS}ms`,
+            "--wof-centre": `${CENTRE}px`,
+          } as React.CSSProperties
+        }
         // The wheel is decoration for a fact stated in words below it and in
         // the note line above it, so there is nothing here to announce twice.
         aria-hidden="true"
@@ -161,7 +190,11 @@ function Wheel({ state, spinning }: { state: WofState; spinning: boolean }) {
             ))}
           </g>
         </g>
-        <circle className="wof-hub" cx={CENTRE} cy={CENTRE} r="12" />
+        {/* Drawn inside the wheel's own box rather than floated over it, so it
+            sits on the rim at every width without a percentage anybody has to
+            keep in step with the crop. The hub went with the crop: it is a
+            full radius below the bottom edge and could never be seen. */}
+        <path className="wof-pointer" d="M 110 27 L 99 3 L 121 3 Z" />
       </svg>
     </div>
   );
@@ -390,7 +423,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
               return (
                 <button
                   key={letter}
-                  className={spent ? "wof-key spent" : "wof-key"}
+                  className={spent ? "wof-key surface spent" : "wof-key surface"}
                   disabled={!usable}
                   onClick={() => onMove({ type: "letter", letter })}
                   aria-label={

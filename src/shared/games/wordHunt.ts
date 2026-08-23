@@ -67,9 +67,10 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *    again until it holds enough words to be worth playing.
  *
  * 4. **The round is two minutes long**, and the server's clock is the only one
- *    that counts. `start` stamps `endsAt` when the room fills — not at setup,
- *    or the round would tick away while the second player was still opening
- *    the link. `found` refuses anything arriving after it, and `expire`
+ *    that counts. `start` stamps `endsAt` on the room's first tick after the
+ *    deal, not inside `setup` — the two happen a moment apart, and the clock
+ *    belongs to the one the room controls. `found` refuses anything arriving
+ *    after it, and `expire`
  *    settles the game when it passes, which the room calls off a timer so the
  *    hunt ends on time even with nobody watching. A client counting down is
  *    showing the player a number, not deciding anything.
@@ -325,7 +326,7 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
       grid: makeGrid(rng),
       found: Array.from({ length: playerCount }, () => []),
       done: Array(playerCount).fill(false),
-      // Unset: the room starts the clock when the last seat is taken.
+      // Unset: the room stamps it on the tick that follows the deal.
       endsAt: null,
       solutions: [],
       winner: null,
@@ -334,8 +335,9 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
   },
 
   /**
-   * The whistle. Idempotent, because a player reconnecting fills the room
-   * again and that must not buy everybody another two minutes.
+   * The whistle. Idempotent, because `tick` runs on every message the room
+   * handles and only the first of them may set the clock — otherwise every
+   * word anybody found would buy the table another two minutes.
    */
   start(state, now) {
     if (state.phase !== 'play' || state.endsAt !== null) return null;

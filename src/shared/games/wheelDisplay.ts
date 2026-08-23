@@ -56,10 +56,21 @@ export type Wedge =
 const cash = (value: number): Wedge => ({ kind: 'cash', value });
 
 /**
- * Twenty-four wedges in wheel order: twenty-one cash, two Bankrupt and one
+ * Twenty-four wedges in wheel order: twenty-two cash, one Bankrupt and one
  * Lose a Turn. The order is kept rather than sorted because it is a wheel, and
  * a wheel has an order — one the board now draws, so this is the layout of the
  * thing on screen as well as the odds behind it.
+ *
+ * **Why one Bankrupt and not the show's two.** The odds on a wedge are not the
+ * odds a player feels; what they feel is how often a turn ends badly, and that
+ * depends on how often they spin. On the show a turn is usually one spin. Here
+ * `FINDS_PER_TURN` is three, so a good turn is three spins — and two Bankrupts
+ * in twenty-four took very nearly a quarter of all turns to nothing
+ * (1 - (22/24)³ = 23%). One takes an eighth, which is frightening without
+ * being the thing the game is mostly about.
+ *
+ * Lose a Turn is left alone: it costs the turn, not the money, so meeting it
+ * three times as often as the show does is a smaller unfairness.
  */
 export const WHEEL: readonly Wedge[] = [
   cash(900),
@@ -84,7 +95,7 @@ export const WHEEL: readonly Wedge[] = [
   cash(700),
   cash(300),
   cash(600),
-  { kind: 'bankrupt' },
+  cash(650),
   { kind: 'lose-turn' },
 ];
 

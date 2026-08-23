@@ -27,7 +27,7 @@ export const CHECKERS = 15;
  * device draws it at. Shallower than Yahtzee's and with a bigger die — two
  * dice in a tray sized for five read as two dice that got lost.
  */
-export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 12 };
+export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 8 };
 
 /**
  * The dice on the table, and what is left of them.
