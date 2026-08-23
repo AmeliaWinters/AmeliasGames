@@ -39,6 +39,8 @@ const CONTROLS = new Set([
   'ld-wide',
   'wh-take',
   'wh-clear',
+  'lp-take',
+  'lp-clear',
   'wd-input',
   'wd-submit',
   'yz-pick',

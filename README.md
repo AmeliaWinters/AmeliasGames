@@ -432,6 +432,70 @@ in it by definition. So the only ways play stops are the three endings above —
 which is what the two hundred random games in `ultimate.test.ts` check, one
 ply at a time.
 
+**Letterpress** — two players, one 5x5 grid of letters, no clock and no
+randomness after the deal. Spell a word from any tiles anywhere on the grid —
+adjacency does not exist here — and every tile you used turns your colour,
+including tiles your opponent had already taken. The grid fills up; most tiles
+wins.
+
+The one defence is the whole game. A tile with every orthogonal neighbour held
+by its own owner is **locked**: it still spells, but it cannot be taken. "All
+four sides" means all the sides it has, so a corner locks on two and an edge on
+three — which is why corners are worth taking early, and why a wall along an
+edge is a structure rather than a decoration.
+
+Three consequences, and they are what make this a positional game wearing a
+word game's clothes:
+
+- **The best word is often not the best move.** An eight-letter word that takes
+  six tiles you already hold has done nothing. The board shows what a word
+  takes before you play it, because that is the number the decision is made on.
+- **Nothing is banked.** A player twenty tiles up can lose on the last one, so a
+  comeback stays live until the grid fills. The reducer's own test plays that
+  position out: a leader who spent a turn taking a fourteenth tile instead of
+  locking their bottom row, and lost the game to one four-letter word.
+- **Every tile is judged before any tile turns.** Otherwise the *order of the
+  letters within a word* would decide what the word took — claim a tile beside
+  a locked one and the lock breaks, so the sixth letter could unlock the
+  seventh. `claim()` in `letterpressDisplay.ts` reads the whole board first and
+  only then writes, which is what makes "a surrounded tile is safe" true for
+  the whole of a turn rather than for part of one.
+
+A word is spent once anybody has played it, and so is every word that starts
+with it: CAT played means CATS and CATTLE are gone too. That second half is not
+fussiness — without it the endgame becomes PIN, PINS, PINE, PINES, one stem
+farmed for a dozen turns while the board barely moves. It does not run the
+other way, because CAT after CATS takes different tiles and is not the same
+trick twice.
+
+There is also a **pass**, which Letterpress as usually written does not have.
+It is here because without it two players who between them cannot find a word
+on the tiles that are left sit in a room that never ends, and "rare" is not a
+plan. It takes both of you in a row, which is what stops it being a way to bank
+a lead: a player who is ahead can offer to stop, and the one who is behind
+simply plays on.
+
+The grid is dealt rather than drawn. One seven- or eight-letter word is planted
+first — twenty-five random tiles will spell plenty of five-letter words, but the
+long word that takes a defended corner apart in a single turn is not guaranteed
+by any letter distribution — then the rest comes from a vowel-leaning bag, with
+the vowel count dragged into range if the bag misbehaves. The result is measured
+and redealt if it is thin. Forty measured deals ran from 766 long words to
+26,429, so the floor of 400 is a guard against the deal that goes wrong rather
+than a target.
+
+`letterpressDisplay.ts` exists for the reason `wordHuntDisplay.ts` does: the
+board has to draw which tiles are locked, count what a word would take, and
+refuse a replayed word before sending it, and routing that through the reducer
+would put the whole dictionary on every phone that opens the lobby.
+`bundle.test.ts` holds that line. Nothing is hidden — there is no `view()` —
+because the grid, the ownership and the list of words played are the same
+information for both players, and the game is what you can see in them.
+
+The board is tap-only. Word Hunt needs a drag because its letters have to
+touch and the gesture *is* the rule; here they do not, so a drag would be a
+worse way of doing what a tap already does.
+
 ## The dice
 
 Backgammon and Yahtzee do not pick a number and draw it. They throw cubes into
@@ -528,7 +592,7 @@ Two things keep it from becoming noise:
   the preference is off, so a player who never turns it on never downloads a
   byte of this.
 - **One cue per moment.** `useTableSounds` reads `RoomView` — the same shape
-  for all nine games, so a new game gets dealt/moved/your-turn/joined/over
+  for all eleven games, so a new game gets dealt/moved/your-turn/joined/over
   without touching the file — and it picks *either* "your turn" or the move
   sound, never both. A board with a better answer says so: Battleships maps to
   null and plays its own hit and miss, and then the generic rule stands down
@@ -546,8 +610,9 @@ Two things keep it from becoming noise:
 3. Write its tests. Do this before touching any UI — it's the cheap place to
    get rules right.
 4. Register it in `src/shared/games/index.ts`.
-5. Add a case to `GameBoard` in `App.tsx` and a board component in
-   `src/client/games/`.
+5. Write a board component in `src/client/games/` and add it to `boards.ts` —
+   the `BOARDS` table plus a line in each of `GameStates` and `GameMoves`, so
+   the compiler is the thing checking that the board and the state match.
 6. Give it a channel colour in all three places that hold the map — the two
    `[data-game=…]` blocks in `styles.css` and `CHANNELS` in `palette.ts`.
 7. Draw its card motif, against [`docs/card-motifs.md`](docs/card-motifs.md).
@@ -624,8 +689,8 @@ mid-play — built from its pieces in CSS rather than drawn as artwork, because
 the Android build ships offline with no image assets and a disc grid says
 "Connect Four" more honestly than an illustration would. The rules they follow,
 and the register of which game owns which silhouette, are in
-[`docs/card-motifs.md`](docs/card-motifs.md). Read it before adding a tenth
-game, or the lobby drifts back towards nine variations on "coloured squares".
+[`docs/card-motifs.md`](docs/card-motifs.md). Read it before adding a twelfth
+game, or the lobby drifts back towards eleven variations on "coloured squares".
 
 ### Colour-blindness
 
@@ -833,17 +898,19 @@ of every handler. Load from storage, don't assume.
 
 ## Status
 
-All ten games are complete and tested end to end on both transports. Chess is
+All eleven games are complete and tested end to end on both transports. Chess is
 the intended next game, as a pure-rules exercise; Wheel of Fortune has since
 taken Hearts' job of proving out `view()`, and Battleships is the second game
 to lean on it.
 
 Live at https://amelias-games.anonylunt.workers.dev and shipping as a
-sideloadable Android APK, with 600 tests — including forty full random games
+sideloadable Android APK, with 700 tests — including forty full random games
 of backgammon played to completion with checker-conservation checked on every
 move, a hundred and twenty random Wheel of Fortune matches across tables of
-two, three and four, and two hundred games each of Nine Men's Morris and
-Ultimate Tic-Tac-Toe played out against the move list their own boards offer.
+two, three and four, and two hundred games each of Nine Men's Morris,
+Ultimate Tic-Tac-Toe and Letterpress played out against the move list their own
+boards offer — Letterpress's checking on every ply that no locked tile ever
+changed hands.
 
 Not done yet: no PWA manifest, so the browser version won't install to the home
 screen with its own icon (the APK covers that need for now). The app also uses

@@ -110,6 +110,21 @@ function pieces(count: number) {
 const WORD_HUNT_TILES = ["C", "R", "A", "N", "S", "E", "T", "E"];
 
 /**
+ * The top two rows of a Letterpress board, mid-game.
+ *
+ * Scrambled on purpose, unlike Word Hunt's row above. Adjacency means nothing
+ * in this game -- a word is built from any tiles anywhere -- so letters lying
+ * in a row that spelled something would be advertising a rule it does not
+ * have. Which tile belongs to whom, and which one is locked, is in the
+ * `.art-letterpress` block; the position it shows is written down there too.
+ */
+const LETTERPRESS_TILES = [
+  "E", "K", "R", "A", "O",
+  "T", "N", "I", "S", "H",
+  "W", "E", "D", "L", "U",
+];
+
+/**
  * The middle band of an Ultimate board, mid-game: boards 3, 4 and 5.
  *
  * Crosses have taken the left board on its left column and noughts the right
@@ -243,12 +258,12 @@ function MorrisCorner() {
  * Most of these are a count and nothing more, laid out and coloured by
  * nth-child in the stylesheet. Four are not: the Wheel needs arcs, which CSS
  * cannot cut without a gradient; Morris needs its points at coordinates the
- * rules already hold; Word Hunt needs its letters; and the two dice games use
- * the real `Die`, so their faces are the six the rest of the app draws rather
- * than a dot standing in for a pip.
+ * rules already hold; the two lettered grids need their letters; and the two
+ * dice games use the real `Die`, so their faces are the six the rest of the
+ * app draws rather than a dot standing in for a pip.
  *
- * The rules all nine follow, and the register of which game owns which shape,
- * are in `docs/card-motifs.md`. Read it before adding a tenth.
+ * The rules all eleven follow, and the register of which game owns which
+ * shape, are in `docs/card-motifs.md`. Read it before adding a twelfth.
  */
 function CardArt({ gameId }: { gameId: string }) {
   return (
@@ -313,6 +328,13 @@ function motif(gameId: string) {
       );
     case "wordhunt":
       return WORD_HUNT_TILES.map((letter, i) => <i key={i}>{letter}</i>);
+    // Fifteen tiles of a twenty-five-tile board, five across, with the third
+    // row all but off the bottom: ice holds six, ember five, four are still
+    // unclaimed. The K is surrounded on all three sides it has and is locked,
+    // which is the game's one rule and the only square-cornered tile in the
+    // lobby.
+    case "letterpress":
+      return LETTERPRESS_TILES.map((letter, i) => <i key={i}>{letter}</i>);
     // Three nested corners of the board and the spoke between them, with four
     // men standing on the points. The second motif that is not CSS, for the
     // same reason as the first: the shape is line work, and a stylesheet with

@@ -1,10 +1,10 @@
 # Card motifs
 
-The picture on a game's card in the lobby. Ten of them, one per game, in
+The picture on a game's card in the lobby. Eleven of them, one per game, in
 `.art` / `.art-{id}` — `CardArt` in `src/client/App.tsx` and the "Card motifs"
 block in `src/client/styles.css`.
 
-This document is the register. Read it before adding an eleventh.
+This document is the register. Read it before adding a twelfth.
 
 ---
 
@@ -73,12 +73,13 @@ them. The measured table is at the foot of this page.
 | Backgammon | Opposed triangles across a bar | The only triangles; the only bar |
 | Wheel of Fortune | A radial arc | The only curve |
 | Word Duel | Rows of unlettered marks | Marks without letters; rows, not a square |
-| Word Hunt | A lettered grid with a traced path | The only letters |
+| Word Hunt | A lettered grid with a traced path | Four columns; one colour, on a grid mostly unclaimed |
 | Nine Men's Morris | Nested right angles with men on the lines | The only drawn board; the only right-angle line work |
 | Ultimate Tic-Tac-Toe | Crosses and noughts in a grid of grids | The only diagonal strokes; the only grid drawn inside another grid |
 | Battleships | A fine, dense grid with dot-misses | Cell density; the dot mark |
 | Yahtzee | Five dice, spaced and face-up on a tray | Face-up, tidy, tray |
 | Liar's Dice | Crowded dice, half of them face-down | Overlap and concealment, no tray |
+| Letterpress | A lettered grid in two colours, most of it claimed | Five columns; both seat hues at once; the only square-cornered tile |
 
 Ultimate is the fourth motif to be a grid and the reason the register exists.
 It is separated from all three of the others twice over: its marks are strokes
@@ -90,6 +91,30 @@ Word Duel, Word Hunt and Battleships are the three that used to collide. They
 are now separated on three axes at once — letters or none, rows or a square
 grid, and cell density: Battleships shows ten cells across where Word Hunt
 shows four.
+
+Letterpress is the closest call the register has had, and it is recorded as a
+call rather than as an obvious pass. It is a second lettered grid, so it takes
+what used to be Word Hunt's sole distinguishing feature. Rule 2 asks for a case
+in that event, and this is it: the two are separated on three axes at once,
+which is the same standard the trio above are held to.
+
+- **Cell density**, the axis Battleships is told apart on. Measured at 375px,
+  the well holds **4.3 of Letterpress's columns against 3.2 of Word Hunt's** —
+  a board nearly all there, against a fragment of one. This is the axis that
+  had to be *made* rather than found: at 46 units the two cards measured 3.24
+  columns and 3.17, so "five across against four" was true of the markup and
+  invisible on a phone. Letterpress's tiles are 34 units for that reason.
+- **Colour.** Letterpress is the only motif in the lobby carrying both seat
+  hues on the same shape. Word Hunt's traced tiles are all one colour, the
+  channel green, and its untraced ones carry no fill at all.
+- **Fill.** Eight of Letterpress's ten tiles are claimed and coloured; five of
+  Word Hunt's eight are empty. One reads as a board being fought over, the
+  other as a board being looked at.
+
+There is a fourth, smaller separator, and it is the game's own rule: the locked
+tile's square corners. Nothing else on any card has a corner that is not either
+rounded or part of a line drawing. It is not load-bearing on its own — it is
+one tile in ten — but it is the detail that makes the card *about* something.
 
 Backgammon's points are narrow and long. The board draws a point at 1:5; the
 motif gets to 1:3, which is as close as a well two and a half times wider than
@@ -134,8 +159,8 @@ Three of those lines are not optional:
 
 **Sizes are multiples of `--m`, never literals.** `--m` is a length, so
 `calc(30 * var(--m))` reads as "thirty units" and comes out as 30px at phone
-size. All nine motifs therefore rescale by changing one number rather than
-nine blocks. A literal `30px` in a motif is a bug even though it renders
+size. All eleven motifs therefore rescale by changing one number rather
+than eleven blocks. A literal `30px` in a motif is a bug even though it renders
 identically today. Morris is the exception that proves the rule: it is drawn in
 an SVG whose viewBox is the well's own 218 x 87, so its units *are* the same
 units, measured from the same box.
@@ -151,7 +176,7 @@ grid, and is better for it.
 
 **CSS by default. SVG only where CSS cannot be honest.**
 
-Seven motifs are CSS: bare `<i>` elements laid out and coloured by `nth-child`
+Eight motifs are CSS: bare `<i>` elements laid out and coloured by `nth-child`
 in the stylesheet, with `CardArt` emitting nothing but a count. Keep it that
 way. The count-plus-a-CSS-block contract is why these are cheap to change.
 
@@ -187,8 +212,8 @@ palette. This is how `WheelBoard` already draws itself.
 
 Four motifs need structure rather than a count, and that is the bar for
 leaving the count contract: the Wheel needs paths, Morris needs points at
-coordinates, Word Hunt needs its letters, and Yahtzee and Liar's Dice use the
-real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
+coordinates, the two lettered grids need their letters, and Yahtzee and Liar's
+Dice use the real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
 in the main bundle — App.tsx imports every board statically — so reusing it
 costs nothing and replaced a fake pip that read as a small hole at thirteen
 units.
@@ -336,6 +361,12 @@ against each other.
 | Ultimate nought (`--seat-1`) | 8.29 | 3.65 |
 | Ultimate hash / board | 3.91 | 3.33 |
 | Ultimate dead mark / board | 3.91 | 3.33 |
+| Letterpress ember tile | 5.37 | 3.78 |
+| Letterpress ice tile | 8.29 | 3.65 |
+| Letterpress unclaimed tile edge | 3.91 | 3.33 |
+| Letterpress letter on a claimed tile | 6.33 / 9.76 | 4.90 / 4.73 |
+| Letterpress letter on an unclaimed tile | 17.75 | 17.58 |
+| Letterpress locked frame / its tile | 8.29 | 3.65 |
 
 Backgammon checkers get a two-unit ring of `--board` because every seat colour
 sits within 2:1 of `--motif-off` in one palette or the other. A checker is on a

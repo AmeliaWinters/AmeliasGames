@@ -81,6 +81,7 @@ export const CHANNELS: Record<string, true> = {
   wordhunt: true,
   morris: true,
   ultimate: true,
+  letterpress: true,
 };
 
 export function applyChannel(gameId: string | null): void {

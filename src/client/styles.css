@@ -169,6 +169,10 @@
 /* Ultimate joins them, and for the same reason twice over: it is three in a
    row about three in a row, and ember is the channel that already means it. */
 :root[data-game="ultimate"] { --accent: var(--seat-0); }
+/* Letterpress is the third word game, so it takes the word channel: green
+   already means letters here, and the board's own two colours are the seat
+   hues, which the accent must not be mistaken for. */
+:root[data-game="letterpress"] { --accent: var(--seat-2); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
    A condensed signage face for every name, title, status line and button, and
@@ -2019,6 +2023,7 @@ input:focus-visible {
 .game[data-game="wordhunt"] { --accent: var(--seat-2); }
 .game[data-game="morris"] { --accent: var(--seat-0); }
 .game[data-game="ultimate"] { --accent: var(--seat-0); }
+.game[data-game="letterpress"] { --accent: var(--seat-2); }
 
 .game.picked {
   border-color: var(--accent);
@@ -2086,12 +2091,12 @@ input:focus-visible {
    Every motif below bleeds off at least two edges, and every one of them shows
    a position its game can actually reach.
 
-   The rules all eight follow -- and the register of which game owns which
-   shape, which is what stops the next game added from being a ninth grid of
+   The rules all eleven follow -- and the register of which game owns which
+   shape, which is what stops the next game added from being a twelfth grid of
    squares -- are in docs/card-motifs.md.
 
-   Every size is a multiple of --m rather than a literal, so all eight motifs
-   scale by changing one number instead of eight blocks. --m is a length, so
+   Every size is a multiple of --m rather than a literal, so all eleven motifs
+   scale by changing one number instead of eleven blocks. --m is a length, so
    `calc(12 * var(--m))` reads as "twelve units" and comes out as 12px at phone
    size. The well is 5:2, which is about 217 x 87 units on a phone; the
    compositions below are laid out against that box. */
@@ -2471,6 +2476,81 @@ input:focus-visible {
   background: var(--mark-hit);
   color: var(--mark-text);
   box-shadow: none;
+}
+
+/* Letterpress: the top three rows of a 5x5 board, mid-game -- wider than the
+   well and half again as tall, so it is cut on the left, the right and the
+   bottom, and the third row is a sliver. Ice holds six of the fifteen tiles
+   shown, ember five, and four are still unclaimed; the K is surrounded on all
+   three sides it has and is therefore locked, which is why it is the one
+   square-cornered tile on any card in the lobby.
+
+   This and Word Hunt are the closest pair in the register, and they are held
+   apart on three axes at once -- five columns against four, two seat colours
+   against the one channel green, and a board mostly claimed against a board
+   mostly not. The case is made in full in docs/card-motifs.md.
+
+   The letters are scrambled on purpose. Word Hunt's motif reads CRANE across
+   its top row because a traced word is what that game is; here adjacency
+   means nothing at all, so a word lying along a row would be advertising a
+   rule this game does not have. */
+.art-letterpress {
+  /* Smaller than Word Hunt's tiles, and that is the point rather than a
+     detail: measured at 375px the well holds about 4.3 of these columns
+     against 3.2 of Word Hunt's, which is the difference between a board
+     nearly all there and a fragment of one. At 46 units the two cards were
+     3.24 columns and 3.17, and the distinction the register claims did not
+     exist on a phone. */
+  grid-template-columns: repeat(5, calc(34 * var(--m)));
+  grid-auto-rows: calc(34 * var(--m));
+  gap: calc(4 * var(--m));
+  place-content: start center;
+  font-family: var(--display);
+  font-size: calc(17 * var(--m));
+  font-weight: 700;
+  color: var(--ink);
+}
+.art-letterpress > i {
+  width: calc(34 * var(--m));
+  height: calc(34 * var(--m));
+  display: grid;
+  place-items: center;
+  border-radius: calc(4 * var(--m));
+  /* An unclaimed tile, drawn the way Word Hunt draws one: a hole with an edge
+     that can carry itself against the board (3.91 Stage, 3.33 Daylight),
+     since a motif has nothing bright sitting on top of it. */
+  background: var(--hole);
+  box-shadow: inset 0 0 0 1px var(--motif-off);
+}
+/* Ember's five. */
+.art-letterpress > i:nth-child(5),
+.art-letterpress > i:nth-child(6),
+.art-letterpress > i:nth-child(9),
+.art-letterpress > i:nth-child(11),
+.art-letterpress > i:nth-child(13) {
+  background: var(--seat-0);
+  color: var(--action-text);
+  box-shadow: none;
+}
+/* Ice's six, ringed as seat 1's pieces are everywhere else. */
+.art-letterpress > i:nth-child(1),
+.art-letterpress > i:nth-child(2),
+.art-letterpress > i:nth-child(3),
+.art-letterpress > i:nth-child(4),
+.art-letterpress > i:nth-child(7),
+.art-letterpress > i:nth-child(14) {
+  background: var(--seat-1);
+  color: var(--action-text);
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+/* The locked one. Square corners and a frame of board eating into the tile --
+   the board's own treatment, so the card and the table say "locked" the same
+   way. */
+.art-letterpress > i:nth-child(2) {
+  border-radius: calc(2 * var(--m));
+  box-shadow:
+    inset 0 0 0 3px var(--board),
+    inset 0 0 0 5px var(--ring);
 }
 
 /* Three nested corners of a morris board and the spoke between them, with four
@@ -4331,4 +4411,370 @@ input:focus-visible {
 
 .ut-count {
   flex: none;
+}
+
+/* ── Letterpress ────────────────────────────────────────────
+   Twenty-five lettered tiles in two colours, and the tally over them. The
+   grid is the screen; everything else is a thin band around it.
+
+   Three things have to be readable on one tile at once -- whose it is,
+   whether it is locked, and where it sits in the word being built -- and only
+   the first of the three is a colour. The other two are shape, on purpose:
+   the seat hues are already spoken for, and a third and fourth hue on the
+   same square would leave the board unreadable to anyone who cannot separate
+   them. So a locked tile has square corners where every other tile is
+   rounded, and a chosen tile carries a ring. */
+.lp-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* The count, which is the score and the whole of it. */
+.lp-scores {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.lp-score {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--display);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.lp-score.mine {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.lp-chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.lp-score.s0 .lp-chip {
+  background: var(--seat-0);
+}
+/* Seat 1 is ringed wherever it sits on a piece -- see the Connect Four
+   counters. Colour alone would leave the two sides of this board apart only
+   for people who can separate ember from ice. */
+.lp-score.s1 .lp-chip {
+  background: var(--seat-1);
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+.lp-tiles {
+  font-family: var(--body);
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.lp-free {
+  margin-left: auto;
+  font-family: var(--body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The same two numbers as a length. "Sixteen to seven" and "most of the
+   board" are different thoughts, and the second is the one a player acts on:
+   a lead you can see the shape of is a lead you can decide to defend. */
+.lp-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--hole);
+}
+.lp-bar i {
+  display: block;
+  min-width: 0;
+}
+.lp-bar .s0 {
+  background: var(--seat-0);
+}
+.lp-bar .s1 {
+  background: var(--seat-1);
+}
+/* The middle of the bar is what nobody holds, and it is drawn as absence --
+   the same hole the bar sits in. It closes up as the game ends. */
+.lp-bar .free {
+  background: var(--hole);
+}
+
+.lp-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--lp-size, 5), 1fr);
+  gap: 5px;
+}
+
+.lp-tile {
+  aspect-ratio: 1;
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  /* The global button floor and no more. Five across a 320px phone leaves a
+     tile a little under 49px, so `aspect-ratio` decides the height and the
+     tiles stay square -- raising this even to 52 would win against the ratio
+     at that width and leave twenty-five oblongs. */
+  min-height: 44px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(1rem, 5.5vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* An unclaimed tile has to be found by eye against the board it sits on, and
+   the panel rule cannot do it: in Daylight the tile is white on a beige board
+   at 1.30, and `--rule` against that board is nearer 1.05 still. So the empty
+   tile takes the unlit colour, which is what it is for -- 3.91 on the board in
+   Stage and 3.33 in Daylight. Twenty-five tap targets that cannot be told from
+   the gaps between them are twenty-five targets nobody can aim at. */
+.lp-tile.free {
+  border-color: var(--motif-off);
+}
+
+.lp-tile.s0 {
+  border-color: transparent;
+  background: var(--seat-0);
+  color: var(--action-text);
+}
+.lp-tile.s1 {
+  border-color: transparent;
+  background: var(--seat-1);
+  color: var(--action-text);
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+/* A locked tile is set into the board: square corners, and a frame of the
+   board colour eating into it. Both cues are shape rather than hue, which is
+   the point -- this is the one rule in the game a player has to be able to
+   read off the board at a glance, and it has to survive both palettes and
+   anyone who cannot tell ember from ice.
+
+   A locked tile is always somebody's, so the frame always has a seat colour
+   behind it: 5.37 on ember and 8.29 on ice in Stage, 3.78 and 3.65 in
+   Daylight. */
+.lp-tile.locked {
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 3px var(--board);
+}
+/* Seat 1's ring moves inside the frame rather than being lost to it. */
+.lp-tile.s1.locked {
+  box-shadow:
+    inset 0 0 0 3px var(--board),
+    inset 0 0 0 5px var(--ring);
+}
+
+/* The tile that was played last, marked in the tile's own letter colour so it
+   is legible on any of the three fills. Tiles change hands in places nobody
+   was looking -- that is the game -- and coming back to a board that has moved
+   without being told where is the one thing this board could be unkind about. */
+.lp-tile.just::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+/* A tile in the word being built. A pseudo-element rather than an `outline`,
+   deliberately: the global `:focus-visible` outline would lose to a class
+   selector here, and a keyboard player would stop being able to see where
+   they are.
+
+   Two rings, the way the checkers are drawn: the accent cannot clear 3:1
+   against ember (1.94), so a ring of board goes between them and each
+   boundary carries itself -- board against the tile beneath (5.37 / 8.29 in
+   Stage), accent against the board ring (10.04 Stage, 3.47 Daylight). On an
+   unclaimed tile it is the accent's own edge that reads, at 10.92 and 4.50. */
+.lp-tile.picked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 2px var(--board),
+    inset 0 0 0 5px var(--accent);
+}
+
+/* Where this letter comes in the word. In the tile's own letter colour, and
+   lifted above the ring, which is drawn after it. */
+.lp-step {
+  position: absolute;
+  z-index: 1;
+  right: 4px;
+  bottom: 3px;
+  font-family: var(--body);
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+/* Deliberately no fade on a disabled tile, unlike Word Hunt's grid. Reading
+   the board on the other player's turn is most of this game -- which tiles
+   are locked, where their wall is thin -- and dimming twenty-five tiles to
+   0.55 would say "there is nothing here for you" at exactly the moment there
+   is. `.surface` on the element is what keeps the global rule off it. */
+
+.lp-tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The word so far. Always here, never appearing: a line that came and went
+   would shove twenty-five tap targets up and down under a thumb. */
+.lp-draft {
+  flex-basis: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  min-height: 1.5em;
+}
+
+.lp-spelt {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+
+.lp-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* What the word takes, in the only currency there is. */
+.lp-takes {
+  font-family: var(--body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+/* A word that takes nothing is legal and almost never right, so it says so
+   rather than being quietly allowed -- but it is a note, not an alarm. */
+.lp-takes.none {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* The one refusal the board can make before the server does: a word that has
+   been played, or that starts with one. */
+.lp-spent {
+  font-family: var(--body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--alert);
+}
+
+.lp-take,
+.lp-clear,
+.lp-pass {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.lp-take:not(:disabled) {
+  border-color: transparent;
+  background: var(--action);
+  color: var(--action-text);
+}
+/* Pass sits apart from the other two: it is the one button here that ends
+   something, and it should not be reached for by mistake. */
+.lp-pass {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.lp-waiting {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Everything played, in the order it was played -- which is also the rule: a
+   word on this list is a word neither of you may use again, and nor is
+   anything that starts with one. */
+.lp-history {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+
+.lp-history-head {
+  margin: 0 0 4px;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.lp-history ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.lp-history li {
+  position: relative;
+  padding-left: 12px;
+}
+.lp-history li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.lp-history li.s0::before {
+  background: var(--seat-0);
+}
+.lp-history li.s1::before {
+  background: var(--seat-1);
+  box-shadow: inset 0 0 0 1.5px var(--ring);
 }

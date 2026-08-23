@@ -13,6 +13,7 @@ import type { LdState, LdMove } from "../../shared/games/liarsDiceDisplay.js";
 import type { WhState, WhMove } from "../../shared/games/wordHuntDisplay.js";
 import type { MmState, MmMove } from "../../shared/games/morrisDisplay.js";
 import type { UtState, UtMove } from "../../shared/games/ultimateDisplay.js";
+import type { LpState, LpMove } from "../../shared/games/letterpressDisplay.js";
 import { Connect4Board } from "./Connect4Board.js";
 import { BackgammonGame } from "./BackgammonBoard.js";
 import { WheelBoard } from "./WheelBoard.js";
@@ -23,6 +24,7 @@ import { LiarsDiceBoard } from "./LiarsDiceBoard.js";
 import { WordHuntBoard } from "./WordHuntBoard.js";
 import { MorrisBoard } from "./MorrisBoard.js";
 import { UltimateBoard } from "./UltimateBoard.js";
+import { LetterpressBoard } from "./LetterpressBoard.js";
 
 /** Every id the manifest offers. */
 export type GameId = keyof typeof GAME_MANIFEST;
@@ -63,6 +65,7 @@ export interface GameStates {
   wordhunt: WhState;
   morris: MmState;
   ultimate: UtState;
+  letterpress: LpState;
 }
 
 /** The other half of the pair — see `GameStates`. */
@@ -77,10 +80,11 @@ export interface GameMoves {
   wordhunt: WhMove;
   morris: MmMove;
   ultimate: UtMove;
+  letterpress: LpMove;
 }
 
 /**
- * What every board is handed. The same five things for all ten, whether or not
+ * What every board is handed. The same five things for all eleven, whether or not
  * a given board wants all five — a uniform shape is what lets them be looked
  * up in a table rather than spelled out one `case` at a time.
  */
@@ -128,6 +132,7 @@ const BOARDS: { [K in GameId]: Board<K> } = {
   wordhunt: WordHuntBoard,
   morris: MorrisBoard,
   ultimate: UltimateBoard,
+  letterpress: LetterpressBoard,
 };
 
 /**
