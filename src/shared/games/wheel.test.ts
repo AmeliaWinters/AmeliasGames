@@ -40,6 +40,7 @@ function position(overrides: Partial<WofState> = {}): WofState {
     wedge: null,
     wedgeAt: null,
     spins: 0,
+    travel: 0,
     finds: 0,
     bank: Array<number>(seats).fill(0),
     score: Array<number>(seats).fill(0),
@@ -614,9 +615,75 @@ describe('where the wheel stopped', () => {
     expect(next.wedgeAt).toBeNull();
   });
 
-  it('lays the wheel out in twenty-four equal wedges', () => {
-    expect(WHEEL).toHaveLength(24);
-    expect(WEDGE_ARC).toBe(15);
+  it('lays the wheel out in thirty-six equal wedges', () => {
+    expect(WHEEL).toHaveLength(36);
+    expect(WEDGE_ARC).toBe(10);
+  });
+
+  /* The odds a player feels, which is the thing that was actually complained
+     about: not how often a wedge is bad but how often a turn ends on one. Held
+     to a number rather than to a count of wedges, because that is the quantity
+     the layout is chosen for — see the note on WHEEL. */
+  it('ends fewer than a fifth of full turns badly', () => {
+    const bad = WHEEL.filter((w) => w.kind !== 'cash').length;
+    expect(bad).toBe(2);
+    const spoiled = 1 - ((WHEEL.length - bad) / WHEEL.length) ** FINDS_PER_TURN;
+    expect(spoiled).toBeLessThan(0.18);
+  });
+});
+
+/**
+ * The flick. A player grabs the rim and throws it, and how hard they threw is
+ * what decides the wedge — so these are rules, not decoration, and the one
+ * thing they must not permit is aiming.
+ */
+describe('throwing the wheel by hand', () => {
+  it('travels further the harder it is thrown', () => {
+    const gentle = ok(apply(position(), { type: 'spin', power: 0 }, 0, seeded(1)));
+    const hard = ok(apply(position(), { type: 'spin', power: 1 }, 0, seeded(1)));
+    expect(hard.travel).toBeGreaterThan(gentle.travel * 3);
+  });
+
+  it('lands on the wedge that far round from where it was standing', () => {
+    const from = 5;
+    const s = ok(apply(position({ wedgeAt: from }), { type: 'spin', power: 0.5 }, 0, seeded(9)));
+    expect(s.wedgeAt).toBe((from + s.travel) % WHEEL.length);
+  });
+
+  /* The whole of the anti-cheat. A drag can put the wheel anywhere on screen,
+     so if the landing were measured from where the finger let go, a slow
+     careful drag would be a free choice of wedge. It is measured from where
+     the wheel *stopped last time*, which no gesture can move. */
+  it('always carries the wheel at least a full turn, however limp the flick', () => {
+    for (const power of [0, -5, Number.NaN, 0.0001]) {
+      const s = ok(apply(position(), { type: 'spin', power }, 0, seeded(3)));
+      expect(s.travel).toBeGreaterThan(WHEEL.length);
+    }
+  });
+
+  it('refuses to be aimed: the same throw does not always land the same way', () => {
+    const landings = new Set(
+      Array.from({ length: 40 }, (_, i) =>
+        ok(apply(position(), { type: 'spin', power: 0.5 }, 0, seeded(i + 1))).wedgeAt,
+      ),
+    );
+    expect(landings.size).toBeGreaterThan(1);
+  });
+
+  /* A hostile client sends whatever it likes. Anything that is not a number is
+     not a flick, and falls back to the wheel deciding — which is exactly what
+     the Spin button does, so this is also the old-client path. */
+  it('treats a power that is not a number as no flick at all', () => {
+    for (const power of ['1', null, { valueOf: () => 1 }]) {
+      const s = ok(apply(position(), { type: 'spin', power }, 0, spinTo(BANKRUPT)));
+      expect(s.wedgeAt).toBe(BANKRUPT);
+    }
+  });
+
+  it('spins the wheel a plausible distance even when nobody threw it', () => {
+    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(CASH)));
+    expect(s.wedgeAt).toBe(CASH);
+    expect(s.travel).toBeGreaterThan(WHEEL.length);
   });
 });
 

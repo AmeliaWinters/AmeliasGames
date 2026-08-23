@@ -155,6 +155,35 @@ describe('the disabled-button rule', () => {
   });
 });
 
+/**
+ * The tray's camera.
+ *
+ * `perspective: 900px` put the vanishing point a hand's width in front of the
+ * tray, so every die away from the middle was drawn leaning — five dice lying
+ * flat on one table, each apparently tipped a different way, which is what a
+ * player saw and reported as the dice not having a floor under them. Without a
+ * `perspective` above it a cube under `preserve-3d` is drawn orthographically,
+ * which is how dice on a table are read.
+ *
+ * A grep, and worth being one: this is a decision about what the dice look
+ * like that a single declaration can quietly reverse, and the only other thing
+ * that would catch it is somebody rendering a throw and noticing.
+ */
+describe('the dice tray', () => {
+  it('is looked at straight down', () => {
+    const tray = css.match(/^\.dice-tray\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
+    expect(tray, 'the .dice-tray rule went missing').not.toBe('');
+    expect(tray).not.toMatch(/^\s*perspective:/m);
+  });
+
+  it('says how high a die is the only way an orthographic view can', () => {
+    // Height moves nothing on screen under this camera, so the shadow is the
+    // whole of the cue — and a die passing over another is the stacking order.
+    expect(css).toMatch(/^\.die-shadow\s*\{/m);
+    expect(css).toMatch(/^\.die-slot\s*\{[^}]*z-index/m);
+  });
+});
+
 describe('board buttons', () => {
   it('each either mark themselves a surface or are a known control', () => {
     const unclassified: string[] = [];

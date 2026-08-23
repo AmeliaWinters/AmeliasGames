@@ -150,7 +150,7 @@ function WheelArc() {
         {Array.from({ length: WEDGE_COUNT }, (_, i) => (
           <path
             key={i}
-            className={i === 22 ? "wedge cash" : i === 2 ? "wedge lose" : "wedge"}
+            className={i === 33 ? "wedge cash" : i === 2 ? "wedge lose" : "wedge"}
             d={sectorPath(i)}
             vectorEffect="non-scaling-stroke"
           />

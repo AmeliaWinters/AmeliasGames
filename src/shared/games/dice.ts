@@ -62,6 +62,24 @@ import type { Rng } from '../types.js';
  *
  * `dice.test.ts` holds the conclusion directly: sweep a throw across all 24
  * starts and each face comes up exactly four times per die.
+ *
+ * ── The vertical channel, and why it is blind ──────────────────────────
+ *
+ * Dice are thrown onto a table, so they have a height: they leave the hand,
+ * arc, land, bounce, and only then start losing speed to the felt. That is
+ * `z` and `vz`, and it is a *channel* — gravity, a floor, a restitution — and
+ * not a third dimension of the solver. The dice still meet each other and the
+ * walls as squares in the plane; height only decides whether two of them are
+ * at the same height to meet at all.
+ *
+ * **The floor is at `half`, whichever way the die is turned.** A real cube
+ * balanced on a corner has its middle further up than one lying flat, and
+ * modelling that is the end of the fairness argument: the height a die bounces
+ * from would depend on its orientation, the orientation would decide where it
+ * went, and the uniform draw would stop carrying through. So the floor sees a
+ * ball of radius `half`, exactly as the collisions see a square that does not
+ * know which face is up. By the time the die stops it is lying on a face, and
+ * the player never sees the sphere.
  */
 
 /** Where a die is: in the plane, plus which of the 24 orientations it is in. */
@@ -82,40 +100,92 @@ export interface Tray {
 
 /** Tunables, one constant each. The comments are why, not what. */
 export const P = {
-  /** Fixed, so the same toss lands the same way at any refresh rate. */
-  STEP: 1 / 120,
-  /** Substeps per frame, so a tab that stalled cannot spiral catching up. */
-  MAX_STEPS: 8,
+  /**
+   * Fixed, so the same toss lands the same way at any refresh rate.
+   *
+   * 240Hz rather than the 120 it ran at, and the reason is `THROW`'s: a die
+   * must not cross more than its own half-width between two steps, or it can
+   * pass clean through a neighbour without the solver ever seeing them touch.
+   * Shrinking the dice by a quarter broke that — a die was crossing 1.2 of its
+   * half-widths — and the choice was to throw them more gently or to look more
+   * often. Looking more often costs microseconds a throw on the server and
+   * four steps a frame in a board, and keeps the throw.
+   */
+  STEP: 1 / 240,
+  /**
+   * Substeps per frame, so a tab that stalled cannot spiral catching up.
+   * Sixteen at 240Hz is the same 66ms of catching-up that eight was at 120.
+   */
+  MAX_STEPS: 16,
   /**
    * The table itself, per second, in tray widths.
    *
-   * Raised along with `THROW`, and the pair is the point. Damping alone
-   * decides how long a throw lasts; speed alone decides how much of the tray
-   * it crosses. Turning both up buys distance without buying time — the dice
-   * now cover twice the ground and strike the walls three times as often, and
-   * still come to rest inside the second they always did.
+   * Damping alone decides how long a throw lasts; speed alone decides how much
+   * of the tray it crosses. That pairing is why `THROW` is as high as it is —
+   * turning both up buys distance without buying time.
+   *
+   * Lowered from 2.6 when the throw was asked to last longer: a die that keeps
+   * rolling is the part of a throw worth watching, and it is also the part
+   * that tumbles, since the tumble is driven by travel and not by a clock.
    */
-  LIN_DAMP: 2.6,
+  LIN_DAMP: 1.8,
   /** Higher than linear, or dice keep spinning after they stop travelling. */
   ANG_DAMP: 3.4,
+  /**
+   * The most a die may spin in the plane, in radians a second.
+   *
+   * A ceiling on the physics for the sake of the eye, and the same argument as
+   * `ROLL`: what a player can follow is a die turning less than a quarter turn
+   * between one frame and the next, and past that the die is not turning, it
+   * is flickering. The spin comes off corner strikes, which got sharper when
+   * the dice got smaller — a cube's resistance to being spun falls with the
+   * square of its size, so the same knock spins a small die half again as
+   * fast.
+   *
+   * Blind to the orientation, like everything else that touches the motion.
+   */
+  SPIN_MAX: 30,
   /** The tray is the hard thing in the room, so it bounces more than a die. */
   WALL_E: 0.42,
   /** Die on die. Above ~0.5 they ping about like marbles. */
   E: 0.34,
-  /** Coulomb friction at every contact: what turns a slide into a skid. */
+  /** Coulomb friction at a contact in the plane: what turns a slide into a skid. */
   MU: 0.45,
-  /** Below this a body is a candidate for sleep, in tray units a second. */
-  SLEEP_V: 3.4,
-  SLEEP_W: 0.8,
+  /**
+   * And the same at the floor, where a landing die hands over some of its
+   * travel to the table.
+   *
+   * A constant of its own, against the instinct to reuse `MU` — the tray is
+   * felt wherever the die touches it, so one number ought to do. It does not,
+   * and the reason is worth keeping: at `MU` a die loses nearly all its travel
+   * to its first landing, arrives where it touched down, and everything after
+   * that is a die falling over. The throw was over in two thirds of a second
+   * and the only part of it that moved was the part in the air.
+   *
+   * Lower, and the die skids on after it lands — which is where the tumbling
+   * is, since the tumble is driven by travel.
+   */
+  FLOOR_MU: 0.12,
+  /**
+   * Below this a body is a candidate for sleep, in tray units a second.
+   * Lowered with `LIN_DAMP`: a die creeping to a halt is still a die moving,
+   * and stopping it early was a third of a second of the throw thrown away.
+   */
+  SLEEP_V: 2,
+  SLEEP_W: 0.5,
   /** And it has to stay slow this long, or dice flicker awake on a nudge. */
   SLEEP_MS: 70,
-  /** Damping quadruples here. A throw is a moment, not a cutscene. */
-  DEADLINE: 660,
+  /**
+   * Damping quadruples here. A throw is a moment, not a cutscene — but the
+   * moment is longer than it was: an ordinary throw now comes to rest around
+   * 1.3 seconds and this catches the tail that would otherwise run to two.
+   */
+  DEADLINE: 1400,
   /**
    * Everything sleeps regardless. The promise that a turn always ends — plus
    * `SQUARE_MS` for the last of the fall, which is not a throw carrying on.
    */
-  HARD_STOP: 1200,
+  HARD_STOP: 2400,
   /** Contacts softer than this are the solver settling, not dice landing. */
   QUIET: 4,
   /**
@@ -148,15 +218,65 @@ export const P = {
    */
   FAN: 1.4,
   /**
-   * How long a thrown die is off the table, in milliseconds.
+   * Gravity, in tray widths a second squared.
    *
-   * Not a flourish — it is what stops a die thrown out of a gap between two
-   * dice you are keeping from being boxed in and travelling five pixels. You
-   * do not throw a die from between two others; you pick it up and throw it
-   * over them, and for the first part of its flight it is above the table.
-   * Walls still stop it, because the tray has sides.
+   * A tray is about a hand's span across — a quarter of a metre — so 9.81
+   * m/s² is a touch under forty of them. Written in widths rather than units
+   * for the same reason `THROW` is: the number has to mean the same thing on
+   * a phone and a laptop, and it is the tray that differs between them.
    */
-  AIRBORNE: 140,
+  G: 39,
+  /**
+   * How hard a throw sends the dice up, in tray widths a second.
+   *
+   * Dice are thrown, not slid: they leave the hand, arc, land, and bounce
+   * before they run out. Three widths a second is about a metre a second up,
+   * which puts the apex a die and a half over the table and the first landing
+   * a hundred and fifty milliseconds in — near enough to the flat 140ms flag
+   * this replaced, except that now the die is somewhere while it is up there.
+   *
+   * It is also what stops a die thrown out of a gap between two dice you are
+   * keeping from being boxed in and travelling five pixels. You do not throw a
+   * die from between two others; you pick it up and throw it over them. Walls
+   * still stop it, because the tray has sides and they are taller than this.
+   */
+  HOP: 4.2,
+  /**
+   * The table, hit square on. Dice are not superballs — but they are not bags
+   * of sand either, and at 0.36 the whole throw was over in two bounces.
+   * Four, now, which is what a die thrown onto a table actually does.
+   */
+  FLOOR_E: 0.5,
+  /**
+   * Below this, in tray widths a second, a landing is not a bounce — the die
+   * stays down. Without it a die spends its last quarter second buzzing
+   * against the floor a fraction of a millimetre deep, which is a lot of
+   * arithmetic to draw nothing.
+   *
+   * **It has to stay above `G * STEP`**, which is the speed one step of
+   * gravity adds to a die already lying still. Below that, a resting die is
+   * landing every step at a speed the threshold calls a bounce, so it never
+   * sleeps and the throw runs to the hard stop every time. Tuned to 0.3 once,
+   * and that is exactly what happened: 0.16 is the floor, so this is
+   * comfortably clear of it.
+   */
+  REST_VZ: 0.55,
+  /**
+   * How much of the die's travel goes into tumbling, against the corner-over-
+   * corner rate a cube would turn at if it rolled without slipping.
+   *
+   * At 1 it is that rate exactly, and that was the bug the throw has been
+   * carrying: a die crossing the tray at a metre a second is *eighteen
+   * revolutions a second* if it never slips. Sampled at 60Hz that is a cube at
+   * an unrelated angle in every frame — which does not read as a die rolling,
+   * it reads as a die with no floor under it, which is precisely what a player
+   * said when they saw it. Dice mostly skid. This is how much they do not.
+   *
+   * Set as high as the quarter-turn line allows, because tumbling is the point
+   * — with `SPIN_MAX` holding the other half of the budget, the worst frame in
+   * an ordinary throw turns 57 degrees.
+   */
+  ROLL: 0.3,
   /**
    * Collision passes per step. One is not enough: a die shoved out of its
    * neighbour lands in the next one, and a resting pile settled about a tenth
@@ -389,8 +509,14 @@ export interface Body {
   ii: number;
   asleep: boolean;
   slow: number;
-  /** Milliseconds of flight left before it is on the table again. */
-  air: number;
+  /**
+   * How high the die's middle is above the floor, and how fast that is
+   * changing. The third axis, and the only thing in the die's motion the
+   * player cannot see directly — see the note on the vertical channel above
+   * for why it is a channel and not a solver.
+   */
+  z: number;
+  vz: number;
   /** The last of the fall onto a face, once it has stopped travelling. */
   tip: Tip | null;
 }
@@ -466,6 +592,23 @@ export function row(tray: Tray, count: number): Rest[] {
 }
 
 // ── The solver ─────────────────────────────────────────────────────────
+
+/**
+ * Whether the die is on the floor. A hair of slack, because a die resting on
+ * the floor is a die whose height the integration keeps putting back.
+ */
+function grounded(b: Body): boolean {
+  return b.z <= b.half * 1.001;
+}
+
+/**
+ * Whether two dice are at heights that cannot meet — one is over the other.
+ * The honest version of the flag this replaced: a die is above another when it
+ * is above it, rather than for a fixed hundred and forty milliseconds.
+ */
+function overhead(a: Body, b: Body): boolean {
+  return Math.abs(a.z - b.z) >= a.half + b.half;
+}
 
 /** Half-extent of the die's footprint projected on a unit axis. */
 function extent(b: Body, nx: number, ny: number): number {
@@ -673,7 +816,7 @@ function tidy(world: World): void {
         const b = world.bodies[k];
         const total = a.im + b.im;
         if (total <= 0) continue;
-        if (a.air > 0 || b.air > 0) continue;
+        if (overhead(a, b)) continue;
         const overlap = depth(a, b);
         if (!overlap) continue;
         a.x -= overlap.nx * overlap.d * (a.im / total);
@@ -734,7 +877,9 @@ function depth(a: Body, b: Body): { nx: number; ny: number; d: number } | null {
  * for the same reason.
  */
 function fall(b: Body, dt: number): void {
-  if (b.air > 0) return;
+  // Nothing to fall onto yet. A die in the air keeps whatever tumble it left
+  // the hand with, and starts lying down when it has a floor to lie on.
+  if (!grounded(b)) return;
   const pull = Math.min(
     1 - Math.min(1, Math.hypot(b.vx, b.vy) / P.SETTLE_V),
     1 - Math.min(1, Math.abs(b.w) / P.SETTLE_SPIN),
@@ -743,6 +888,68 @@ function fall(b: Body, dt: number): void {
   const onto = ORIENTATIONS[squareUp(b.q)];
   if (between(b.q, onto) < 1e-6) return;
   b.q = slerp(b.q, onto, Math.min(1, P.SETTLE_W * pull * dt));
+}
+
+/**
+ * A die arriving on the table.
+ *
+ * The vertical bounce, and the horizontal price of it. Both matter: a die that
+ * bounces without losing any travel skates on after landing as if the table
+ * were ice, and one that loses all of it stops dead where it first touches —
+ * neither of which is a thrown die. What it loses is capped by Coulomb against
+ * the impulse that stopped it, so a die that drops in gently keeps running and
+ * one that comes down hard does not.
+ *
+ * Reads the height and the motion; never the orientation. Same rule as
+ * everything else here, and for the reason at the top of the file.
+ */
+function land(b: Body, world: World, contacts: Contact[]): void {
+  const hit = -b.vz;
+  /*
+    Not a landing: a die already lying on the table, which gravity pushes the
+    better part of a millimetre into the floor every step and this pulls back
+    out.
+
+    Worth a branch of its own, because the two things below both fired on it.
+    A die at rest was reporting a contact 120 times a second — a clatter at two
+    thirds volume, every frame, for as long as the throw took to fall asleep —
+    and scrubbing a slice of its travel each time, which is a friction nobody
+    wrote down and could not be tuned because it was not on the list.
+  */
+  if (hit <= P.REST_VZ * world.tray.w) {
+    b.vz = 0;
+    return;
+  }
+  b.vz = hit * P.FLOOR_E;
+
+  const speed = Math.hypot(b.vx, b.vy);
+  if (speed > 0) {
+    const scrub = Math.min(1, (P.FLOOR_MU * (1 + P.FLOOR_E) * hit) / speed);
+    b.vx -= b.vx * scrub;
+    b.vy -= b.vy * scrub;
+    b.w -= b.w * scrub;
+  }
+
+  /*
+    The knock, in the units every other contact here reports: mass is one, so
+    an impulse is a change in momentum.
+
+    Divided by what a plane contact is divided by, and that division is the
+    whole of why this is not simply `(1 + e)·hit`. A cube comes down on a
+    corner and some of the blow turns it instead of reaching the table — which
+    is exactly the rotational term in `resolve`, and leaving it out here made
+    the floor four times louder than anything else in the tray. Four bounces
+    all clamped to full volume, and a die that had nearly stopped bouncing
+    sounded like a die being thrown.
+
+    The lever is `half` rather than the corner the die actually landed on,
+    because the corner it landed on is its orientation, and nothing in the
+    motion is allowed to know that. It works out at 2.5 for a cube of any
+    size, which is the point: shrinking the dice must not change how loud the
+    tray is.
+  */
+  const impulse = ((1 + P.FLOOR_E) * hit) / (1 + b.half * b.half * b.ii);
+  if (impulse > P.QUIET) contacts.push({ impulse, wall: true });
 }
 
 /** The last of the fall. True while there is still some of it left. */
@@ -789,10 +996,23 @@ export function step(world: World, contacts: Contact[]): number {
       continue;
     }
     if (b.asleep) continue;
-    b.air = Math.max(0, b.air - dt * 1000);
-    b.vx -= b.vx * damp * dt;
-    b.vy -= b.vy * damp * dt;
-    b.w -= b.w * adamp * dt;
+
+    // Gravity, then the floor. Damping is the *table*, so a die that is not on
+    // the table is not slowed by it: a thrown die keeps its speed until it
+    // lands, which is both what really happens and most of what makes the
+    // first landing read as a landing.
+    if (grounded(b)) {
+      b.vx -= b.vx * damp * dt;
+      b.vy -= b.vy * damp * dt;
+      b.w -= b.w * adamp * dt;
+    }
+    b.vz -= P.G * world.tray.w * dt;
+    b.z += b.vz * dt;
+    if (b.z < b.half) {
+      b.z = b.half;
+      if (b.vz < 0) land(b, world, contacts);
+    }
+
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.a += b.w * dt;
@@ -800,15 +1020,20 @@ export function step(world: World, contacts: Contact[]): number {
     /*
       The tumble. A cube crossing a table rolls about the axis across its own
       travel — a die going right turns away from you — so the rate comes
-      straight out of the velocity, and the plane spin turns it about the axis
-      pointing at the player.
+      straight out of the velocity, scaled by how much of that travel is
+      rolling rather than skidding (`ROLL`), and the plane spin turns it about
+      the axis pointing at the player.
 
       Passive, and that word is doing real work: this reads the motion and
       never writes to it. The moment it does, the fairness argument at the top
       of this file stops holding.
     */
-    const wx = -b.vy / b.half;
-    const wy = b.vx / b.half;
+    const wx = (-b.vy / b.half) * P.ROLL;
+    const wy = (b.vx / b.half) * P.ROLL;
+    // See `SPIN_MAX`: a die spinning faster than the eye can follow is drawn
+    // at an unrelated angle every frame, which reads as a fault rather than as
+    // a fast die.
+    b.w = clamp(b.w, -P.SPIN_MAX, P.SPIN_MAX);
     const wz = b.w;
     b.q = normalise(
       multiply(
@@ -827,8 +1052,8 @@ export function step(world: World, contacts: Contact[]): number {
         const a = world.bodies[i];
         const b = world.bodies[k];
         if (a.asleep && b.asleep) continue;
-        // One of them is still in the air, so they are not at the same height.
-        if (a.air > 0 || b.air > 0) continue;
+        // One of them is over the other, so they are not at the same height.
+        if (overhead(a, b)) continue;
         const j = collide(a, b);
         // Only the first pass is heard. The later ones are the same contact
         // being tidied up, and hearing a knock three times is a rattle.
@@ -848,8 +1073,9 @@ export function step(world: World, contacts: Contact[]): number {
       continue;
     }
     if (b.asleep) continue;
-    if (b.air > 0) {
-      // A die in the air has not come to rest, whatever its speed says.
+    if (!grounded(b) || b.vz !== 0) {
+      // Off the table, or still bouncing on it. Either way it has not come to
+      // rest, whatever its speed across the tray says.
       b.slow = 0;
       moving++;
       continue;
@@ -921,11 +1147,13 @@ export function open(opts: {
       // independently of the seed that drives the tumble.
       q: ORIENTATIONS[(toss.spin[i] ?? 0) % ORIENTATIONS.length],
       half: tray.die / 2,
+      // Lying on the table, which is where dice are between throws.
+      z: tray.die / 2,
+      vz: 0,
       im: 1,
       ii: 1 / ((tray.die * tray.die) / 6),
       asleep: false,
       slow: 0,
-      air: 0,
       tip: null,
     };
     world.bodies.push(body);
@@ -975,7 +1203,9 @@ export function open(opts: {
   const fy = ay * power;
 
   for (const body of thrown) {
-    body.air = P.AIRBORNE;
+    // Up, as well as along. Jittered like the rest of it, so the handful does
+    // not rise and land as one plate.
+    body.vz = P.HOP * tray.w * (0.82 + rng() * 0.36);
     // Jittered per die, or five of them travel as one block and never touch.
     const fan = (rng() - 0.5) * P.FAN;
     const cos = Math.cos(fan);

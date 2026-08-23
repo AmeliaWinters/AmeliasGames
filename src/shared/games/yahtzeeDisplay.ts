@@ -25,8 +25,14 @@ import type { Flick, Toss } from './toss.js';
  * the tray it simulates has to be the tray every device draws, whatever size
  * that device draws it at. The stylesheet holds the same shape as an
  * `aspect-ratio`, and the board scales one to the other.
+ *
+ * The die was 7.5 and is a quarter smaller, which is a bigger change than it
+ * sounds: the tray is that much larger around the dice, so they travel further
+ * before they meet anything, and a cube's resistance to being spun falls with
+ * the square of its size, so the same knock spins it half again as hard. Both
+ * cost a retune in `dice.ts` — see `STEP` and `SPIN_MAX`.
  */
-export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 7.5 };
+export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 5.63 };
 
 export const DICE = 5;
 export const FACES = 6;

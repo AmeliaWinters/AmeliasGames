@@ -13,9 +13,10 @@
  *
  * So it is drawn here instead. `dice.ts` is pure, seeded and dependency-free,
  * which means it runs perfectly well in Node — and the projection the browser
- * applies is only `perspective: 900px` about the tray's centre. Run the real
- * simulation, project it the same way, and write a PNG. What comes out is what
- * the player sees, one panel per sampled frame, time running left to right.
+ * applies is nothing at all: the tray has no `perspective`, so a cube under
+ * `preserve-3d` is drawn orthographically, straight down. Run the real
+ * simulation, drop the height, and write a PNG. What comes out is what the
+ * player sees, one panel per sampled frame, time running left to right.
  *
  * This is not decoration. Retuning the throw once produced numbers that all
  * moved the right way — travel up three quarters, wall contacts doubled — while
@@ -41,8 +42,6 @@ import { P, open, row, step, turn, type Tray } from '../src/shared/games/dice.js
 import { YAHTZEE_TRAY } from '../src/shared/games/yahtzeeDisplay.js';
 import { BACKGAMMON_TRAY } from '../src/shared/games/backgammon.js';
 
-/** `.dice-tray { perspective: 900px }`. The one number the drawing borrows. */
-const PERSPECTIVE = 900;
 /** A tray about the width of one on a 390px phone. */
 const TRAY_PX = 300;
 const PANEL_GAP = 8;
@@ -62,6 +61,17 @@ const TONE: Record<number, ReturnType<typeof rgba>> = {
   5: rgba('#d7cdba'),
 };
 const EDGE = rgba('#3d3d47');
+/**
+ * The die's shadow. Straight down, because the light is: an offset shadow
+ * under a camera looking straight down puts the light somewhere the drawing
+ * never commits to anywhere else.
+ *
+ * It is the only thing in an orthographic top-down view that says a die is
+ * *above* the table rather than on it — height moves nothing else on screen,
+ * which is exactly what orthographic means. Drawn here as well as in the app
+ * because the arc is now the thing worth looking at.
+ */
+const SHADOW = rgba('#000000b3');
 
 /**
  * The six faces in the cube's own frame, placed to match `FACE_AXES` in
@@ -89,37 +99,52 @@ const PIPS: Record<number, ReadonlyArray<readonly [number, number]>> = {
 
 type Vec = readonly [number, number, number];
 const add = (a: Vec, b: Vec, s = 1): Vec => [a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s];
-const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 interface Snapshot {
   x: number;
   y: number;
+  /** Height of the die's middle above the floor. `half` when it is lying on it. */
+  z: number;
+  a: number;
   q: readonly [number, number, number, number];
-  air: number;
+}
+
+/**
+ * The shadow a die casts, drawn before it. Its footprint, spread and faded as
+ * the die rises — the one cue for height there is.
+ */
+function drawShadow(art: Raster, ox: number, oy: number, tray: Tray, body: Snapshot) {
+  const k = TRAY_PX / tray.w;
+  const rest = (tray.die / 2) * k;
+  // The same numbers `DiceTray` writes, so the sheet is the app and not a
+  // second opinion about it: out from under the die by a third of a die per
+  // die of height, capped at two, spreading and fading as it goes.
+  const rise = Math.min(1, Math.max(0, (body.z - tray.die / 2) / tray.die) / 2);
+  const off = rise * tray.die * 0.3 * k;
+  const radius = rest * (1 + rise * 0.3);
+  art.circle(
+    ox + body.x * k + off,
+    oy + body.y * k + off,
+    radius,
+    [SHADOW[0], SHADOW[1], SHADOW[2], SHADOW[3] * (0.9 - rise * 0.3)],
+  );
 }
 
 /**
  * One die, projected and painted.
  *
- * The airborne lift is a *uniform* 3D scale about the die's own middle, which
- * is what `scale3d` means in `DiceTray.tsx`. It was a plain `scale()` for a
- * while, which scales x and y and leaves z — so a die coming off the table
- * grew wider and taller without growing deeper and stopped being a cube.
- * Drawing it the same way here is what would show that again.
+ * Orthographic, straight down, which is what the app does now: no perspective
+ * on the tray, so a die at the edge is seen exactly as square as one in the
+ * middle and its height moves it not at all. The whole of the projection is
+ * dropping z, and the whole of the camera is that the eye is at infinity
+ * along it.
  */
 function drawDie(art: Raster, ox: number, oy: number, tray: Tray, body: Snapshot) {
   const k = TRAY_PX / tray.w;
-  const trayH = TRAY_PX * (tray.h / tray.w);
-  const lift = 1 + 0.11 * (body.air / P.AIRBORNE);
-  const half = ((tray.die * k) / 2) * lift;
-  const centre: Vec = [body.x * k, body.y * k, 0];
-  const eye: Vec = [TRAY_PX / 2, trayH / 2, PERSPECTIVE];
+  const half = (tray.die * k) / 2;
+  const centre: Vec = [body.x * k, body.y * k, body.z * k];
 
-  /** The perspective divide, about the tray's centre, exactly as CSS does it. */
-  const project = (p: Vec): [number, number] => {
-    const s = PERSPECTIVE / (PERSPECTIVE - p[2]);
-    return [ox + TRAY_PX / 2 + (p[0] - TRAY_PX / 2) * s, oy + trayH / 2 + (p[1] - trayH / 2) * s];
-  };
+  const project = (p: Vec): [number, number] => [ox + p[0], oy + p[1]];
 
   const visible = [];
   for (const face of FACES) {
@@ -127,9 +152,8 @@ function drawDie(art: Raster, ox: number, oy: number, tray: Tray, body: Snapshot
     const u = turn(body.q, face.u as unknown as Vec) as unknown as Vec;
     const v = turn(body.q, face.v as unknown as Vec) as unknown as Vec;
     const fc = add(centre, n, half);
-    // Back-face cull against the eye rather than against the screen, since a
-    // die at the edge of the tray is seen at a steep angle.
-    if (dot(n, [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]) <= 0) continue;
+    // The eye is at infinity, so one direction culls every face on the die.
+    if (n[2] <= 0) continue;
     visible.push({ z: fc[2], num: face.num, fc, u, v });
   }
   // Painter's algorithm. Five of six faces are culled most of the time, but
@@ -175,7 +199,7 @@ function record(tray: Tray, from: ReturnType<typeof row>, n: number, seed: numbe
   let wall = 0;
   let travel = 0;
   while (moving > 0 && steps < 500) {
-    frames.push(world.bodies.map((b) => ({ x: b.x, y: b.y, q: b.q, air: b.air })));
+    frames.push(world.bodies.map((b) => ({ x: b.x, y: b.y, z: b.z, a: b.a, q: b.q })));
     const before = world.bodies.map((b) => ({ x: b.x, y: b.y }));
     bin.length = 0;
     moving = step(world, bin);
@@ -185,7 +209,7 @@ function record(tray: Tray, from: ReturnType<typeof row>, n: number, seed: numbe
     for (const c of bin) if (c.wall) wall++;
     steps++;
   }
-  frames.push(world.bodies.map((b) => ({ x: b.x, y: b.y, q: b.q, air: 0 })));
+  frames.push(world.bodies.map((b) => ({ x: b.x, y: b.y, z: b.z, a: b.a, q: b.q })));
   return {
     frames,
     rest: world.bodies.map((b) => ({ x: b.x, y: b.y, o: 0 })),
@@ -211,14 +235,28 @@ function sheet(tray: Tray, count: number, throws: number, cols: number, seed: nu
     runs.push(run);
     const oy = PANEL_GAP + t * (trayH + PANEL_GAP);
     for (let i = 0; i < cols; i++) {
-      const fi = Math.min(run.frames.length - 1, Math.round((i / (cols - 1)) * (run.frames.length - 1)));
+      /*
+        Time left to right, but not evenly: the panels bunch towards the start
+        of the throw, because that is where the throw is. A die is in the air
+        for about a sixth of it and lying still for the last third, and an even
+        sample spent two panels on dice that had stopped moving and none at all
+        on the arc — which is the part with a floor under it now.
+      */
+      const at = (i / (cols - 1)) ** 2;
+      const fi = Math.min(run.frames.length - 1, Math.round(at * (run.frames.length - 1)));
       const ox = PANEL_GAP + i * (TRAY_PX + PANEL_GAP);
       art.rect(ox, oy, TRAY_PX, trayH, PALETTE.board);
       art.rect(ox, oy, TRAY_PX, 1, EDGE);
       art.rect(ox, oy + trayH - 1, TRAY_PX, 1, EDGE);
       art.rect(ox, oy, 1, trayH, EDGE);
       art.rect(ox + TRAY_PX - 1, oy, 1, trayH, EDGE);
-      for (const body of run.frames[fi]) drawDie(art, ox, oy, tray, body);
+      // Every shadow, then every die: a shadow belongs to the table, and one
+      // die's shadow falling across another's face would say otherwise.
+      for (const body of run.frames[fi]) drawShadow(art, ox, oy, tray, body);
+      // Lowest first, so a die passing over another is drawn over it.
+      for (const body of [...run.frames[fi]].sort((a, b) => a.z - b.z)) {
+        drawDie(art, ox, oy, tray, body);
+      }
     }
     from = run.rest;
   }

@@ -25,9 +25,10 @@ export const CHECKERS = 15;
  * Not pixels: the server simulates the throw and reads the pair off it, so the
  * tray it simulates has to be the tray every device draws, whatever size that
  * device draws it at. Shallower than Yahtzee's and with a bigger die — two
- * dice in a tray sized for five read as two dice that got lost.
+ * dice in a tray sized for five read as two dice that got lost. Kept in step
+ * with Yahtzee's when both were made a quarter smaller.
  */
-export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 8 };
+export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 6 };
 
 /**
  * The dice on the table, and what is left of them.

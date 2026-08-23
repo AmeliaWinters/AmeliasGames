@@ -1357,9 +1357,20 @@ input:focus-visible {
   border-radius: var(--board-radius);
   background: var(--board);
   overflow: hidden;
-  /* Enough to see the sides of a die at the edge of the tray, not so much that
-     the near ones loom. */
-  perspective: 900px;
+  /*
+     No `perspective`, and that is the camera: under `preserve-3d` a cube with
+     no perspective above it is drawn orthographically, straight down.
+
+     It used to be 900px, which was a vanishing point about a hand's width in
+     front of the tray. Every die away from the middle was therefore seen from
+     one side, leaning, showing a face nobody asked for — five dice at rest on
+     a flat table, each apparently tipped a different way. A camera looking
+     down a tray from a foot away is not the camera anyone reads dice with.
+
+     What it costs is the one cue for height, since a die twice as high above
+     the table is now drawn in exactly the same place. That is what
+     `.die-shadow` is for.
+  */
   /* A finger drags across this; the browser must not read that as a scroll. */
   touch-action: none;
   user-select: none;
@@ -1379,6 +1390,39 @@ input:focus-visible {
   border-color: var(--accent);
 }
 
+/* Every die's shadow, under every die. One layer rather than a shadow inside
+   each slot, because slots overlap: a shadow living with its die would fall
+   across whichever neighbour happened to be drawn before it, and a shadow on
+   top of a die is a light source nothing else in the drawing agrees with. */
+.die-shadows {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/*
+   What is left of height, now the camera is orthographic: a die a die's width
+   up moves nowhere on screen, so the shadow spreading out from under it is the
+   only thing that says it is in the air rather than lying there.
+
+   A gradient rather than a blur filter — it is the same soft blob for a
+   twentieth of the cost, and this is written to five times a frame during the
+   part of the throw that has the most going on. At rest it is a circle
+   inscribed in the die's own square, which is to say: invisible, underneath
+   it, exactly as a die lying on the table casts nothing you can see.
+*/
+.die-shadow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--die);
+  height: var(--die);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+  will-change: transform, opacity;
+}
+
 /* What the solver actually moves. Sized as a share of the tray, so one number
    in `dice.ts` sets both the simulation and the drawing. */
 .die-slot {
@@ -1389,6 +1433,10 @@ input:focus-visible {
   aspect-ratio: 1;
   transform-style: preserve-3d;
   will-change: transform;
+  /* Over the shadows, and over each other by height — `draw` raises a die that
+     is passing above another. Without perspective, nothing else would say
+     which of two overlapping dice is the one in the air. */
+  z-index: 1;
 }
 
 /* Keeping a die is a button, so it is reachable by tab and not only by
@@ -1629,29 +1677,50 @@ input:focus-visible {
 
 /* The wheel and what it means, stacked: the thing you watch, then the fact it
    settled on, then how many guesses that leaves you. */
+/* No card. The wheel is a piece of machinery seen through a window, not a
+   picture of one — and a panel drawn round it fought the shape: the band ran
+   off the left and right edges into a border, which is what made a crop that
+   is meant to read as "there is more of this" read as "this has been cut". */
 .wof-wheel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px;
-  background: var(--surface);
 }
 
-/* A window onto the top of the wheel — see CROP in `WheelBoard.tsx`. The
-   wheel itself is drawn far bigger than this and mostly falls below the bottom
-   edge, which is what makes a wedge big enough to read. */
+/* A window onto the top of the wheel — see VIEW_W and CROP in
+   `WheelBoard.tsx`. The wheel itself is drawn twice as wide as this and mostly
+   falls off both sides, which is what makes a wedge big enough to read at
+   thirty-six of them. What is left is bounded by two circles rather than by
+   the edges of this box — see `bandPath` — so it reads as the rim of
+   something much bigger rather than as a fan of stripes. */
 .wof-wheel-frame {
   position: relative;
   width: 100%;
-  max-width: 460px;
-  aspect-ratio: 220 / 92;
+  /* Capped short of the column it sits in. The window is a band, so width
+     buys height at nearly two to one, and at the full 608px the wheel alone
+     was a third of a laptop screen with a keyboard still to come below it. */
+  max-width: 440px;
+  aspect-ratio: 104 / 64;
 }
 
 .wof-disc {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* The rim is thrown by hand, so it has to look like something you can take
+   hold of. `touch-action` is the load-bearing half: without it a flick up the
+   wheel is a flick down the page, and the browser takes the gesture away
+   mid-drag. Only while it is actually throwable — a wheel that resisted the
+   scroll on somebody else's turn would just be a bug. */
+.wof-disc.grabbable {
+  cursor: grab;
+  touch-action: none;
+}
+.wof-disc.dragging {
+  cursor: grabbing;
 }
 
 /* The turn itself. Heavily eased out, so it flies and then creeps the last few
@@ -1664,12 +1733,14 @@ input:focus-visible {
    starts at (0, 0) — see CENTRE in WheelBoard.tsx. Drawing it about the middle
    of a viewBox that starts at -110 put the pivot a full radius off the wheel
    and threw it clean off the screen on the first spin. */
-.wof-disc > g {
+.wof-turn {
   transform-box: view-box;
-  /* The wheel's own middle, handed over by the board. `center` meant half the
+  /* The wheel's own hub, handed over by the board. `center` meant half the
      box, which was the same point only while the box was square — the crop
-     made it a band, and half of that is a good way above the hub. */
-  transform-origin: var(--wof-centre) var(--wof-centre);
+     made it a band, and half of that is a good way above the hub. The hub is
+     below the frame entirely, which is why neither number can be guessed
+     from the box. */
+  transform-origin: var(--wof-hub-x) var(--wof-hub-y);
   /* Eased across the whole spin rather than front-loaded into the first fifth
      of it. The old curve was 45% of the way round by the first tenth of the
      time and 99.7% by the last sixth, so the wheel snapped and then sat
@@ -1679,9 +1750,17 @@ input:focus-visible {
   transition: transform var(--wof-spin, 2900ms) cubic-bezier(0.25, 0.6, 0.35, 1);
 }
 
+/* Under the finger there is nothing to ease: the wheel is where the hand put
+   it, and a transition here would lag the drag by the length of a whole spin. */
+.wof-disc.dragging .wof-turn {
+  transition: none;
+}
+
 .wof-wedge {
   stroke: var(--rule);
-  stroke-width: 0.6;
+  /* Units, not pixels, and the box is now half the width it was — so the same
+     hairline needs half the number to stay a hairline. */
+  stroke-width: 0.3;
 }
 .wof-wedge.cash {
   fill: var(--board);
@@ -1700,23 +1779,30 @@ input:focus-visible {
 }
 
 /* In viewBox units, so this is a share of the wheel and not a size in pixels:
-   at the crop's scale it comes out around 20px on a phone, against about 12
-   when the whole disc had to fit the same width. */
+   at the crop's scale it comes out around 17px on a phone.
+
+   It is the *ratio* that was wrong before, not the pixels. At 12 units against
+   a wedge nineteen units wide, "900" was fractionally wider than the wedge
+   carrying it — three digits set edge to edge with their neighbours, which is
+   why the wheel read as a wall of numbers. Measured rather than guessed: 5.4
+   units puts "900" at 73% of the fourteen-unit wedge carrying it, so there is
+   a clear seventh of a wedge of air on each side — and the wheel around it
+   grew by more than the number shrank, so it lost nothing on screen. */
 .wof-face {
   font-family: var(--body);
-  font-size: 12px;
+  font-size: 5.4px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   fill: var(--ink);
 }
-/* Bankrupt and Lose a Turn, as marks. A 15° slice is about nineteen units of
+/* Bankrupt and Lose a Turn, as marks. A 10° slice is about fourteen units of
    arc where the labels sit, which is not room for a word — so those two wedges
    carry a drawing instead, and say what they are in the readout below. Both
    sit on a filled wedge, so both are struck in the reversed ink. */
 .wof-glyph {
   fill: none;
   stroke: var(--ground);
-  stroke-width: 1.7;
+  stroke-width: 1.1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1725,10 +1811,31 @@ input:focus-visible {
    the rim, so the wedge it is sitting on is unmistakable. Drawn inside the
    wheel's own viewBox, so it keeps its place on the rim at every width.
    The stroke is the ground, which is what lifts it off a dark wedge. */
+/* The band's two edges. Not decoration: with the card gone the wheel needs an
+   edge of its own, and a real wheel has exactly this one — a rim. The inner
+   line is quieter, because it is where the wheel carries on out of sight
+   rather than where it ends. */
+.wof-rim {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+.wof-rim.inner {
+  stroke: var(--rule);
+  stroke-width: 0.8;
+}
+
+/* The flapper. Hinged along its top edge rather than pinned at its middle, so
+   the tip is knocked aside by each peg that passes under it and falls back
+   between them — see `flapAngle`. The angle is written straight onto the
+   element from a frame loop, so there is no transition here: it would smear
+   thirty-six ticks a turn into one slow wobble. */
 .wof-pointer {
+  transform-box: view-box;
+  transform-origin: var(--wof-hub-x) 1px;
   fill: var(--accent);
   stroke: var(--ground);
-  stroke-width: 1.5;
+  stroke-width: 0.8;
   stroke-linejoin: round;
 }
 
@@ -1788,7 +1895,7 @@ input:focus-visible {
   /* The wheel still lands on the right wedge — it just gets there at once.
      The value below it is never held back in this mode, so nothing is lost
      but the flourish. */
-  .wof-disc > g {
+  .wof-turn {
     transition: none;
   }
 }

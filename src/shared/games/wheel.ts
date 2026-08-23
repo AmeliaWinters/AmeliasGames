@@ -57,6 +57,7 @@ import {
   VOWEL_COST,
   WHEEL,
   money,
+  spinTravel,
   wedgeName,
 } from './wheelDisplay.js';
 import type { Wedge } from './wheelDisplay.js';
@@ -73,6 +74,7 @@ export {
   WEDGE_ARC,
   WHEEL,
   money,
+  spinTravel,
   wedgeLabel,
   wedgeName,
 } from './wheelDisplay.js';
@@ -136,6 +138,16 @@ export interface WofState {
    */
   spins: number;
   /**
+   * Wedges the last spin travelled, so the board can turn the wheel the
+   * distance it was actually thrown rather than a stock number of rotations.
+   *
+   * On the state rather than worked out on the client that flicked, because
+   * everyone at the table watches the same spin: the player who threw it is
+   * the only one who knows how hard, and the other three would otherwise see a
+   * different wheel reach the same wedge. Zero before the first spin.
+   */
+  travel: number;
+  /**
    * Correct letters found by the player to move, this turn. Reset whenever the
    * turn changes hands. At FINDS_PER_TURN the turn moves on — a hot streak is
    * worth having, not worth keeping the wheel for the whole round.
@@ -155,7 +167,13 @@ export interface WofState {
 }
 
 export type WofMove =
-  | { type: 'spin' }
+  /**
+   * `power` is how hard the wheel was flicked, 0 to 1 — see `spinTravel`. It
+   * is optional because the Spin button has no flick behind it: a keyboard, a
+   * screen reader and a player who would rather tap all reach the wheel that
+   * way, and for them the wheel decides, as it always did.
+   */
+  | { type: 'spin'; power?: number }
   | { type: 'letter'; letter: string }
   | { type: 'solve'; answer: string }
   | { type: 'next' };
@@ -575,6 +593,7 @@ function beginRound(state: WofState, rng: Rng): WofState {
     wedge: null,
     // A fresh puzzle gets a fresh wheel, standing where it was left.
     wedgeAt: null,
+    travel: 0,
     finds: 0,
     bank: state.bank.map(() => 0),
     note: null,
@@ -584,16 +603,53 @@ function beginRound(state: WofState, rng: Rng): WofState {
 
 // ── Moves ──────────────────────────────────────────────────────────────
 
-function spin(state: WofState, seat: number, rng: Rng): MoveResult<WofState> {
+/**
+ * How far a flick may miss what it aimed at, in wedges either way.
+ *
+ * The point of a grabbable wheel is that the throw decides, so this is small —
+ * but it is not nothing. Without it the curve in `spinTravel` is a lookup
+ * table, and a player with a steady hand and a slow-motion screen recording
+ * could learn to land on the wedge they wanted. Five wedges of scatter is
+ * fifty degrees, which no thumb can correct for, and still leaves a hard throw
+ * plainly further round than a gentle one.
+ */
+const FLICK_DRIFT = 2;
+
+/**
+ * `power` is the flick, 0 to 1, or undefined when the wheel was spun by the
+ * button and nobody threw it.
+ *
+ * Two paths on purpose, and they differ in which end is decided first. A
+ * button spin picks the wedge and works out a plausible journey to it, which
+ * is what the game has always done and what every seeded test here relies on.
+ * A flick picks the journey — that is what the player did — and finds out
+ * where it ended up. Both consume exactly one draw from `rng`, so neither can
+ * shift the other's sequence.
+ */
+function spin(state: WofState, seat: number, rng: Rng, power?: number): MoveResult<WofState> {
   if (state.phase !== 'spin') return { ok: false, error: 'Name your consonant first.' };
 
-  const at = pick(rng, WHEEL.length);
+  // Where the pointer is standing now. Null means the wheel has never been
+  // spun this round, and the board draws it at wedge zero.
+  const from = state.wedgeAt ?? 0;
+  let at: number;
+  let travel: number;
+  if (power === undefined) {
+    at = pick(rng, WHEEL.length);
+    // Three whole turns and then round to the wedge. The board needs a
+    // distance either way, and a button press has none of its own.
+    travel = 3 * WHEEL.length + (((at - from) % WHEEL.length) + WHEEL.length) % WHEEL.length;
+  } else {
+    travel = Math.max(1, spinTravel(power) + pick(rng, FLICK_DRIFT * 2 + 1) - FLICK_DRIFT);
+    at = (from + travel) % WHEEL.length;
+  }
   const wedge = WHEEL[at];
   const next = clone(state);
   next.wedge = wedge;
   // Where the pointer now is, and the fact that it moved at all — the board
   // needs both to spin the wheel to the right place.
   next.wedgeAt = at;
+  next.travel = travel;
   next.spins += 1;
 
   if (wedge.kind === 'bankrupt') {
@@ -735,6 +791,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       wedge: null,
       wedgeAt: null,
       spins: 0,
+      travel: 0,
       finds: 0,
       bank: Array<number>(seats).fill(0),
       score: Array<number>(seats).fill(0),
@@ -755,7 +812,13 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     }
     if (move.type === 'next') return { ok: false, error: 'This round is still going.' };
 
-    if (move.type === 'spin') return spin(state, seat, rng);
+    if (move.type === 'spin') {
+      // Anything but a number means "no flick" — the button, an old client, or
+      // one making things up. `spinTravel` clamps the range; this is only
+      // deciding which of the two spins happened.
+      const power = typeof move.power === 'number' ? move.power : undefined;
+      return spin(state, seat, rng, power);
+    }
 
     if (move.type === 'letter') {
       const letter = String(move.letter ?? '').toUpperCase();

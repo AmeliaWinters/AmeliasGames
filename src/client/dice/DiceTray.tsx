@@ -121,6 +121,7 @@ export function DiceTray({
   */
   const slots = useRef<Array<HTMLElement | null>>([]);
   const cubes = useRef<Array<HTMLElement | null>>([]);
+  const shadows = useRef<Array<HTMLElement | null>>([]);
   const world = useRef<World | null>(null);
   const pending = useRef(0);
   /*
@@ -167,26 +168,46 @@ export function DiceTray({
     slots.current.forEach((slot, i) => {
       const body = live.bodies[i];
       if (slot) slot.style.visibility = body ? "" : "hidden";
+      const shadow = shadows.current[i];
+      if (shadow) shadow.style.visibility = body ? "" : "hidden";
     });
     live.bodies.forEach((body, i) => {
+      const x = (body.x * k - size / 2).toFixed(2);
+      const y = (body.y * k - size / 2).toFixed(2);
+      /*
+        How high the die is, in dice. Zero lying on the table — which is where
+        it spends all of every turn except the third of a second after a throw.
+      */
+      const up = Math.max(0, (body.z - body.half) / tray.die);
       const slot = slots.current[i];
       if (slot) {
-        const x = (body.x * k - size / 2).toFixed(2);
-        const y = (body.y * k - size / 2).toFixed(2);
+        // The camera is orthographic, so height moves a die nowhere: the
+        // translate is the whole of its position. What height decides is which
+        // of two overlapping dice is on top, and that is the stacking order —
+        // a hundredth of a die is finer than anyone can see it.
+        slot.style.transform = "translate(" + x + "px," + y + "px)";
+        slot.style.zIndex = String(1 + Math.round(up * 100));
+      }
+      const shadow = shadows.current[i];
+      if (shadow) {
         /*
-          Nearer the eye while it is off the table, which is the only thing
-          that says a die passing over another is passing *over* it.
+          Slides out from under the die as it rises, and spreads and fades as
+          it goes. The sliding is the part that reads: a shadow that only
+          spreads is a shadow the die is still sitting on, and on a board this
+          dark the spreading alone was a few per cent of black on charcoal —
+          true to a light directly overhead, and invisible.
 
-          scale3d, and the 3d is the whole of it: a plain `scale()` is
-          `scale3d(k, k, 1)`, so under `preserve-3d` it stretched the face
-          the player was reading while leaving the half-die `translateZ` that
-          gives the cube its depth exactly where it was. The die left the table
-          as a slab — eleven per cent wider and taller than it was deep, at the
-          one moment in the throw anybody is watching it.
+          Down and to the right, which is where every other shadow in this
+          stylesheet is thrown from. Capped at two dice up, or a hard throw
+          parts a die from its shadow by half the tray.
         */
-        const lift = (1 + 0.11 * (body.air / P.AIRBORNE)).toFixed(3);
-        slot.style.transform =
-          "translate(" + x + "px," + y + "px) scale3d(" + lift + "," + lift + "," + lift + ")";
+        const rise = Math.min(1, up / 2);
+        const off = (rise * tray.die * 0.3 * k).toFixed(2);
+        shadow.style.transform =
+          "translate(calc(" + x + "px + " + off + "px)," +
+          "calc(" + y + "px + " + off + "px)) scale(" +
+          (1 + rise * 0.3).toFixed(3) + ")";
+        shadow.style.opacity = (0.9 - rise * 0.3).toFixed(3);
       }
       const cube = cubes.current[i];
       if (cube) cube.style.transform = matrix3d(body.q);
@@ -208,11 +229,13 @@ export function DiceTray({
           vy: 0,
           q: ORIENTATIONS[rest.o % ORIENTATIONS.length],
           half: tray.die / 2,
+          // Lying on the table. Dice at rest are the only thing this places.
+          z: tray.die / 2,
+          vz: 0,
           im: 0,
           ii: 0,
           asleep: true,
           slow: 0,
-          air: 0,
           tip: null,
         })),
         rng: () => 0,
@@ -346,6 +369,19 @@ export function DiceTray({
       aria-describedby={hint ? hintId : undefined}
       {...handlers}
     >
+      {/* Under every die, and never under a finger: a shadow is not a target,
+          and it is not something a screen reader has any use for. */}
+      <span className="die-shadows" aria-hidden="true">
+        {Array.from({ length: count }, (_, i) => (
+          <span
+            key={i}
+            className="die-shadow"
+            ref={(el) => {
+              shadows.current[i] = el;
+            }}
+          />
+        ))}
+      </span>
       {Array.from({ length: count }, (_, i) => {
         // A cube shows whatever face the solver has turned towards the
         // player, so there is nothing to withhold here and nothing to reveal:

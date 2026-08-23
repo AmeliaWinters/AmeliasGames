@@ -56,56 +56,107 @@ export type Wedge =
 const cash = (value: number): Wedge => ({ kind: 'cash', value });
 
 /**
- * Twenty-four wedges in wheel order: twenty-two cash, one Bankrupt and one
+ * Thirty-six wedges in wheel order: thirty-four cash, one Bankrupt and one
  * Lose a Turn. The order is kept rather than sorted because it is a wheel, and
- * a wheel has an order — one the board now draws, so this is the layout of the
+ * a wheel has an order — one the board draws, so this is the layout of the
  * thing on screen as well as the odds behind it.
  *
- * **Why one Bankrupt and not the show's two.** The odds on a wedge are not the
+ * **Why thirty-six and not the show's twenty-four.** The board shows a crop of
+ * the rim rather than the whole disc, so the number of wedges sets how much of
+ * the wheel is in view at once and not how big a wedge is drawn: more of them
+ * means a longer rim streaming past the pointer, which is the thing that reads
+ * as a spin. Twenty-four put nearly half the wheel in the window at the zoom
+ * the numbers need to be legible, and you could see your fate coming.
+ *
+ * **Why one Bankrupt and one Lose a Turn.** The odds on a wedge are not the
  * odds a player feels; what they feel is how often a turn ends badly, and that
  * depends on how often they spin. On the show a turn is usually one spin. Here
- * `FINDS_PER_TURN` is three, so a good turn is three spins — and two Bankrupts
- * in twenty-four took very nearly a quarter of all turns to nothing
- * (1 - (22/24)³ = 23%). One takes an eighth, which is frightening without
- * being the thing the game is mostly about.
- *
- * Lose a Turn is left alone: it costs the turn, not the money, so meeting it
- * three times as often as the show does is a smaller unfairness.
+ * `FINDS_PER_TURN` is three, so a good turn is three spins — and two bad
+ * wedges in twenty-four took better than a fifth of all turns to nothing
+ * (1 - (22/24)^3 = 21%). Two in thirty-six takes 16%, which is frightening
+ * without being the thing the game is mostly about, and it was the second
+ * complaint about this wheel after the size of its numbers.
  */
 export const WHEEL: readonly Wedge[] = [
   cash(900),
-  cash(700),
+  cash(500),
   cash(300),
   cash(800),
+  cash(400),
+  cash(650),
+  cash(300),
   cash(550),
-  cash(400),
-  cash(300),
   cash(900),
-  cash(500),
-  cash(300),
-  cash(900),
-  { kind: 'bankrupt' },
-  cash(600),
-  cash(400),
-  cash(300),
-  cash(500),
-  cash(800),
   cash(350),
+  cash(600),
+  cash(300),
+  cash(700),
+  cash(450),
+  cash(800),
+  cash(300),
+  cash(500),
+  cash(650),
+  { kind: 'bankrupt' },
+  cash(400),
+  cash(750),
+  cash(300),
+  cash(900),
+  cash(500),
+  cash(350),
+  cash(600),
+  cash(300),
+  cash(850),
   cash(450),
   cash(700),
   cash(300),
+  cash(550),
+  cash(800),
+  cash(400),
   cash(600),
-  cash(650),
   { kind: 'lose-turn' },
 ];
 
 /** Degrees of arc each wedge takes up. */
 export const WEDGE_ARC = 360 / WHEEL.length;
 
+// ── The throw ──────────────────────────────────────────────────────────
+
+/**
+ * How far a spin carries, in wedges, at the gentlest and the hardest flick.
+ *
+ * The player grabs the rim and throws it, and the speed they let go at is what
+ * decides where it stops — so these two numbers are the whole of the wheel's
+ * feel. The floor is a little over a full turn: hard enough that a slow, aimed
+ * drag cannot be used to park the wheel on a wedge somebody fancied, which is
+ * the one way this control could be cheated. The ceiling is five and a half
+ * turns, past which a spin is only a longer wait for the same answer.
+ */
+export const SPIN_MIN_TRAVEL = 40;
+export const SPIN_MAX_TRAVEL = 198;
+
+/**
+ * Wedges travelled for a flick of `power`, where power is 0 at the minimum
+ * useful speed and 1 at the point where throwing harder stops meaning
+ * anything.
+ *
+ * Shared rather than server-only because the board animates the same journey
+ * the reducer just resolved, and a wheel that turned a different distance from
+ * the one it landed by would be an animation of a lie. The reducer adds a
+ * wedge or two of drift on top — see `spin` in `wheel.ts` — so a player who
+ * learned this curve by heart still could not aim.
+ *
+ * The clamp is not politeness: `power` arrives from a client, which may be
+ * lying or broken, and a NaN here would travel the wheel nowhere for ever.
+ */
+export function spinTravel(power: number): number {
+  const p = Number.isFinite(power) ? Math.min(Math.max(power, 0), 1) : 0;
+  return Math.round(SPIN_MIN_TRAVEL + p * (SPIN_MAX_TRAVEL - SPIN_MIN_TRAVEL));
+}
+
 /**
  * What a wedge says on its face.
  *
- * In practice only the cash wedges reach it: a 15° slice has no room for a
+ * In practice only the cash wedges reach it: a 10° slice has no room for a
  * word, so the board draws Bankrupt and Lose a Turn as marks instead and says
  * them in full in the readout underneath. The other two labels are kept
  * because this is what a wedge is called, and a function that answers for two

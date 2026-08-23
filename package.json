@@ -9,6 +9,7 @@
     "dev:client": "vite",
     "test": "vitest run",
     "render:throw": "tsx scripts/render-throw.ts",
+    "render:wheel": "tsx scripts/render-wheel.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.client.json && tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json",
     "build": "vite build",

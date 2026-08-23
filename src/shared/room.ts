@@ -22,7 +22,7 @@ export interface SeatRecord {
  * score beside them. That is the same failure as a misread field and takes the
  * same cure.
  */
-export const SNAPSHOT_VERSION = 6;
+export const SNAPSHOT_VERSION = 8;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {

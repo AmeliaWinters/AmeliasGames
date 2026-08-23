@@ -73,7 +73,7 @@ describe('the cube', () => {
 });
 
 describe('a throw', () => {
-  it('comes to rest, and inside the second', () => {
+  it('comes to rest, and inside the hard stop', () => {
     for (let seed = 0; seed < 40; seed++) {
       const world = thrown({ seed, x: 2.4, y: -3.1 });
       let moving = 1;
@@ -84,7 +84,9 @@ describe('a throw', () => {
       }
       expect(moving).toBe(0);
       // The hard stop, plus the last of the fall onto a face, plus the step
-      // the hard stop is noticed in.
+      // the hard stop is noticed in. An ordinary throw is done well before
+      // this — about 1.3 seconds — and the promise here is only that there is
+      // no throw that is not done.
       expect(steps * P.STEP * 1000).toBeLessThanOrEqual(
         P.HARD_STOP + P.SQUARE_MS + P.STEP * 1000,
       );
@@ -213,6 +215,99 @@ describe('a die coming to rest', () => {
         expect(body.q).toEqual(ORIENTATIONS[settled.rest[i].o]);
         expect(faceOf(ORIENTATIONS[settled.rest[i].o])).toBe(settled.faces[i]);
       });
+    }
+  });
+});
+
+describe('the floor', () => {
+  /**
+   * The dice are thrown *onto* something. Height is the one part of their
+   * motion that cannot be seen directly — the camera is orthographic, so a die
+   * a die's width up is drawn exactly where a die lying down is — which makes
+   * it the part most worth a test rather than an eye.
+   */
+  it('sends every die up, and brings it back down', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const world = thrown({ seed, x: 2.7, y: -2.2 });
+      const apex = world.bodies.map(() => 0);
+      let moving = 1;
+      let steps = 0;
+      while (moving > 0 && steps < 2000) {
+        moving = step(world, []);
+        world.bodies.forEach((b, i) => {
+          apex[i] = Math.max(apex[i], (b.z - b.half) / TRAY.die);
+        });
+        steps++;
+      }
+      // Up by most of its own size at least: this is a throw, not a shove.
+      for (const high of apex) expect(high).toBeGreaterThan(0.5);
+      // And lying on it at the end. Exactly, because a die a hair above the
+      // floor is a die the next throw drops from a height nobody chose.
+      for (const body of world.bodies) expect(body.z).toBe(body.half);
+    }
+  });
+
+  it('keeps a die that is being kept on the table', () => {
+    // It is not thrown, so nothing lifts it — and a held die that hopped would
+    // be a die that moved, which is the one thing keeping one promises.
+    const held = [true, false, false, false, false];
+    const from = row(TRAY, 5);
+    const world = open({ tray: TRAY, toss: toss({ x: 2.4, y: -2.4 }), from, held });
+    let moving = 1;
+    let steps = 0;
+    while (moving > 0 && steps < 2000) {
+      expect(world.bodies[0].z).toBe(world.bodies[0].half);
+      moving = step(world, []);
+      steps++;
+    }
+  });
+
+  it('turns slowly enough to be seen turning', () => {
+    /*
+      The bug a player reported, and the one thing about the throw that was
+      never a matter of taste. Two halves, and the numbers are for the tray
+      that ships, measured as the worst frame in forty throws:
+
+      - a cube that rolls corner over corner without slipping turns at its
+        speed over its own half-width, which for these dice crossing a tray at
+        a metre a second is **177 degrees between one 60Hz frame and the
+        next** — more than half a turn, so which way it went is not merely
+        hard to follow, it is not in the drawing at all;
+      - and a corner strike spins a die in the plane, which got sharper when
+        the dice were made smaller, since a cube resists being spun by the
+        square of its size. That alone was **93 degrees**.
+
+      `ROLL` and `SPIN_MAX` are the two halves, and together they bring the
+      worst frame to 57. The line is a quarter turn, past which the shortest
+      way round is ambiguous and the die reads as flickering rather than
+      rolling. Held against the real tray, because it is the die's size that
+      decides all of this.
+    */
+    const frame = Math.round(1 / 60 / P.STEP);
+    for (let seed = 0; seed < 40; seed++) {
+      const from = row(YAHTZEE_TRAY, 5);
+      const world = open({
+        tray: YAHTZEE_TRAY,
+        from,
+        toss: { n: 1, seed, x: 2.7, y: -2.2, spin: [0, 5, 11, 17, 22], from, rest: from },
+      });
+      let mark = world.bodies.map((b) => b.q);
+      let moving = 1;
+      let steps = 0;
+      while (moving > 0 && steps < 4000) {
+        moving = step(world, []);
+        steps++;
+        // Once per frame of the screen the die is being watched on, whatever
+        // rate the solver happens to run at.
+        if (steps % frame !== 0) continue;
+        world.bodies.forEach((b, i) => {
+          const dot = Math.abs(
+            mark[i][0] * b.q[0] + mark[i][1] * b.q[1] + mark[i][2] * b.q[2] + mark[i][3] * b.q[3],
+          );
+          expect(2 * Math.acos(Math.min(1, dot))).toBeLessThan(Math.PI / 2);
+        });
+        mark = world.bodies.map((b) => b.q);
+      }
     }
   });
 });
@@ -436,6 +531,11 @@ describe('a throw uses the tray it is thrown into', () => {
       is the aim's contribution alone). 0.48 sits clear of both, which is the
       only useful place for a floor: tight enough to fail the thing it was
       written for, loose enough that ordinary retuning does not trip it.
+
+      Giving the dice a floor to bounce on, shrinking them by a quarter and
+      lengthening the throw have moved it to 0.600 between them — the same
+      measurement, of a throw that now arcs, lands four times and keeps
+      rolling afterwards.
     */
     const { grids } = sequences(40);
     const mean = grids.reduce((a, b) => a + b, 0) / grids.length;
