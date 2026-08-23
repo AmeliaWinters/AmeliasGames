@@ -51,6 +51,30 @@ server and the Durable Object are both just sockets bolted to it. That's why
 local dev can stay a fast `ws` server while production runs on Workers without
 the two drifting apart.
 
+`src/shared/session.ts` is the layer just above it, and it exists for the same
+reason. Reading a frame, checking the protocol version, clamping a name,
+deciding which room a create-flagged `hello` may have, and running one of the
+four action messages without letting an exception escape — all of that used to
+live in *both* adapters, in the same order, with the same reasoning written out
+twice. That is the security-critical surface and the worst possible thing to
+keep two copies of: each adapter had its own tests proving its own copy, so a
+rule tightened on one side and missed on the other passed everywhere.
+
+Everything in `session.ts` is pure and synchronous, which is what lets the
+Durable Object — whose engine arrives from storage, asynchronously, and may not
+arrive at all — share it with a dev server holding engines in a `Map`. The
+split falls where the `await` does: the adapter fetches the engine, `session.ts`
+decides what to do with it. What stays per-adapter is what genuinely differs —
+seat bookkeeping, persistence, and waking up.
+
+On the client, `src/client/games/boards.ts` does the equivalent job for the
+board components. `RoomView.state` comes off a socket as JSON, so somewhere a
+human has to assert which game's state it is; that assertion used to be made
+ten times, once per case of a switch, each pairing a `gameId` string with a
+cast by hand and nothing checking that the two matched. Now the pairing is a
+type the compiler checks, and exactly one cast survives — in `boardFor`, which
+is the single point where the wire is taken at its word.
+
 **`src/shared/games/*.ts` is the important part.** Each game is a pure reducer
 with no I/O, no framework, no randomness it didn't receive:
 
@@ -144,7 +168,7 @@ the registry. That is load-bearing rather than incidental, and worth a
 for the other, then both hunt the word they were given. Six guesses; fewer
 guesses wins, the same count is a draw, and solving does not end the game —
 your opponent still plays out the guesses they have left. Its word list is
-`DUEL_WORDS`: the five-letter half of the shared dictionary, about sixteen
+`duelWords()`: the five-letter half of the shared dictionary, about sixteen
 thousand words from dwyl/english-words plus a short hand-kept list of slang the
 dictionary predates. Split out as its own set rather than filtered at the call
 site, so a game played at one length cannot quietly start taking another. It is raw and
@@ -152,12 +176,13 @@ unfiltered, slurs included -- a deliberate choice. A hand-written list was
 tried first and was not fit for purpose: it was missing `below`, `being` and
 `alias`, and a word game that rejects real words is one people argue with.
 
-It is the game that breaks the turn model. Play is *free-simultaneous*: nobody
-waits, so `GameDefinition.turn` — which assumes one active seat — reports
-whoever is furthest behind purely to give the status line something to say.
-The reducer never consults it, and neither does the board. Whether a player may
-act is `canAct(state, seat)`, and that distinction is the whole reason
-`wordleDisplay.ts` exists.
+It is the game that broke the turn model, and the reason the contract now has
+two questions rather than one. Play is *free-simultaneous*: nobody waits, so
+`GameDefinition.turn` — which assumes one active seat — reports whoever is
+furthest behind purely to give the status line something to say. Whether a
+player may act is `canAct(state, seat)`, which every game answers and the
+server sends to each client as `RoomView.canAct`. The reducer never consults
+`turn`, and neither does any board.
 
 Both players' guesses and marks are open, which costs nothing and is worth
 saying why: you are each guessing the *other's* word, so their attempts on
@@ -258,7 +283,8 @@ or miss — the "another go after a hit" variant is a real way to play and
 deliberately not this one, because a lucky opening run can end the game before
 the other player has fired a shot. `room.turn` is therefore wrong about placing
 and right about firing, so nothing asks it: `canAct` is the single predicate
-that covers both, and the board takes no `myTurn` at all.
+that covers both, and here it is `turn` that is derived from `canAct` rather
+than the other way about — during placing there is no turn to derive from.
 
 `view()` keeps the one secret. Every shot either player has fired is already
 drawn on both boards, so all that is redacted is where the enemy ships *are* —
@@ -300,7 +326,7 @@ losing to one five is the game working.
 
 The dictionary is the one Word Duel validates against, cut to the same range:
 every three- to eight-letter entry in dwyl/english-words, slang, dialect and
-profanity included. Word Duel takes `DUEL_WORDS`, the five-letter subset and
+profanity included. Word Duel takes `duelWords()`, the five-letter subset and
 nothing else, so a game played at one length cannot start accepting another by
 accident. `words.test.ts` also holds the list's two ends against Word Hunt's,
 because the board draws paths to those limits and a dictionary that disagreed

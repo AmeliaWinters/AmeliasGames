@@ -322,8 +322,13 @@ export function movers(state: MmState, seat: number): number[] {
  * A seat with men still in hand always has one: placing needs an empty point,
  * and eighteen men on twenty-four points leaves six of them however the game
  * has gone. Only a player who has run out of men to place can be walled in.
+ *
+ * Deliberately not `canAct`, which on `GameDefinition` means "may this seat
+ * move *right now*" and here would be false for the player not on turn. This
+ * asks the losing condition — being walled in — and it is asked about the seat
+ * about to receive the turn, before they have it.
  */
-export function canAct(state: MmState, seat: number): boolean {
+export function hasMove(state: MmState, seat: number): boolean {
   if (mustPlace(state, seat)) return state.board.some((cell) => cell === null);
   return movers(state, seat).length > 0;
 }

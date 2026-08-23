@@ -6,7 +6,6 @@ import {
   BOARD_SIZE,
   FLEET,
   afloat,
-  canAct,
   fleetReady,
   isHidden,
   isSunk,
@@ -25,18 +24,9 @@ import type {
 } from "../../shared/games/battleshipDisplay.js";
 import { play } from "../sfx.js";
 
-interface Props {
-  state: BsState;
-  seat: number | null;
-  names: string[];
-  onMove(move: BsMove): void;
-}
+import type { BoardProps } from "./boards.js";
 
-/**
- * Note the absence of `myTurn`. Placing is free-simultaneous, and firing hands
- * the guns over only on a miss, so whether this player may act right now is a
- * question only `canAct` answers correctly in both halves of the game.
- */
+type Props = BoardProps<BsState, BsMove>;
 
 const ROWS = Array.from({ length: BOARD_SIZE }, (_, i) => i);
 
@@ -302,7 +292,7 @@ function useShotSounds(state: BsState): void {
   }, [state]);
 }
 
-export function BattleshipBoard({ state, seat, names, onMove }: Props) {
+export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
   useShotSounds(state);
   const them = seat === null ? null : opponentOf(seat);
   const nameFor = (index: number | null) =>
@@ -330,7 +320,7 @@ export function BattleshipBoard({ state, seat, names, onMove }: Props) {
   }
 
   const mine = seat !== null;
-  const myShot = mine && canAct(state, seat);
+  const myShot = mine && canAct;
   // Which shots are on which board: yours land in their waters, theirs in
   // yours. Getting this pair the wrong way round is the one mistake that
   // would make the whole screen quietly lie, so it is named once, here.

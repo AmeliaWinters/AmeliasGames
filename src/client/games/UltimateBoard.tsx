@@ -15,13 +15,9 @@ import {
 } from "../../shared/games/ultimateDisplay.js";
 import type { UtMove, UtState } from "../../shared/games/ultimateDisplay.js";
 
-interface Props {
-  state: UtState;
-  seat: number | null;
-  names: string[];
-  myTurn: boolean;
-  onMove(move: UtMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<UtState, UtMove>;
 
 /**
  * Nine boards inside a board, and the only hard part is showing which one you
@@ -37,7 +33,7 @@ interface Props {
  * record of how it was won, and on a phone the alternative — one big mark over
  * nine small ones — is two overlapping shapes in the same colour.
  */
-export function UltimateBoard({ state, seat, names, myTurn, onMove }: Props) {
+export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
   const nameFor = (index: 0 | 1) => names[index] ?? `Player ${index + 1}`;
   const open = new Set(openBoards(state));
   // One open board is an instruction; eight is a permission. Both are true
@@ -57,7 +53,7 @@ export function UltimateBoard({ state, seat, names, myTurn, onMove }: Props) {
             target={open.has(small)}
             only={only}
             crowned={crowned.has(small)}
-            myTurn={myTurn}
+            canAct={canAct}
             names={names}
             onMove={onMove}
           />
@@ -88,7 +84,7 @@ function SmallBoard({
   target,
   only,
   crowned,
-  myTurn,
+  canAct,
   names,
   onMove,
 }: {
@@ -97,7 +93,7 @@ function SmallBoard({
   target: boolean;
   only: boolean;
   crowned: boolean;
-  myTurn: boolean;
+  canAct: boolean;
   names: string[];
   onMove(move: UtMove): void;
 }) {
@@ -133,7 +129,7 @@ function SmallBoard({
       {Array.from({ length: SPOTS }, (_, spot) => {
         const cell = cellAt(small, spot);
         const mark = state.board[cell];
-        const playable = myTurn && legal(state, cell);
+        const playable = canAct && legal(state, cell);
         const cellClasses = [
           "ut-cell",
           "surface",

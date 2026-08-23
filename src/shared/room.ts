@@ -340,6 +340,10 @@ export class RoomEngine {
       // yet, and a board handed a made-up state would draw a lie.
       state: waiting ? null : this.def.view ? this.def.view(this.state, seat) : this.state,
       turn: waiting ? null : this.def.turn(this.state),
+      // Nobody may act before the deal, and nobody at all is at seat -1 — a
+      // spectator socket would otherwise be handed a true by a game whose
+      // `canAct` only range-checks the seat it was given.
+      canAct: waiting || seat < 0 ? false : this.def.canAct(this.state, seat, now),
       status: waiting ? this.lobbyStatus() : this.def.status(this.state, names),
       over: waiting ? false : this.def.isOver(this.state),
       waiting,

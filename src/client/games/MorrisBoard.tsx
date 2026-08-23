@@ -19,13 +19,9 @@ import {
 } from "../../shared/games/morrisDisplay.js";
 import type { MmMove, MmState } from "../../shared/games/morrisDisplay.js";
 
-interface Props {
-  state: MmState;
-  seat: number | null;
-  names: string[];
-  myTurn: boolean;
-  onMove(move: MmMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<MmState, MmMove>;
 
 /**
  * How much board there is around the outer square, in board units.
@@ -122,14 +118,14 @@ function Hand({ name, held, standing, fly }: {
   );
 }
 
-export function MorrisBoard({ state, seat, names, myTurn, onMove }: Props) {
+export function MorrisBoard({ state, seat, names, canAct, onMove }: Props) {
   const [chosen, setChosen] = useState<number | null>(null);
 
   // A selection stops meaning anything the moment the position changes — and
   // that includes the man being taken off by somebody else's mill.
   useEffect(() => setChosen(null), [state.board, state.turn, state.taking]);
 
-  const acting = seat !== null && myTurn;
+  const acting = seat !== null && canAct;
   const taking = acting && state.taking === seat;
   const placing = acting && !taking && mustPlace(state, seat);
   const moving = acting && !taking && !placing;

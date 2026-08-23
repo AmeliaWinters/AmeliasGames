@@ -1,13 +1,11 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomEngine, isRoomCode } from '../shared/room.js';
-import { getGame } from '../shared/games/index.js';
-import {
-  PONG_FRAME,
-  PROTOCOL_VERSION,
-  type ClientMessage,
-  type ErrorKind,
-  type ServerMessage,
-} from '../shared/protocol.js';
+// The protocol above the engine — reading a frame, validating a hello, which
+// room a hello gets, running an action without throwing. Shared with the
+// worker, because two copies of those rules is two copies that can drift.
+import { admit, applyAction, isAction, readFrame, readHello } from '../shared/session.js';
+import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
+import type { Refusal } from '../shared/session.js';
 
 // Deliberately not PORT: dev launchers inject PORT for the web server, and we
 // would collide with Vite.
@@ -43,8 +41,8 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-function fail(socket: WebSocket, kind: ErrorKind, message: string): void {
-  send(socket, { t: 'error', kind, message });
+function fail(socket: WebSocket, refusal: Refusal): void {
+  send(socket, { t: 'error', kind: refusal.kind, message: refusal.error });
 }
 
 function broadcast(room: Room): void {
@@ -79,23 +77,14 @@ function armDeadline(room: Room): void {
   room.timer.unref?.();
 }
 
-function handleConnection(socket: WebSocket): void {
+function handleConnection(socket: WebSocket, routingCode: string | null): void {
   let joined: { room: Room; seat: number } | null = null;
   pending.set(socket, Date.now());
 
   socket.on('message', (raw) => {
-    let msg: ClientMessage;
-    try {
-      msg = JSON.parse(String(raw));
-    } catch {
-      return fail(socket, 'protocol', 'Malformed message.');
-    }
-    // JSON.parse of the four bytes `null` succeeds and yields null, and
-    // reading `.t` off that throws — which `ws` does not trap, so it would
-    // reach uncaughtException and take every room on this server with it.
-    if (typeof msg !== 'object' || msg === null) {
-      return fail(socket, 'protocol', 'Malformed message.');
-    }
+    const frame = readFrame(String(raw));
+    if (!frame.ok) return fail(socket, frame);
+    const msg = frame.msg;
 
     // Before `hello`, and before anything else: a heartbeat is how the client
     // tells a live socket from one that died without saying so, and it has to
@@ -110,44 +99,23 @@ function handleConnection(socket: WebSocket): void {
     if (msg.t === 'hello') {
       if (joined) return;
 
-      if (msg.v !== PROTOCOL_VERSION) {
-        return fail(socket, 'protocol', 'This page is out of date — please refresh.');
-      }
+      const greeting = readHello(msg, routingCode);
+      if (!greeting.ok) return fail(socket, greeting);
+      const { hello } = greeting;
 
-      const name = String(msg.name ?? '').trim().slice(0, 20) || 'Player';
-      const playerId = String(msg.playerId ?? '');
-      const code = String(msg.code ?? '').toUpperCase();
-      const gameId = String(msg.gameId ?? '');
-      if (!playerId) return fail(socket, 'protocol', 'Missing player id.');
-      if (!isRoomCode(code)) return fail(socket, 'protocol', 'Invalid room code.');
+      // The engine, or nothing — the only I/O this adapter does to find one.
+      // In production the same step is a read from Durable Object storage.
+      const found = admit(rooms.get(hello.code)?.engine ?? null, hello);
+      if (!found.ok) return fail(socket, found);
 
-      let room = rooms.get(code);
+      let room = rooms.get(hello.code);
       if (!room) {
-        if (!msg.create) return fail(socket, 'no-room', 'No room with that code.');
-        if (!getGame(gameId)) return fail(socket, 'rejected', 'Could not create that game.');
-        // No size to settle: the room opens empty and takes whoever arrives,
-        // up to whatever the game itself seats.
-        const engine = RoomEngine.create(code, gameId);
-        if (!engine) return fail(socket, 'rejected', 'Could not create that game.');
-        room = { engine, sockets: new Map(), emptySince: Date.now(), timer: null };
-        rooms.set(code, room);
-      } else {
-        // Starting a "new" game on a code that is already someone else's room
-        // would silently seat you as player two of their game. A room this
-        // player already has a seat in is not someone else's — a create-flagged
-        // hello arriving twice is ordinary, and refusing it would lock the host
-        // out of the room they just made.
-        const mine = room.engine.seatOf(playerId) !== -1;
-        if (msg.create && !room.engine.isFresh() && !mine) {
-          return fail(socket, 'full', 'That code is already in use. Try starting again.');
-        }
-        if (gameId && gameId !== room.engine.def.id) {
-          return fail(socket, 'rejected', `That room is playing ${room.engine.def.name}.`);
-        }
+        room = { engine: found.engine, sockets: new Map(), emptySince: Date.now(), timer: null };
+        rooms.set(hello.code, room);
       }
 
-      const result = room.engine.join(playerId, name);
-      if (!result.ok) return fail(socket, result.kind, result.error);
+      const result = room.engine.join(hello.playerId, hello.name);
+      if (!result.ok) return fail(socket, { kind: result.kind, error: result.error });
 
       // A second tab for the same player takes over the seat rather than
       // leaving a zombie socket receiving updates. 4000 tells that client the
@@ -173,30 +141,13 @@ function handleConnection(socket: WebSocket): void {
       return;
     }
 
-    if (!joined) return fail(socket, 'rejected', 'Join a room first.');
+    if (!joined) return fail(socket, { kind: 'rejected', error: 'Join a room first.' });
     const { room, seat } = joined;
 
-    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch' || msg.t === 'start') {
-      // The server runs the same reducer the client does, and its answer wins.
-      // A reducer is not supposed to throw, but an exception escaping a `ws`
-      // message handler is an uncaught exception, which is fatal to the
-      // process and to every other room in it.
-      let result;
-      try {
-        result =
-          msg.t === 'move'
-            ? room.engine.move(seat, msg.move)
-            : msg.t === 'switch'
-              ? room.engine.switchGame(String(msg.gameId ?? ''))
-              : msg.t === 'start'
-                ? room.engine.start(seat)
-                : room.engine.rematch();
-      } catch {
-        return fail(socket, 'rejected', 'That move could not be played.');
-      }
-      if (!result.ok) return fail(socket, 'rejected', result.error);
+    if (isAction(msg)) {
+      const result = applyAction(room.engine, seat, msg);
+      if (!result.ok) return fail(socket, { kind: 'rejected', error: result.error });
       broadcast(room);
-      return;
     }
   });
 
@@ -227,7 +178,11 @@ export function startServer(port: number = PORT): WebSocketServer {
       socket.close(4003, 'Invalid room code');
       return;
     }
-    handleConnection(socket);
+    // Passed on so `readHello` can hold the hello to it. Nothing here routes
+    // by code — rooms are keyed by whatever the hello says — but "the code on
+    // the socket is the code in the hello" is an invariant the worker enforces,
+    // and an invariant enforced in one adapter only is where the two drift.
+    handleConnection(socket, code || null);
   });
   return wss;
 }

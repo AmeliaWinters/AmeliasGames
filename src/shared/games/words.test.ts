@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  DUEL_WORDS,
+  duelWords,
   MAX_WORD_LENGTH,
   MIN_WORD_LENGTH,
-  WORDS,
+  allWords,
   WORD_LENGTH,
   WORD_SOURCE,
   isDuelWord,
@@ -19,6 +19,27 @@ import { MAX_WORD, MIN_WORD } from './wordHuntDisplay.js';
 describe('the word list', () => {
   const tokens = WORD_SOURCE.split(/\s+/).filter(Boolean);
 
+  /**
+   * The dictionary costs about 34ms to build and eight of the ten games never
+   * open one, so it is built on first use rather than at import. That saving
+   * is invisible — nothing fails if it goes away — which is exactly why it is
+   * worth a test: one `const WORDS = allWords()` at the top of any module and
+   * every cold start pays for a hundred and fifty thousand words again.
+   */
+  it('is not built merely because a module imported it', async () => {
+    vi.resetModules();
+    const words = await import('./words.js');
+    expect(words.dictionaryIsBuilt()).toBe(false);
+
+    // Importing the registry pulls in every reducer, Word Duel and Word Hunt
+    // among them. Still nothing should have asked for a word.
+    await import('./index.js');
+    expect(words.dictionaryIsBuilt(), 'the registry opened the dictionary').toBe(false);
+
+    words.isWord('CRANE');
+    expect(words.dictionaryIsBuilt()).toBe(true);
+  });
+
   it('holds nothing but lower-case letters, at the lengths it claims', () => {
     const pattern = new RegExp(`^[a-z]{${MIN_WORD_LENGTH},${MAX_WORD_LENGTH}}$`);
     const wrong = tokens.filter((word) => !pattern.test(word));
@@ -27,16 +48,16 @@ describe('the word list', () => {
 
   it('keeps every token it was given', () => {
     expect(tokens.length).toBeGreaterThan(0);
-    expect(new Set(tokens).size).toBe(WORDS.size);
+    expect(new Set(tokens).size).toBe(allWords().size);
   });
 
   it('is big enough that playing does not feel like fighting the dictionary', () => {
-    expect(WORDS.size).toBeGreaterThan(100000);
-    expect(DUEL_WORDS.size).toBeGreaterThan(15000);
+    expect(allWords().size).toBeGreaterThan(100000);
+    expect(duelWords().size).toBeGreaterThan(15000);
   });
 
   it('holds every length between its two ends', () => {
-    const lengths = new Set([...WORDS].map((word) => word.length));
+    const lengths = new Set([...allWords()].map((word) => word.length));
     for (let n = MIN_WORD_LENGTH; n <= MAX_WORD_LENGTH; n++) {
       expect(lengths.has(n), `${n}-letter words`).toBe(true);
     }
@@ -54,7 +75,7 @@ describe('the word list', () => {
   });
 
   it('gives Word Duel the one length it plays at', () => {
-    for (const word of DUEL_WORDS) expect(word).toHaveLength(WORD_LENGTH);
+    for (const word of duelWords()) expect(word).toHaveLength(WORD_LENGTH);
     expect(isDuelWord('crane')).toBe(true);
     // A real word, and still not one Word Duel can be asked to take.
     expect(isWord('cranes')).toBe(true);
@@ -62,7 +83,7 @@ describe('the word list', () => {
   });
 
   it('is stored upper case, which is how the reducer works', () => {
-    for (const word of WORDS) expect(word).toBe(word.toUpperCase());
+    for (const word of allWords()) expect(word).toBe(word.toUpperCase());
   });
 });
 

@@ -203,6 +203,10 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
     return isOver(state) ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return !isOver(state) && state.turn === seat;
+  },
+
   isOver,
 
   status(state, names) {

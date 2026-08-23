@@ -459,6 +459,10 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
     return state.winner !== null ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return state.winner === null && state.turn === seat;
+  },
+
   isOver(state) {
     return state.winner !== null;
   },

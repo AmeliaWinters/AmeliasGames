@@ -5,7 +5,7 @@
  * a deploy reconnects with whatever shape it was built with, so the server
  * checks this and asks that client to refresh rather than misreading it.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message
@@ -44,7 +44,27 @@ export interface RoomView {
    * is no state to send until somebody starts it.
    */
   state: unknown;
+  /**
+   * Whose turn it is — for the status line and the highlight on the seat list,
+   * and for nothing else. See `GameDefinition.turn`: four of these games are
+   * free-simultaneous and answer it with a guess.
+   */
   turn: number | null;
+  /**
+   * Whether the seat receiving this view may act right now.
+   *
+   * Computed by the server, from the same `canAct` the reducer will consult
+   * when the move arrives, so a control that is offered and a move that is
+   * refused can no longer be the same tap. The client used to work this out
+   * as `turn === seat`, which was wrong for every free-simultaneous game — so
+   * their boards each imported a predicate of their own and the alternating
+   * ones took a `myTurn` prop. One field replaces both.
+   *
+   * A board on a clock still has to check the clock itself: this was true when
+   * the message was built, and the last second of a round belongs to whoever
+   * is holding it. Word Hunt's grid is the case — see its `timeIsUp`.
+   */
+  canAct: boolean;
   status: string;
   over: boolean;
   /** True while the room is still gathering people and has not been dealt. */

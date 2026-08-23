@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   GRID_SIZE,
   MIN_WORD,
-  canAct,
   canExtend,
   clockCall,
   countOf,
@@ -20,22 +19,14 @@ import {
 import type { WhMove, WhState } from "../../shared/games/wordHuntDisplay.js";
 import { useServerNow } from "../clock.js";
 
-interface Props {
-  state: WhState;
-  seat: number | null;
-  names: string[];
-  /** The server's clock as of this state — see `useCountdown`. */
-  now: number;
-  onMove(move: WhMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<WhState, WhMove>;
 
 /** Under this much left, the clock starts shouting about it. */
 const URGENT_MS = 20 * 1000;
 
 /**
- * Note the absence of `myTurn`. Everyone hunts the same grid at the same time,
- * so `room.turn` says nothing about whether *you* may drag — `canAct` does.
- *
  * The one interaction here is tracing a word, and it has to work three ways:
  * dragging a finger, dragging a mouse, and tapping cell by cell. They are the
  * same gesture underneath — cells are appended to a path — and they end the
@@ -110,7 +101,7 @@ function cellNear(reach: Reach, x: number, y: number, anywhere = false): number 
 /** How long after a drag a click is still that drag's parting shot. */
 const CLICK_AFTER_DRAG_MS = 400;
 
-export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
+export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const [path, setPath] = useState<number[]>([]);
   const grid = useRef<HTMLDivElement>(null);
   /*
@@ -138,13 +129,13 @@ export function WordHuntBoard({ state, seat, names, now, onMove }: Props) {
   const left = msLeft(state, clock);
   const mine = seat !== null;
   const started = hasStarted(state);
-  // The clock closes the grid the moment it reads zero, rather than a
-  // round-trip later — the server has already stopped taking words by then,
-  // and a grid that still accepts traces is a grid promising something it
-  // cannot deliver. It is shut before the off for the same reason: the room
-  // turns every move away until it is full, so a grid that took traces would
-  // be answering each one with an error.
-  const myMove = mine && started && canAct(state, seat) && left > 0;
+  // Two clocks, deliberately. `canAct` is the server's answer, true as of the
+  // message that carried it; `left` is this device counting down from it. The
+  // grid closes the moment the countdown reads zero rather than a round-trip
+  // later — the server has already stopped taking words by then, and a grid
+  // that still accepts traces is promising something it cannot deliver. It is
+  // shut before the off for the same reason.
+  const myMove = mine && started && canAct && left > 0;
   const over = state.phase === "over";
 
   // A half-drawn word means nothing once the game has moved on underneath it.

@@ -265,6 +265,12 @@ export const battleship: GameDefinition<BsState, BsMove> = {
     return null;
   },
 
+  // Straight through from the display module — see the note on Word Duel's.
+  // Note which way round these two are: `turn` is derived from `canAct` above
+  // and not the other way about, because during placing there is no turn to
+  // derive anything from.
+  canAct,
+
   isOver,
 
   status(state, names) {

@@ -44,13 +44,9 @@ function trayLabel(state: YState, flying: boolean, rolled: boolean): string {
   return `The dice: ${faces}`;
 }
 
-interface Props {
-  state: YState;
-  seat: number | null;
-  names: string[];
-  myTurn: boolean;
-  onMove(move: YMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<YState, YMove>;
 
 /**
  * A cell on someone's card. Three states, and they have to be told apart at a
@@ -94,15 +90,15 @@ function Box({
   );
 }
 
-export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
+export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
   const [flying, land] = useLanding(state.toss?.n ?? 0);
   const rolled = state.rollsLeft < ROLLS;
   const keepingAll = rolled && state.held.every(Boolean);
   // Keeping all five and rolling again spends a roll and moves nothing, so
   // there is nothing to press. The reducer refuses it too; this only saves the
   // round trip and the error.
-  const canRoll = myTurn && state.rollsLeft > 0 && !flying && !keepingAll;
-  const canKeep = myTurn && rolled && state.rollsLeft > 0 && !flying;
+  const canRoll = canAct && state.rollsLeft > 0 && !flying && !keepingAll;
+  const canKeep = canAct && rolled && state.rollsLeft > 0 && !flying;
   // Which boxes this hand may go in is a rule, not a hint: the reducer refuses
   // the same ones, so greying them out here only saves a round trip.
   //
@@ -110,7 +106,7 @@ export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
   // the dice they are computed from have stopped is the sheet answering a
   // question nobody has finished asking.
   const legal =
-    myTurn && rolled && !flying && seat !== null
+    canAct && rolled && !flying && seat !== null
       ? legalCategories(state.sheets[seat], state.dice)
       : [];
 
@@ -147,11 +143,11 @@ export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
         faces={state.dice}
         toss={state.toss}
         flying={flying}
-        mine={myTurn}
+        mine={canAct}
         held={state.held}
         keepable={canKeep}
         label={trayLabel(state, flying, rolled)}
-        hint={myTurn && !flying ? (rolled ? "Tap a die to keep it" : "Flick to throw") : undefined}
+        hint={canAct && !flying ? (rolled ? "Tap a die to keep it" : "Flick to throw") : undefined}
         onThrow={canRoll ? throwDice : undefined}
         onTapDie={(die) => canKeep && onMove({ type: "hold", die })}
         onRest={land}
@@ -176,7 +172,7 @@ export function YahtzeeBoard({ state, seat, names, myTurn, onMove }: Props) {
           {rolled ? `Roll again (${state.rollsLeft})` : "Roll"}
         </button>
         <p className="yz-legend">
-          {!myTurn
+          {!canAct
             ? "Waiting for the dice"
             : flying
               ? "…"

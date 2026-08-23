@@ -7,7 +7,7 @@ import {
   KEY_ROWS,
   MAX_GUESSES,
   WORD_LENGTH,
-  canAct,
+  canAct as seatCanAct,
   clockCall,
   formatClock,
   guesserOf,
@@ -24,23 +24,12 @@ import type {
 } from "../../shared/games/wordleDisplay.js";
 import { useServerNow } from "../clock.js";
 
-interface Props {
-  state: WordleState;
-  seat: number | null;
-  names: string[];
-  /** The server's clock as of this state — see `useServerNow`. */
-  now: number;
-  onMove(move: WordleMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<WordleState, WordleMove>;
 
 /** Under this much left on the shot clock, it starts shouting about it. */
 const URGENT_MS = 15 * 1000;
-
-/**
- * Note the absence of `myTurn`. Play here is free-simultaneous, so `room.turn`
- * says nothing about whether *you* may type — `canAct` does, and it is the
- * only thing this component asks.
- */
 
 /** Six rows always, so the grid does not grow and shove the input around. */
 function padRows(rows: Row[]): Array<Row | null> {
@@ -233,7 +222,7 @@ function Keyboard({
   );
 }
 
-export function WordleBoard({ state, seat, names, now, onMove }: Props) {
+export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const [draft, setDraft] = useState("");
   // Two different people, and above two players they are not the same one:
   // `hunting` set the word you are guessing, and `setFor` is guessing yours.
@@ -253,7 +242,7 @@ export function WordleBoard({ state, seat, names, now, onMove }: Props) {
       : seatsOf(state).filter((s) => s !== seat && msLeftFor(state, s, clock) !== null);
   /** Everyone else who can still guess. */
   const live =
-    seat === null ? [] : seatsOf(state).filter((s) => s !== seat && canAct(state, s));
+    seat === null ? [] : seatsOf(state).filter((s) => s !== seat && seatCanAct(state, s));
   const alone = seat !== null && live.length === 0;
   const stillGoing =
     live.length === 0
@@ -276,7 +265,7 @@ export function WordleBoard({ state, seat, names, now, onMove }: Props) {
   // The clock closes the input the moment it reads zero, rather than a
   // round-trip later — the server has already stopped taking guesses by then,
   // and a box that still accepts one is promising something it cannot deliver.
-  const myMove = mine && canAct(state, seat) && myLeft !== 0;
+  const myMove = mine && canAct && myLeft !== 0;
 
   function submit() {
     if (draft.length !== WORD_LENGTH) return;

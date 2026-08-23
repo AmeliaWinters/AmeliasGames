@@ -14,11 +14,13 @@ import {
 import type { Flick } from "../../shared/games/toss.js";
 import { DiceTray } from "../dice/DiceTray.js";
 import { useLanding } from "../dice/useLanding.js";
+import type { BoardProps } from "./boards.js";
 
+/** The inner board's own props — the wrapper below takes the standard set. */
 interface Props {
   state: BgState;
   seat: number | null;
-  myTurn: boolean;
+  canAct: boolean;
   /** True while the dice are still rolling. Nothing they decide is drawn yet. */
   flying: boolean;
   onMove(move: { type: "move"; from: Source; die: number }): void;
@@ -89,7 +91,7 @@ function PointOutline() {
   );
 }
 
-export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) {
+export function BackgammonBoard({ state, seat, canAct, flying, onMove }: Props) {
   const view = seat ?? 0;
   const { top, bottom } = layoutFor(view);
   const [selected, setSelected] = useState<Source | null>(null);
@@ -97,7 +99,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
   // Nothing is markable while the dice are still rolling. The marks are read
   // *off* the dice — a board that lights up the points a 6 can reach before
   // the 6 has stopped has told you the roll ahead of the die showing it.
-  const moves = myTurn && !flying ? legalMoves(state) : [];
+  const moves = canAct && !flying ? legalMoves(state) : [];
 
   // A selection stops meaning anything the moment the position changes.
   useEffect(() => setSelected(null), [state.points, state.dice, state.turn]);
@@ -112,7 +114,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
 
   /** Play the selected checker to `where`, or change what is selected. */
   function choose(where: Source) {
-    if (!myTurn) return;
+    if (!canAct) return;
     const die = targets.get(String(where));
     if (active !== null && die !== undefined) {
       onMove({ type: "move", from: active, die });
@@ -156,7 +158,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
         key={index}
         className={`point surface ${index % 2 === 0 ? "dark" : "light"}`}
         onClick={() => choose(index)}
-        disabled={!myTurn || (!isSource && !isTarget)}
+        disabled={!canAct || (!isSource && !isTarget)}
         aria-label={
           count === 0
             ? `Point ${index + 1}, empty${note}`
@@ -192,7 +194,7 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
         <button
           className="bg-bar surface"
           onClick={() => choose("bar")}
-          disabled={!myTurn || !sources.has("bar")}
+          disabled={!canAct || !sources.has("bar")}
           // Seat-indexed counts told a listener nothing: which of the two is
           // theirs is exactly what they cannot see.
           aria-label={`Bar: ${state.bar[view]} of yours, ${state.bar[1 - view]} of theirs${barNote}`}
@@ -241,28 +243,23 @@ export function BackgammonBoard({ state, seat, myTurn, flying, onMove }: Props) 
 export function BackgammonGame({
   state,
   seat,
-  myTurn,
+  canAct,
   onMove,
-}: {
-  state: BgState;
-  seat: number | null;
-  myTurn: boolean;
-  onMove(move: BgMove): void;
-}) {
+}: BoardProps<BgState, BgMove>) {
   const [flying, land] = useLanding(state.toss?.n ?? 0);
   return (
     <>
       <BackgammonBoard
         state={state}
         seat={seat}
-        myTurn={myTurn}
+        canAct={canAct}
         flying={flying}
         onMove={onMove}
       />
       <BackgammonStatus
         state={state}
         seat={seat}
-        myTurn={myTurn}
+        canAct={canAct}
         flying={flying}
         onThrow={(flick) => onMove({ type: "roll", flick })}
         onPass={() => onMove({ type: "pass" })}
@@ -284,7 +281,7 @@ export function BackgammonGame({
 export function BackgammonStatus({
   state,
   seat,
-  myTurn,
+  canAct,
   flying,
   onThrow,
   onPass,
@@ -292,15 +289,15 @@ export function BackgammonStatus({
 }: {
   state: BgState;
   seat: number | null;
-  myTurn: boolean;
+  canAct: boolean;
   flying: boolean;
   onThrow(flick: Flick): void;
   onPass(): void;
   onRest(): void;
 }) {
   const view = seat ?? 0;
-  const stuck = myTurn && state.phase === "move" && !flying && legalMoves(state).length === 0;
-  const canRoll = myTurn && state.phase === "roll" && !flying;
+  const stuck = canAct && state.phase === "move" && !flying && legalMoves(state).length === 0;
+  const canRoll = canAct && state.phase === "roll" && !flying;
 
   // Two dice, because two dice were thrown — see `diceOnTable`, which is
   // where the double's four moves are turned back into the pair on the table.
@@ -319,7 +316,7 @@ export function BackgammonStatus({
         spent={spent}
         toss={state.toss}
         flying={flying}
-        mine={myTurn}
+        mine={canAct}
         label={diceLabel(thrown, state.dice, flying, state.phase)}
         hint={
           canRoll

@@ -6,7 +6,7 @@ import {
   MIN_MEN,
   POINTS,
   QUIET_LIMIT,
-  canAct,
+  hasMove,
   canFly,
   destinations,
   inMill,
@@ -535,7 +535,7 @@ describe('full games', () => {
         if (!morris.isOver(state)) {
           expect(menLeft(state, 0)).toBeGreaterThanOrEqual(MIN_MEN);
           expect(menLeft(state, 1)).toBeGreaterThanOrEqual(MIN_MEN);
-          expect(state.taking !== null || canAct(state, state.turn)).toBe(true);
+          expect(state.taking !== null || hasMove(state, state.turn)).toBe(true);
           expect(morris.turn(state)).toBe(state.turn);
         } else {
           expect(morris.turn(state)).toBeNull();

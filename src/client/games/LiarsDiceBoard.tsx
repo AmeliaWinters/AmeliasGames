@@ -17,13 +17,9 @@ import type { Bid, LdMove, LdState, Showdown } from "../../shared/games/liarsDic
 import { Die } from "./Die.js";
 import { useReveal } from "../dice/useReveal.js";
 
-interface Props {
-  state: LdState;
-  seat: number | null;
-  names: string[];
-  myTurn: boolean;
-  onMove(move: LdMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<LdState, LdMove>;
 
 /**
  * Liar's Dice is played from three things: your own five dice, how many dice
@@ -68,7 +64,7 @@ function revealOrder(state: LdState): number[] {
   return [...spoke, ...silent, said];
 }
 
-export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
+export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const [quantity, setQuantity] = useState(1);
   const [face, setFace] = useState(1);
 
@@ -100,7 +96,7 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
   const total = totalDice(state);
   const proposed: Bid = { seat: seat ?? 0, quantity, face };
   const legal = quantity <= total && beats(proposed, state.bid);
-  const bidding = myTurn && state.phase === "bid";
+  const bidding = canAct && state.phase === "bid";
   const canCall = bidding && state.bid !== null;
   const showdown = state.showdown;
   /*
@@ -259,10 +255,10 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
         <div className="ld-actions">
           <button
             className="primary ld-wide"
-            disabled={!myTurn}
+            disabled={!canAct}
             onClick={() => onMove({ type: "next" })}
           >
-            {myTurn ? `Roll round ${state.round + 1}` : "Waiting on the next roll"}
+            {canAct ? `Roll round ${state.round + 1}` : "Waiting on the next roll"}
           </button>
         </div>
       ) : (
@@ -337,7 +333,7 @@ export function LiarsDiceBoard({ state, seat, names, myTurn, onMove }: Props) {
             </div>
 
             <p className="ld-legend">
-              {!myTurn
+              {!canAct
                 ? "Ones are just ones — a bid counts only the face it names."
                 : state.bid === null
                   ? "Open the round: name how many of a face are on the whole table."

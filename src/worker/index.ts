@@ -1,14 +1,17 @@
 /// <reference types="@cloudflare/workers-types" />
 import { RoomEngine, isRoomCode, type RoomSnapshot } from '../shared/room.js';
-import { getGame } from '../shared/games/index.js';
+// The protocol above the engine — reading a frame, validating a hello, which
+// room a hello gets, running an action without throwing. Shared with the dev
+// server, because two copies of those rules is two copies that can drift.
 import {
-  PING_FRAME,
-  PONG_FRAME,
-  PROTOCOL_VERSION,
-  type ClientMessage,
-  type ErrorKind,
-  type ServerMessage,
-} from '../shared/protocol.js';
+  admit,
+  applyAction,
+  isAction,
+  readFrame,
+  readHello,
+  type Refusal,
+} from '../shared/session.js';
+import { PING_FRAME, PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
@@ -130,8 +133,8 @@ export class GameRoom implements DurableObject {
     }
   }
 
-  private fail(ws: WebSocket, kind: ErrorKind, message: string): void {
-    this.post(ws, { t: 'error', kind, message });
+  private fail(ws: WebSocket, refusal: Refusal): void {
+    this.post(ws, { t: 'error', kind: refusal.kind, message: refusal.error });
   }
 
   /**
@@ -177,17 +180,9 @@ export class GameRoom implements DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
-    let msg: ClientMessage;
-    try {
-      msg = JSON.parse(typeof raw === 'string' ? raw : new TextDecoder().decode(raw));
-    } catch {
-      return this.fail(ws, 'protocol', 'Malformed message.');
-    }
-    // JSON.parse of the four bytes `null` succeeds and yields null, and
-    // reading `.t` off that throws.
-    if (typeof msg !== 'object' || msg === null) {
-      return this.fail(ws, 'protocol', 'Malformed message.');
-    }
+    const frame = readFrame(typeof raw === 'string' ? raw : new TextDecoder().decode(raw));
+    if (!frame.ok) return this.fail(ws, frame);
+    const msg = frame.msg;
 
     const meta = ws.deserializeAttachment() as SocketMeta | null;
     // Kept from the original attachment so the pending-socket sweep still
@@ -197,34 +192,24 @@ export class GameRoom implements DurableObject {
     if (msg.t === 'hello') {
       if (isSeated(meta)) return;
 
-      if (msg.v !== PROTOCOL_VERSION) {
-        return this.fail(ws, 'protocol', 'This page is out of date — please refresh.');
-      }
+      // The socket was routed to this object by the code in the URL, so a
+      // `hello` naming a different room must not be welcomed into this one.
+      // `readHello` holds it to that.
+      const routingCode = (await this.state.storage.get<string>('code')) ?? null;
+      const greeting = readHello(msg, routingCode);
+      if (!greeting.ok) return this.fail(ws, greeting);
+      const { hello } = greeting;
 
-      const name = String(msg.name ?? '').trim().slice(0, 20) || 'Player';
-      const playerId = String(msg.playerId ?? '');
-      const code = String(msg.code ?? '').toUpperCase();
-      if (!playerId) return this.fail(ws, 'protocol', 'Missing player id.');
-      if (!isRoomCode(code)) return this.fail(ws, 'protocol', 'Invalid room code.');
-
-      // The socket was routed to this object by the code in the URL; a `hello`
-      // naming a different room would otherwise be welcomed into this one.
-      const routingCode = await this.state.storage.get<string>('code');
-      if (routingCode && code !== routingCode) {
-        return this.fail(ws, 'protocol', 'That code does not match this room.');
-      }
-
-      const found = await this.engineFor(
-        String(msg.gameId ?? ''),
-        code,
-        msg.create === true,
-        playerId,
-      );
-      if (!found.ok) return this.fail(ws, found.kind, found.error);
+      // The only I/O in finding a room: in the dev server this same step is a
+      // lookup in a `Map`, which is why `admit` takes the engine rather than
+      // going and getting one.
+      const found = admit(await this.loadEngine(), hello);
+      if (!found.ok) return this.fail(ws, found);
       const engine = found.engine;
+      if (found.created) this.engine = engine;
 
-      const result = engine.join(playerId, name);
-      if (!result.ok) return this.fail(ws, result.kind, result.error);
+      const result = engine.join(hello.playerId, hello.name);
+      if (!result.ok) return this.fail(ws, { kind: result.kind, error: result.error });
 
       // Drop any earlier socket for this same player so it stops receiving
       // updates. 4000 tells that client the close was deliberate, so it stops
@@ -232,10 +217,10 @@ export class GameRoom implements DurableObject {
       for (const other of this.state.getWebSockets()) {
         if (other === ws) continue;
         const otherMeta = other.deserializeAttachment() as SocketMeta | null;
-        if (otherMeta?.playerId === playerId) other.close(4000, 'Reconnected elsewhere');
+        if (otherMeta?.playerId === hello.playerId) other.close(4000, 'Reconnected elsewhere');
       }
 
-      ws.serializeAttachment({ playerId, seat: result.seat, since } satisfies SocketMeta);
+      ws.serializeAttachment({ playerId: hello.playerId, seat: result.seat, since } satisfies SocketMeta);
       await this.state.storage.delete('emptySince');
       await this.persist();
 
@@ -252,79 +237,19 @@ export class GameRoom implements DurableObject {
       return;
     }
 
-    if (!meta || meta.playerId === '') return this.fail(ws, 'rejected', 'Join a room first.');
+    if (!meta || meta.playerId === '') {
+      return this.fail(ws, { kind: 'rejected', error: 'Join a room first.' });
+    }
 
     const engine = await this.loadEngine();
-    if (!engine) return this.fail(ws, 'no-room', 'This room no longer exists.');
+    if (!engine) return this.fail(ws, { kind: 'no-room', error: 'This room no longer exists.' });
 
-    if (msg.t === 'move' || msg.t === 'rematch' || msg.t === 'switch' || msg.t === 'start') {
-      // A reducer is not supposed to throw, and the fuzzing says none of them
-      // does — but an exception escaping here aborts the Durable Object and
-      // takes the other player's game down with it.
-      let result;
-      try {
-        result =
-          msg.t === 'move'
-            ? engine.move(meta.seat, msg.move)
-            : msg.t === 'switch'
-              ? engine.switchGame(String(msg.gameId ?? ''))
-              : msg.t === 'start'
-                ? engine.start(meta.seat)
-                : engine.rematch();
-      } catch {
-        return this.fail(ws, 'rejected', 'That move could not be played.');
-      }
-      if (!result.ok) return this.fail(ws, 'rejected', result.error);
+    if (isAction(msg)) {
+      const result = applyAction(engine, meta.seat, msg);
+      if (!result.ok) return this.fail(ws, { kind: 'rejected', error: result.error });
       await this.persist();
       this.broadcast();
-      return;
     }
-  }
-
-  /**
-   * Find or create the room. Returns a reason rather than throwing, because
-   * every caller is holding a socket that deserves an answer.
-   */
-  private async engineFor(
-    gameId: string,
-    code: string,
-    create: boolean,
-    playerId: string,
-  ): Promise<{ ok: true; engine: RoomEngine } | { ok: false; kind: ErrorKind; error: string }> {
-    const existing = await this.loadEngine();
-
-    if (existing) {
-      // Starting a "new" game on a code that is already someone else's room
-      // would silently seat you as player two of their game.
-      //
-      // Two rooms are not someone else's: one nobody has sat in yet, and one
-      // where this player already has a seat. That second case is ordinary —
-      // a create-flagged hello arriving twice, from a retry or a remount — and
-      // refusing it would lock the host out of the room they just made.
-      const mine = existing.seatOf(playerId) !== -1;
-      if (create && !existing.isFresh() && !mine) {
-        return {
-          ok: false,
-          kind: 'full',
-          error: 'That code is already in use. Try starting again.',
-        };
-      }
-      if (gameId && gameId !== existing.def.id) {
-        return { ok: false, kind: 'rejected', error: `That room is playing ${existing.def.name}.` };
-      }
-      return { ok: true, engine: existing };
-    }
-
-    if (!create) return { ok: false, kind: 'no-room', error: 'No room with that code.' };
-    if (!getGame(gameId)) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
-
-    // No size to settle: the room opens empty and takes whoever arrives, up
-    // to whatever the game itself seats.
-    const engine = RoomEngine.create(code, gameId);
-    if (!engine) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
-    this.engine = engine;
-    await this.persist();
-    return { ok: true, engine };
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {

@@ -309,6 +309,10 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     return state.over ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return !state.over && state.turn === seat;
+  },
+
   isOver(state) {
     return state.over;
   },

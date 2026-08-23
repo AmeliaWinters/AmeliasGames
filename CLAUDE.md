@@ -92,7 +92,20 @@ author working in it at once.
 
 Comments here say *why*, not what, and several of them are the only record of a
 bug that has already been shipped once. Match that register — a change that
-removes the reasoning and leaves the code is a net loss. New game? `src/shared/
-games/*.ts` is a pure reducer with no I/O and no randomness it did not receive;
-the manifest, the display module and the reducer are separate on purpose, and
-`bundle.test.ts` enforces the part that matters.
+removes the reasoning and leaves the code is a net loss.
+
+New game? `src/shared/games/*.ts` is a pure reducer with no I/O and no
+randomness it did not receive; the manifest, the display module and the reducer
+are separate on purpose, and `bundle.test.ts` enforces the part that matters.
+Four places, and the compiler names three of them if you miss one: the reducer,
+a line in `manifest.ts`, an entry in `GAMES`, and an entry in `boards.ts` —
+which also wants the game's state and move types, so a board paired with the
+wrong game's state does not compile.
+
+Two predicates, and they are not interchangeable. `turn` is a hint for the
+status line; `canAct(state, seat)` is whether that seat may move, it is what
+every control on every board is gated on, and the server sends its answer as
+`RoomView.canAct`. A strictly alternating game implements it as
+`turn(state) === seat` and that is the whole of it — but write it, because four
+of the ten games are not alternating and the contract has to be honest about
+which kind this one is.

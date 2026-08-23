@@ -1,6 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
-import { WORDS, isWord } from './words.js';
+import { allWords, isWord } from './words.js';
 import {
   CELL_COUNT,
   MAX_WORD,
@@ -76,8 +76,18 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *    showing the player a number, not deciding anything.
  */
 
-/** The list as an array, so a word can be drawn by index while planting. */
-const WORD_LIST: readonly string[] = [...WORDS];
+/**
+ * The list as an array, so a word can be drawn by index while planting. Built
+ * on first use for the same reason `prefixes()` below is: planting a grid is
+ * the only thing that needs it, and a hundred and fifty thousand strings
+ * spread into an array at import taxed every server start for a game nobody
+ * may play.
+ */
+let listCache: readonly string[] | null = null;
+function wordList(): readonly string[] {
+  if (listCache === null) listCache = [...allWords()];
+  return listCache;
+}
 
 /**
  * Every proper prefix of every word, so the solver can abandon a path the
@@ -93,7 +103,7 @@ let prefixCache: Set<string> | null = null;
 function prefixes(): Set<string> {
   if (prefixCache === null) {
     prefixCache = new Set<string>();
-    for (const word of WORD_LIST) {
+    for (const word of wordList()) {
       for (let i = 1; i < word.length; i++) prefixCache.add(word.slice(0, i));
     }
   }
@@ -173,7 +183,7 @@ export function solve(grid: readonly string[]): string[] {
 
   function walk(cell: number, sofar: string): void {
     const spelt = sofar + grid[cell];
-    if (spelt.length >= MIN_WORD && WORDS.has(spelt)) found.add(spelt);
+    if (spelt.length >= MIN_WORD && allWords().has(spelt)) found.add(spelt);
     // A word can carry on into a longer one — CAT into CATS — so this checks
     // the prefix set after taking the word, not instead of taking it.
     if (spelt.length === MAX_WORD || !stems.has(spelt)) return;
@@ -222,7 +232,7 @@ export function makeGrid(rng: Rng): string[] {
 
   for (let attempt = 0; attempt < TRIES; attempt++) {
     const grid: Array<string | null> = Array(CELL_COUNT).fill(null);
-    for (let i = 0; i < PLANTS; i++) plant(grid, pick(WORD_LIST, rng), rng);
+    for (let i = 0; i < PLANTS; i++) plant(grid, pick(wordList(), rng), rng);
 
     const filled = grid.map((letter) => letter ?? pick(BAG, rng));
     const score = richness(solve(filled));
@@ -375,6 +385,11 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
     const waiting = state.done.findIndex((flag) => !flag);
     return waiting === -1 ? null : waiting;
   },
+
+  // Straight through from the display module, `now` and all — see the note on
+  // Word Duel's. The clock is the reason this one takes a `now`: a seat whose
+  // two minutes are up may not trace, and only the server's clock says when.
+  canAct,
 
   isOver,
 

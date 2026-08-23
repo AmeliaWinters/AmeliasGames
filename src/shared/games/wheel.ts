@@ -801,6 +801,10 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     return state.over ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return !state.over && state.turn === seat;
+  },
+
   isOver(state) {
     return state.over;
   },

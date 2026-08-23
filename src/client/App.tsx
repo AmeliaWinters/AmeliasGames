@@ -9,32 +9,15 @@ import {
   type GameEntry,
 } from "../shared/games/manifest.js";
 import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
-import type { C4State } from "../shared/games/connect4.js";
-import type { BgState } from "../shared/games/backgammon.js";
-import type { WofState } from "../shared/games/wheel.js";
-// Type-only, so no reducer and no word list follow it into the bundle.
-import type { WordleState } from "../shared/games/wordleDisplay.js";
-import type { YState } from "../shared/games/yahtzeeDisplay.js";
-import type { BsState } from "../shared/games/battleshipDisplay.js";
-import type { LdState } from "../shared/games/liarsDiceDisplay.js";
-import type { WhState } from "../shared/games/wordHuntDisplay.js";
 // Runtime, not type-only: the card motif and the board are drawn from the same
 // geometry as the rules. `morrisDisplay.js` imports nothing, so the reducer
 // does not follow it in — the same bargain wheelDisplay and battleshipDisplay
 // already make.
 import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
-import type { MmState } from "../shared/games/morrisDisplay.js";
-import type { UtState } from "../shared/games/ultimateDisplay.js";
-import { Connect4Board } from "./games/Connect4Board.js";
-import { BackgammonGame } from "./games/BackgammonBoard.js";
-import { WheelBoard } from "./games/WheelBoard.js";
-import { WordleBoard } from "./games/WordleBoard.js";
-import { YahtzeeBoard } from "./games/YahtzeeBoard.js";
-import { BattleshipBoard } from "./games/BattleshipBoard.js";
-import { LiarsDiceBoard } from "./games/LiarsDiceBoard.js";
-import { WordHuntBoard } from "./games/WordHuntBoard.js";
-import { MorrisBoard } from "./games/MorrisBoard.js";
-import { UltimateBoard } from "./games/UltimateBoard.js";
+// Which board draws which game, and the state types that go with them, live in
+// `boards.ts` — where the compiler checks the pairing. Nothing here needs to
+// know: this file's business with a game is its name and its motif.
+import { boardFor } from "./games/boards.js";
 import { Die } from "./games/Die.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
@@ -550,6 +533,19 @@ export function App() {
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
 
+  // The room writes one status for the whole table, so before the deal it
+  // names the host: "Ready — Amelia can start whenever you are". Read by
+  // everyone else that is exactly right. Read by Amelia it is her own name in
+  // the third person, in her own room, telling her about herself.
+  //
+  // The room cannot fix this — it does not write per-seat — and it should not
+  // start, because one status per room is what makes it cheap to broadcast.
+  // The client knows which seat it is, so the second person is put back here.
+  const statusLine =
+    room?.waiting && seat === 0 && room.canStart
+      ? "Ready when you are — everyone's here."
+      : room?.status;
+
   if (!name || intent === "idle") {
     return (
       <Setup
@@ -629,8 +625,6 @@ export function App() {
   // to someone who has not been connected yet.
   const connectionNote =
     status === "open" ? null : room ? "Reconnecting…" : "Connecting…";
-
-  const myTurn = room !== null && seat !== null && room.turn === seat && !room.waiting;
 
   return (
     <main className="app">
@@ -716,7 +710,7 @@ export function App() {
           sentence into the result block below would announce it twice, so the
           result borrows it and this hides. */}
       <p className="status" role="status" aria-live="polite">
-        {room?.over ? "" : (room?.status ?? connectionNote ?? "")}
+        {room?.over ? "" : (statusLine ?? connectionNote ?? "")}
       </p>
 
       {room?.over && (
@@ -729,7 +723,7 @@ export function App() {
           draw, and a board improvised out of nothing would be showing the
           player a game that does not exist yet. */}
       {room && !room.waiting ? (
-        <GameBoard room={room} seat={seat} myTurn={myTurn} sendMove={sendMove} />
+        <GameBoard room={room} seat={seat} sendMove={sendMove} />
       ) : (
         <div className="board placeholder" />
       )}
@@ -769,13 +763,14 @@ export function App() {
                   */
                   "Waiting for more players"}
             </button>
-          ) : (
-            <p className="hint" aria-live="polite">
-              {room.canStart
-                ? `${room.players[0]?.name || "The host"} can start whenever you are ready.`
-                : "Waiting for more players."}
-            </p>
-          )}
+          ) : null}
+          {/*
+            No hint here for anyone but seat 0. It used to say "<host> can
+            start whenever you are ready." directly beneath a status line
+            already reading "Ready — <host> can start whenever you are": the
+            same sentence twice, in two wordings, and — both being polite live
+            regions — announced twice as well.
+          */}
         </>
       )}
 
@@ -828,133 +823,39 @@ function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): vo
 }
 
 /**
- * The one place that knows which board goes with which game. Everything above
- * it — the lobby, seating, reconnection, the rematch — is game-agnostic, so
- * adding a game adds a case here and nothing else.
+ * The board for whatever this room is playing.
+ *
+ * There is no per-game branching left here: `boardFor` looks the component up
+ * in a table the compiler has already checked, so adding a game touches that
+ * table and this file not at all. What used to be here was a ten-case switch
+ * in which every case cast `room.state` to a game's state type by hand, with
+ * nothing checking that the case label and the cast agreed.
  */
 function GameBoard({
   room,
   seat,
-  myTurn,
   sendMove,
 }: {
   room: RoomView;
   seat: number | null;
-  myTurn: boolean;
   sendMove(move: unknown): void;
 }) {
-  if (!room.state) return <div className="board placeholder" />;
+  // No state means the game is not dealt; no board means this build has never
+  // heard of the game — an old tab against a newer server. Neither is a dead
+  // end: the status line above still reads.
+  const Board = boardFor(room.gameId);
+  if (!room.state || !Board) return <div className="board placeholder" />;
 
-  switch (room.gameId) {
-    case "backgammon":
-      // One component for board and controls: they share whether the dice
-      // have stopped, and two copies of that could disagree.
-      return (
-        <BackgammonGame
-          state={room.state as BgState}
-          seat={seat}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "wheel":
-      return (
-        <WheelBoard
-          state={room.state as WofState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "wordle":
-      // No `myTurn`: Word Duel is free-simultaneous, so whether this player
-      // may type is a question only the board's own `canAct` can answer.
-      return (
-        <WordleBoard
-          state={room.state as WordleState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          now={room.now}
-          onMove={sendMove}
-        />
-      );
-    case "wordhunt":
-      // No `myTurn`: everyone hunts the same grid at once, so only the
-      // board's own `canAct` knows whether this player may still trace.
-      return (
-        <WordHuntBoard
-          state={room.state as WhState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          now={room.now}
-          onMove={sendMove}
-        />
-      );
-    case "battleship":
-      // No `myTurn`: placing is free-simultaneous and firing alternates, so
-      // only the board's own `canAct` is right in both halves of the game.
-      return (
-        <BattleshipBoard
-          state={room.state as BsState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          onMove={sendMove}
-        />
-      );
-    case "yahtzee":
-      return (
-        <YahtzeeBoard
-          state={room.state as YState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "liarsdice":
-      return (
-        <LiarsDiceBoard
-          state={room.state as LdState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "morris":
-      return (
-        <MorrisBoard
-          state={room.state as MmState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "ultimate":
-      return (
-        <UltimateBoard
-          state={room.state as UtState}
-          seat={seat}
-          names={room.players.map((p) => p.name)}
-          myTurn={myTurn}
-          onMove={sendMove}
-        />
-      );
-    case "connect4":
-      return (
-        <Connect4Board
-          state={room.state as C4State}
-          myTurn={myTurn}
-          onDrop={(col) => sendMove({ type: "drop", col })}
-        />
-      );
-    // A room for a game this build has no board for — an old tab against a
-    // newer server. The status line still reads, so it is not a dead end.
-    default:
-      return <div className="board placeholder" />;
-  }
+  return (
+    <Board
+      state={room.state as never}
+      seat={seat}
+      names={room.players.map((p) => p.name)}
+      canAct={room.canAct}
+      now={room.now}
+      onMove={sendMove}
+    />
+  );
 }
 
 /**

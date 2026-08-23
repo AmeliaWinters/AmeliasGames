@@ -7,7 +7,7 @@ import {
   QUIET_LIMIT,
   REPETITION_LIMIT,
   ADJACENCY,
-  canAct,
+  hasMove,
   canFly,
   isPoint,
   menLeft,
@@ -61,7 +61,7 @@ export {
   REPETITION_LIMIT,
   RINGS,
   SPOTS,
-  canAct,
+  hasMove,
   canFly,
   destinations,
   inMill,
@@ -116,7 +116,7 @@ function handOver(state: MmState, mover: 0 | 1, irreversible: boolean): MmState 
 
   // Walled in. Only possible once a player has run out of men to place, and
   // never possible for a flying player, who can always reach an empty point.
-  if (!canAct(passed, next)) {
+  if (!hasMove(passed, next)) {
     return { ...passed, winner: mover, ending: 'blocked' };
   }
 
@@ -313,6 +313,10 @@ export const morris: GameDefinition<MmState, MmMove> = {
     // Deliberately not `this.isOver` — GameDefinition promises nothing about
     // method binding, so a destructured `turn` would throw.
     return isOver(state) ? null : state.turn;
+  },
+
+  canAct(state, seat) {
+    return !isOver(state) && state.turn === seat;
   },
 
   isOver,

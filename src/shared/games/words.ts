@@ -15842,31 +15842,76 @@ export const MAX_WORD_LENGTH = 8;
 export const WORD_SOURCE = `${RAW.join(' ')} ${MODERN}`;
 
 /**
- * Every accepted word, upper case, because the reducers work in upper case —
- * a `Set` so validating a word costs the same whether the list holds a
- * thousand of them or a hundred thousand.
+ * The dictionary, in the two shapes the two games ask for.
+ *
+ * Built on first use rather than at import — the same bargain `wordHunt.ts`
+ * already makes for its prefix table, made one level further down. Turning
+ * `WORD_SOURCE` into sets costs about 27ms of the 72ms a cold start used to
+ * spend importing the game registry, and eight of the ten games never open a
+ * dictionary at all. A Durable Object waking up to play a hand of Yahtzee was
+ * paying for a hundred and fifty thousand words it would never look at.
+ *
+ * Both are built in one pass. The five-letter set used to be
+ * `[...WORDS].filter(…)`, which spread a hundred and fifty thousand strings
+ * into an array to keep a tenth of them.
+ *
+ * They are sets rather than lists because validating a word should cost the
+ * same whether the list holds a thousand of them or a hundred thousand, and
+ * upper case because that is how the reducers work.
  */
-export const WORDS: ReadonlySet<string> = new Set(
-  WORD_SOURCE.split(/\s+/)
-    .filter((word) => word.length >= MIN_WORD_LENGTH && word.length <= MAX_WORD_LENGTH)
-    .map((word) => word.toUpperCase()),
-);
+interface Dictionary {
+  all: ReadonlySet<string>;
+  duel: ReadonlySet<string>;
+}
+
+let dictionary: Dictionary | null = null;
+
+function build(): Dictionary {
+  const all = new Set<string>();
+  const duel = new Set<string>();
+  for (const token of WORD_SOURCE.split(/\s+/)) {
+    if (token.length < MIN_WORD_LENGTH || token.length > MAX_WORD_LENGTH) continue;
+    const word = token.toUpperCase();
+    all.add(word);
+    if (word.length === WORD_LENGTH) duel.add(word);
+  }
+  dictionary = { all, duel };
+  return dictionary;
+}
 
 /**
- * The five-letter words, which is the whole of Word Duel's dictionary. Split
- * out rather than filtered at the call site so that game cannot quietly start
- * accepting another length: `wordle.ts` asks this set, and only this set.
+ * Whether the sets have been built yet.
+ *
+ * Here for the one test that holds the laziness, and worth the export: the
+ * deferral is the whole of the saving, and a stray `const WORDS = allWords()`
+ * at the top of some module would hand it all back without breaking anything
+ * a normal test would notice.
  */
-export const DUEL_WORDS: ReadonlySet<string> = new Set(
-  [...WORDS].filter((word) => word.length === WORD_LENGTH),
-);
+export function dictionaryIsBuilt(): boolean {
+  return dictionary !== null;
+}
+
+/** Every accepted word, at every length the list holds. */
+export function allWords(): ReadonlySet<string> {
+  return (dictionary ?? build()).all;
+}
+
+/**
+ * The five-letter words, which is the whole of Word Duel's dictionary. Kept as
+ * its own set rather than filtered at the call site so that game cannot
+ * quietly start accepting another length: `wordle.ts` asks this, and only
+ * this.
+ */
+export function duelWords(): ReadonlySet<string> {
+  return (dictionary ?? build()).duel;
+}
 
 /** Whether the list has this word at all, at any length it holds. */
 export function isWord(word: string): boolean {
-  return WORDS.has(word.toUpperCase());
+  return allWords().has(word.toUpperCase());
 }
 
 /** Whether Word Duel will take it: a real word, at that game's one length. */
 export function isDuelWord(word: string): boolean {
-  return DUEL_WORDS.has(word.toUpperCase());
+  return duelWords().has(word.toUpperCase());
 }

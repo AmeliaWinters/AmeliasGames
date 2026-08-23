@@ -200,13 +200,9 @@ function Wheel({ state, spinning }: { state: WofState; spinning: boolean }) {
   );
 }
 
-interface Props {
-  state: WofState;
-  seat: number | null;
-  names: string[];
-  myTurn: boolean;
-  onMove(move: WofMove): void;
-}
+import type { BoardProps } from "./boards.js";
+
+type Props = BoardProps<WofState, WofMove>;
 
 /**
  * The puzzle board is drawn from the *masked* answer — the only version this
@@ -231,7 +227,7 @@ function spoken(answer: string): string {
     .join(", ");
 }
 
-export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
+export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
   const [solving, setSolving] = useState(false);
   const [guess, setGuess] = useState("");
 
@@ -258,11 +254,11 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
   // A half-typed answer stops meaning anything the moment the turn moves on or
   // a new puzzle goes up.
   useEffect(() => {
-    if (!myTurn) {
+    if (!canAct) {
       setSolving(false);
       setGuess("");
     }
-  }, [myTurn]);
+  }, [canAct]);
   useEffect(() => {
     setSolving(false);
     setGuess("");
@@ -272,7 +268,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
 
   const bank = seat === null ? 0 : (state.bank[seat] ?? 0);
-  const canBuyVowel = myTurn && state.phase === "spin" && bank >= VOWEL_COST;
+  const canBuyVowel = canAct && state.phase === "spin" && bank >= VOWEL_COST;
   const justCalled = state.roundOver
     ? null
     : (state.called[state.called.length - 1] ?? null);
@@ -336,7 +332,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
               <span className="wof-prompt">{wedgeName(landed)}</span>
             ) : (
               <span className="wof-prompt">
-                {myTurn ? "Spin, buy a vowel, or solve" : "Waiting on the wheel"}
+                {canAct ? "Spin, buy a vowel, or solve" : "Waiting on the wheel"}
               </span>
             )}
           </p>
@@ -345,7 +341,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
               the spot, which needs no meter — nobody has to be told they get
               one. The cap on right ones is the rule that is actually news, so
               it is the only one shown. */}
-          {myTurn && (
+          {canAct && (
             <div className="wof-meters">
               <p className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
                 <span className="wof-pips" aria-hidden="true">
@@ -388,7 +384,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
         <div className="wof-actions">
           {state.roundOver ? (
             !state.over && (
-              <button className="primary" disabled={!myTurn} onClick={() => onMove({ type: "next" })}>
+              <button className="primary" disabled={!canAct} onClick={() => onMove({ type: "next" })}>
                 Start round {state.round + 1}
               </button>
             )
@@ -396,13 +392,13 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
             <>
               <button
                 className="primary"
-                disabled={!myTurn || state.phase !== "spin"}
+                disabled={!canAct || state.phase !== "spin"}
                 onClick={() => onMove({ type: "spin" })}
               >
                 Spin
               </button>
               <button
-                disabled={!myTurn || state.phase !== "spin"}
+                disabled={!canAct || state.phase !== "spin"}
                 onClick={() => setSolving(true)}
               >
                 Solve
@@ -419,7 +415,7 @@ export function WheelBoard({ state, seat, names, myTurn, onMove }: Props) {
               const spent = state.called.includes(letter);
               const vowel = VOWELS.includes(letter);
               const usable =
-                myTurn && !spent && (state.phase === "call" ? !vowel : vowel && canBuyVowel);
+                canAct && !spent && (state.phase === "call" ? !vowel : vowel && canBuyVowel);
               return (
                 <button
                   key={letter}

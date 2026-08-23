@@ -304,6 +304,10 @@ export const yahtzee: GameDefinition<YState, YMove> = {
     return isOver(state) ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return !isOver(state) && state.turn === seat;
+  },
+
   isOver,
 
   status(state, names) {

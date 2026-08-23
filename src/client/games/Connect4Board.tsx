@@ -1,12 +1,12 @@
 import { COLS, ROWS, landingRow, type C4State } from "../../shared/games/connect4.js";
+import type { BoardProps } from "./boards.js";
+import type { C4Move } from "../../shared/games/connect4.js";
 
-interface Props {
-  state: C4State;
-  myTurn: boolean;
-  onDrop(col: number): void;
-}
-
-export function Connect4Board({ state, myTurn, onDrop }: Props) {
+export function Connect4Board({
+  state,
+  canAct,
+  onMove,
+}: BoardProps<C4State, C4Move>) {
   const winning = new Set((state.winningLine ?? []).map(([r, c]) => `${r},${c}`));
 
   return (
@@ -15,12 +15,12 @@ export function Connect4Board({ state, myTurn, onDrop }: Props) {
     <div className="board" role="group" aria-label="Connect Four board">
       {Array.from({ length: COLS }, (_, col) => {
         const full = landingRow(state.board, col) === -1;
-        const playable = myTurn && !full;
+        const playable = canAct && !full;
         return (
           <button
             key={col}
             className="column surface"
-            onClick={() => playable && onDrop(col)}
+            onClick={() => playable && onMove({ type: "drop", col })}
             disabled={!playable}
             aria-label={`Drop in column ${col + 1}${full ? " (full)" : ""}`}
           >

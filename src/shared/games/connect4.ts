@@ -136,6 +136,10 @@ export const connect4: GameDefinition<C4State, C4Move> = {
     return isOver(state) ? null : state.turn;
   },
 
+  canAct(state, seat) {
+    return !isOver(state) && state.turn === seat;
+  },
+
   isOver,
 
   status(state, names) {

@@ -13,7 +13,7 @@ import {
   wordle,
 } from './wordle.js';
 import type { WordleState } from './wordle.js';
-import { DUEL_WORDS } from './words.js';
+import { duelWords } from './words.js';
 
 /**
  * No move in this game consults the rng, so a poisoned one proves it. `setup`
@@ -474,7 +474,7 @@ describe('the keyboard', () => {
 // ── More than two at the table ─────────────────────────────────────────
 
 /** Words straight from the list, so every one of them is certain to be legal. */
-const WORDS = [...DUEL_WORDS].slice(0, 8);
+const WORDS = [...duelWords()].slice(0, 8);
 
 /** Deterministic, so a failure here is reproducible. */
 function seeded(seed: number): () => number {

@@ -1,6 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
-import { DUEL_WORDS, isDuelWord } from './words.js';
+import { duelWords, isDuelWord } from './words.js';
 import { pick } from './random.js';
 import {
   GUESS_MS,
@@ -355,6 +355,11 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
     return live.reduce((a, b) => (state.guesses[a].length <= state.guesses[b].length ? a : b));
   },
 
+  // The display module's predicate *is* the contract's, passed straight
+  // through: the board and the server have to answer "may I type" the same
+  // way, and a second implementation here is the way they stop doing that.
+  canAct,
+
   isOver,
 
   /**
@@ -498,4 +503,6 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
  * and how many eight-letter words exist says nothing about whether a player
  * here is fighting it.
  */
-export const WORD_COUNT = DUEL_WORDS.size;
+export function wordCount(): number {
+  return duelWords().size;
+}

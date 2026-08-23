@@ -37,8 +37,38 @@ export interface GameDefinition<S = unknown, M = unknown> {
    */
   applyMove(state: S, move: M, seat: number, rng: Rng, now?: number): MoveResult<S>;
 
-  /** Seat whose turn it is, or null if the game is over. */
+  /**
+   * Seat whose turn it is, or null if the game is over.
+   *
+   * A hint for the status line and for the highlight on the seat list, and
+   * nothing more. It assumes one active seat, which four of the games here are
+   * not: Word Duel, Word Hunt and Battleships' placing phase are all
+   * free-simultaneous, and Battleships changes its mind halfway through. Those
+   * games answer it with whoever the game is most obviously waiting on, purely
+   * so the status line has something to say.
+   *
+   * **Never gate a control on this.** `canAct` is the question the UI means.
+   */
   turn(state: S): number | null;
+
+  /**
+   * Whether `seat` may move right now.
+   *
+   * The one predicate a board should ask before enabling anything, and the
+   * reason it is on the contract rather than derived from `turn`: for a
+   * free-simultaneous game `turn` is a guess, while this is the answer. For
+   * the strictly alternating games the two agree, and those implement it as
+   * exactly `turn(state) === seat`.
+   *
+   * It is not a permission check — `applyMove` re-decides everything and its
+   * answer is what counts. This is what the *player* is shown, and the value
+   * of having the server compute it is that the greyed-out control and the
+   * refused move can no longer disagree.
+   *
+   * `now` for the same reason `applyMove` takes one: a seat whose clock has
+   * run out may not act, and only the server's clock decides that.
+   */
+  canAct(state: S, seat: number, now?: number): boolean;
 
   isOver(state: S): boolean;
 
