@@ -399,7 +399,9 @@ input {
 .mute {
   display: grid;
   place-items: center;
-  width: 34px;
+  /* 34px wide against a 44px floor: tall enough and narrow enough at once,
+     which is the same miss as a 44px-tall button 34px across anywhere else. */
+  width: 44px;
   min-height: 44px;
   padding: 0;
   background: none;
@@ -2448,27 +2450,6 @@ input:focus-visible {
 /* ── Seat picker ───────────────────────────────────────────────────────
    Three single digits, which want a chip rather than a card: the card styles
    above are undone rather than worked around. */
-.seats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.seats legend {
-  flex-basis: 100%;
-}
-.seats .game {
-  flex: 1 1 3em;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  overflow: visible;
-  padding: 12px 10px;
-  font-family: var(--display);
-  font-size: 1.05rem;
-  font-weight: 700;
-  --accent: var(--ink);
-}
-
 /* ── Word Duel ─────────────────────────────────────────────────────────
    Two grids side by side on one phone: yours on the left, theirs on the
    right. That is the whole idea of the game made visible, so the panels stay
@@ -2586,8 +2567,19 @@ input:focus-visible {
 .wd-tile.hit {
   background: var(--mark-hit);
 }
+/* Right letter, wrong place -- and the one mark that needs a second channel.
+   Hit and near are the whole decision this game asks you to make every guess,
+   and they were separated by hue alone: measured, their luminances sit at
+   1.03:1 in stage and 1.11:1 in daylight, which is to say they are the same
+   brightness and differ only in being green or amber. Simulated through
+   deuteranopia and protanopia they do stay apart, but by a third less than
+   they look to be.
+   So near carries a ring and hit does not, which is the distinction the seats
+   already make between a plain disc and a ringed one, and the rule Battleships
+   states outright a few hundred lines down: differ in colour *and* in shape. */
 .wd-tile.near {
   background: var(--mark-near);
+  box-shadow: inset 0 0 0 2px var(--board);
 }
 .wd-tile.miss {
   background: var(--mark-miss);
@@ -2707,8 +2699,11 @@ input:focus-visible {
 .wd-key.hit {
   background: var(--mark-hit);
 }
+/* The same ring the tiles carry, so the keyboard and the grid say "near" the
+   same way. Thinner, because the key is smaller. */
 .wd-key.near {
   background: var(--mark-near);
+  box-shadow: inset 0 0 0 1.5px var(--board);
 }
 .wd-key.miss {
   /* Tried and absent. Dimmed rather than recoloured -- it is the one state
@@ -2738,9 +2733,38 @@ input:focus-visible {
   background: var(--board);
 }
 
+/* Stacked first, side by side once there is room to do it without shrinking
+   the squares past use.
+
+   The two seas sitting side by side on a phone was the original intent and it
+   did not survive measurement: at 360px it left each square 11.2px, and at
+   390px 12.7px, against a 44px floor the rest of the app holds. The placement
+   view -- one grid, alone, full width -- gives 25.9px at the same 360px, so
+   the board already knew the comfortable size; only the firing view did not
+   get it. A tap fires immediately, with no confirmation and no undo, so a
+   miss costs a turn.
+
+   Stacked, each sea gets the full column and lands near 30px: better than the
+   placement grid the design already accepts, at the cost of scrolling between
+   the two rather than seeing both at once.
+
+   Stacked at every width, and that is not the same as "stacked on phones".
+   The first attempt at this put the two-up layout back behind
+   `@media (min-width: 720px)`, which measured worse than the phone it was
+   meant to improve on: 17.2px squares at a 760px viewport, against 29.8px
+   stacked at 390px. The reason is `.app { max-width: 480px }` -- the board is
+   480px wide on a 768px tablet and on a 4K monitor alike, because this design
+   gives a desktop margins rather than width. A viewport query cannot see that.
+   It asks how big the window is when the only thing that matters is how big
+   the container is, and here the container stopped growing at 480px.
+
+   So: no breakpoint, because there is no width at which the split pays. If
+   the 480px cap is ever lifted for playing surfaces, two-up belongs here
+   again -- behind a container query on the board, not a media query on the
+   window. It needs about 700px of board to reach 30px squares. */
 .bs-seas {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -2846,9 +2870,17 @@ input:focus-visible {
 .bs-cell.ghost {
   background: var(--mark-hit);
 }
+/* Where the ship will not go. Green and red at the same opacity is the one
+   place on this board that leans on hue alone -- two rules above, hit and
+   miss are careful to differ in shape as well, and this was not. The cross
+   is the shape: it reads as "no" before the colour is read at all, and it
+   survives a screenshot in greyscale. */
 .bs-cell.ghost.bad {
   background: var(--alert);
   opacity: 0.55;
+  background-image:
+    linear-gradient(45deg, transparent 44%, var(--board) 44%, var(--board) 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, var(--board) 44%, var(--board) 56%, transparent 56%);
 }
 
 /* ── Battleships: the harbour ─────────────────────────────────────────
@@ -3055,23 +3087,39 @@ input:focus-visible {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink);
   border-bottom: 2px solid var(--rule);
 }
-.yz-who.p0 { color: var(--seat-0); }
-.yz-who.p1 { color: var(--seat-1); }
-.yz-who.p2 { color: var(--seat-2); }
-.yz-who.p3 { color: var(--seat-3); }
+/* The seat colour marks the column's rule, not its name.
+
+   It used to be the name: `.yz-who.p0 { color: var(--seat-0) }` and so on,
+   0.8rem of it. Measured against `--board` in daylight the four came out at
+   3.78, 3.65, 3.47 and 3.65 — every one of them clear of the 3:1 a piece or a
+   chip needs, and every one short of the 4.5:1 this is, because it is a
+   genuine text label. Stage was never the problem; it clears with 20-30% to
+   spare on the same four colours.
+
+   So the colour moved to the 2px rule underneath, where 3:1 is the right bar
+   and all four pass, and the name took `--ink`. Nothing is lost by it: the
+   column is headed by the player's name, which identifies it better than a
+   hue ever did, and the seat colour still says whose turn it is. */
+.yz-who.p0 { --seat: var(--seat-0); }
+.yz-who.p1 { --seat: var(--seat-1); }
+.yz-who.p2 { --seat: var(--seat-2); }
+.yz-who.p3 { --seat: var(--seat-3); }
 .yz-who.active {
-  border-bottom-color: currentColor;
+  border-bottom-color: var(--seat);
 }
 
-/* A box you may fill. The cell is the target rather than the number in it --
-   34px is short for a thumb, and the full width of the column is what makes
-   up for it. */
+/* A box you may fill. The cell is the target rather than the number in it, and
+   the full width of the column is part of what makes it hittable -- but width
+   alone was doing too much of the work, and the column narrows every time
+   another player sits down. This is the button pressed once a turn, every
+   turn, so it gets most of the way to the 44px floor; the sheet grows about a
+   hundred pixels for it, on a screen that already scrolls. */
 .yz-pick {
   width: 100%;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0;
   background: var(--surface);
   border: 1px solid var(--accent);

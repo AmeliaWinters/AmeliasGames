@@ -183,6 +183,42 @@ describe('board buttons', () => {
   });
 });
 
+/**
+ * A game's accent is written out three times -- once for the room, once for
+ * its lobby card, and once in `palette.ts` so the client knows the id is a
+ * channel at all. Three copies that must agree, kept in agreement by hand
+ * across ten games. They do agree today; nothing was holding them there.
+ *
+ * The failure is quiet rather than loud, which is why it is worth a test: a
+ * game missing from `CHANNELS` renders unstyled instead of broken, and a card
+ * whose seat colour disagrees with its room is a thing you have to be looking
+ * for to see.
+ */
+describe('the channel accents', () => {
+  const seatFor = (scope: string) =>
+    new Map(
+      [...css.matchAll(new RegExp(`${scope}\\[data-game="([a-z0-9]+)"\\]\\s*\\{[^}]*--accent:\\s*var\\((--seat-\\d)\\)`, 'g'))]
+        .map((m) => [m[1], m[2]] as const),
+    );
+
+  it('agree between the room and the lobby card, for every game', () => {
+    const room = seatFor(':root');
+    const card = seatFor('\\.game');
+    expect([...room.keys()].sort()).toEqual([...card.keys()].sort());
+    for (const [id, seat] of room) {
+      expect(card.get(id), `${id}: room says ${seat}, card says ${card.get(id)}`).toBe(seat);
+    }
+  });
+
+  it('cover every game in the manifest, and name none that is not one', async () => {
+    const { GAME_MANIFEST } = await import('../shared/games/manifest.js');
+    const { CHANNELS } = await import('./palette.js');
+    const games = Object.keys(GAME_MANIFEST).sort();
+    expect([...seatFor(':root').keys()].sort()).toEqual(games);
+    expect(Object.keys(CHANNELS).sort()).toEqual(games);
+  });
+});
+
 describe('the client stylesheet', () => {
   it('reads every custom property it declares', () => {
     const declared = new Set(

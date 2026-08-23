@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 import {
   ORIENTATIONS,
   P,
@@ -109,6 +109,10 @@ export function DiceTray({
   onRest,
 }: DiceTrayProps) {
   const box = useRef<HTMLDivElement>(null);
+  /* Two trays can be on screen at once -- Liar's Dice shows every player's --
+     so the hint's id has to be unique per instance or `aria-describedby`
+     points every tray at the first one's line. */
+  const hintId = useId();
   /*
     Two arrays, because they are not always the same element. Where a die can
     be kept it is wrapped in a button — so keeping one is reachable by tab and
@@ -334,6 +338,12 @@ export function DiceTray({
       role={throwable ? "button" : "group"}
       tabIndex={throwable ? 0 : undefined}
       aria-label={label}
+      // The hint below says how -- flick to throw, tap a die to keep it. It
+      // used to be aria-hidden, so the tray announced what it was and never
+      // how it worked, leaving a listener to infer it from the word "button".
+      // Described rather than labelled: the label is the state, this is the
+      // instruction, and a screen reader reads the two in that order.
+      aria-describedby={hint ? hintId : undefined}
       {...handlers}
     >
       {Array.from({ length: count }, (_, i) => {
@@ -393,7 +403,7 @@ export function DiceTray({
         );
       })}
       {hint && (
-        <p className="dice-hint" aria-hidden="true">
+        <p className="dice-hint" id={hintId}>
           {hint}
         </p>
       )}

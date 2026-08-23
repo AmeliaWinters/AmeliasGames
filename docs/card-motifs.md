@@ -209,10 +209,13 @@ Recorded here so they stop being re-litigated at every review.
   in the stylesheet. It is a hard stop at 22%/23% — a dot, not a fade — and the
   board draws its own misses exactly the same way. A shot that found nothing
   differs from one that found a ship in *shape* as well as colour.
-- **Dice are cream with dark pips in both palettes.** Four literals in the
-  `.pips` block are the only colours in the file that do not come from a token,
-  because they are the colour of the object rather than of the app. Motifs
-  inherit this by using `Die`.
+- **Dice are cream with dark pips in both palettes.** These are the only
+  colours in the file that do not come from a token, because they are the
+  colour of the object rather than of the app. Six literals over three rules,
+  and the count is written out here because it used to say "four literals in
+  the `.pips` block" and someone checking the claim would have found two: the
+  face and the pip in `.pips`, the two cube shades in `.cube-face`, and the
+  held-die edge twice in `.die-hold.held`. Motifs inherit this by using `Die`.
 - **Battleships' unhit ship is `--motif-off`, not `--point-light`.** The board
   paints a ship `--point-light`, which is a pale slab against the sea it sits
   in and only 1.8:1 against `--board`. A motif has no sea under it, so the ship

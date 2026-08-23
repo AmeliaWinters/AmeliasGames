@@ -262,6 +262,14 @@ export function useRoom(opts: {
           setSeat(msg.seat);
           setRoom(msg.room);
           createRef.current = false;
+          // An error describes a moment, not a session. Until this line the
+          // only thing that cleared one was the player pressing Dismiss, so a
+          // failed first attempt left "No room with that code." sitting above
+          // the room it then successfully joined, and "Not connected —
+          // reconnecting…" outlived the reconnection it was reporting. Being
+          // welcomed is proof both are over.
+          setError(null);
+          setErrorKind(null);
           if (location.hash.slice(1).toUpperCase() !== msg.room.code) {
             // Path and query first, code last. A query written after the hash
             // is inside the fragment, not beside it — see `roomUrl` in
