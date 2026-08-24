@@ -35,7 +35,7 @@ const TRAY_PX = Number(process.env.TRAY_PX ?? 300);
 const PANEL_GAP = 8;
 
 /**
- * The die's own colours, which are literals in `styles.css` for the reason
+ * The die's own colours, which are literals in `styles/dice.css` for the reason
  * given there: this is the colour of an object under a light, not of the
  * interface, so it does not follow the palette.
  */

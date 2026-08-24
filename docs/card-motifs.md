@@ -1,10 +1,12 @@
 # Card motifs
 
-The picture on a game's card in the lobby. Eleven of them, one per game, in
+The picture on a game's card in the lobby. Thirteen of them, one per game, in
 `.art` / `.art-{id}` — `CardArt` in `src/client/App.tsx` and the "Card motifs"
-block in `src/client/styles.css`.
+block in `src/client/styles/picker.css`. The stylesheet is a directory of
+files imported by `styles/index.css`, not the single `styles.css` this document
+used to name.
 
-This document is the register. Read it before adding a twelfth.
+This document is the register. Read it before adding a fourteenth.
 
 ---
 
@@ -80,6 +82,8 @@ them. The measured table is at the foot of this page.
 | Yahtzee | Five dice, spaced and face-up on a tray | Face-up, tidy, tray |
 | Liar's Dice | Crowded dice, half of them face-down | Overlap and concealment, no tray |
 | Letterpress | A lettered grid in two colours, most of it claimed | Five columns; both seat hues at once; the only square-cornered tile |
+| Word Chain | Words in a stagger, each starting under the last letter of the one above | The only running text; the only stepped composition; no grid at all |
+| Vocab Race | One large word inside a bordered panel | The only border; the only motif whose subject is a single word |
 
 Ultimate is the fourth motif to be a grid and the reason the register exists.
 It is separated from all three of the others twice over: its marks are strokes
@@ -110,6 +114,30 @@ which is the same standard the trio above are held to.
 - **Fill.** Eight of Letterpress's ten tiles are claimed and coloured; five of
   Word Hunt's eight are empty. One reads as a board being fought over, the
   other as a board being looked at.
+
+Word Chain and Vocab Race are the two that went in without a motif at all, and
+they are the reason `css.test.ts` now holds "the card motifs" to the manifest.
+`motif()` ends in a `default` that returns null — correct, because an empty
+well reads as a card with no picture where a wrong one reads as a lie — so
+nothing broke and nothing complained, and two of the thirteen sat in the lobby
+with a blank frame for as long as it took someone to notice by eye.
+
+**Word Chain** is a third card with letters on it and takes the register's
+hardest question for the second time. The answer is that it is not a grid: it
+is three words in running text, staggered so each begins in the column its
+parent's last letter is standing in, with that shared letter carrying the
+accent. Word Hunt and Letterpress are boards of tiles, letters inside cells
+with fills and edges; this has no cell on it anywhere. The separators are
+`cell or no cell`, `aligned or stepped`, and `a board or a sentence`, and the
+last of those is the one that matters — the stagger is the game's only rule,
+drawn rather than described, and no board in the lobby steps.
+
+**Vocab Race** is the only bordered panel and the only motif whose subject is
+one word rather than a position. Its letters are 28 units where Letterpress's
+are 17 and Word Hunt's 24, and they sit on the panel rather than in a tile, so
+even at a glance it is a card with a *word* on it against two cards with
+*boards* on them. The scoreline chips cut by the top edge are what make it a
+race rather than a flashcard: there are other people answering this.
 
 There is a fourth, smaller separator, and it is the game's own rule: the locked
 tile's square corners. Nothing else on any card has a corner that is not either
@@ -159,8 +187,8 @@ Three of those lines are not optional:
 
 **Sizes are multiples of `--m`, never literals.** `--m` is a length, so
 `calc(30 * var(--m))` reads as "thirty units" and comes out as 30px at phone
-size. All eleven motifs therefore rescale by changing one number rather
-than eleven blocks. A literal `30px` in a motif is a bug even though it renders
+size. All thirteen motifs therefore rescale by changing one number rather
+than thirteen blocks. A literal `30px` in a motif is a bug even though it renders
 identically today. Morris is the exception that proves the rule: it is drawn in
 an SVG whose viewBox is the well's own 218 x 87, so its units *are* the same
 units, measured from the same box.
@@ -176,9 +204,10 @@ grid, and is better for it.
 
 **CSS by default. SVG only where CSS cannot be honest.**
 
-Eight motifs are CSS: bare `<i>` elements laid out and coloured by `nth-child`
-in the stylesheet, with `CardArt` emitting nothing but a count. Keep it that
-way. The count-plus-a-CSS-block contract is why these are cheap to change.
+Ten motifs are CSS: `<i>` elements laid out and coloured by `nth-child` in the
+stylesheet, with `CardArt` emitting a count and, on the four cards that carry
+type, the letters. Keep it that way. The count-plus-a-CSS-block contract is why
+these are cheap to change.
 
 Two are SVG, and in both cases the shape is the whole reason.
 
@@ -210,10 +239,12 @@ Inside SVG, **fills come from classes, never from `fill="#…"` attributes** —
 literal there would be the one colour in the app that could not follow the
 palette. This is how `WheelBoard` already draws itself.
 
-Four motifs need structure rather than a count, and that is the bar for
+Six kinds of motif need structure rather than a count, and that is the bar for
 leaving the count contract: the Wheel needs paths, Morris needs points at
-coordinates, the two lettered grids need their letters, and Yahtzee and Liar's
-Dice use the real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
+coordinates, the two lettered grids need their letters, Word Chain needs its
+three words split into columns so the joint can line up, Vocab Race needs a
+clue and an answer that are two different things, and Yahtzee and Liar's Dice
+use the real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
 in the main bundle — App.tsx imports every board statically — so reusing it
 costs nothing and replaced a fake pip that read as a small hole at thirteen
 units.
@@ -252,7 +283,7 @@ Recorded here so they stop being re-litigated at every review.
 - **`--motif-off` is no longer only a motif colour.** The Morris board is line
   work drawn straight onto `--board` with nothing over it — the same problem a
   motif has, on a real table — so the board itself takes the token as well.
-  Its comment in `styles.css` says so; the name is historical.
+  Its comment in `styles/games/morris.css` says so; the name is historical.
 - **Morris's men are ringed in `--board`, like Backgammon's checkers**, and for
   a second reason on top of that one: a man stands *on* a line, and both seat
   colours sit within 2:1 of `--motif-off` in one palette or the other. The ring
@@ -282,10 +313,12 @@ else clears 3:1 in both palettes.
 5. **Add the case to `motif()` in `App.tsx`** — a count if it can be, structure
    only if it must be, the board's own classes if the board has already drawn
    this shape — and an `.art-{id}` block in the "Card motifs" section of
-   `styles.css`.
+   `styles/picker.css`. `css.test.ts` → "the card motifs" holds you to both:
+   a game in the manifest with no `case` and no `.art-` block fails it, which
+   is how Word Chain and Vocab Race would have been caught.
 6. **Measure the contrast** of every shape against what is behind it, in both
    palettes. Not text contrast; 3:1 non-text.
-7. **Read it back as a position.** Then look at it next to the other nine and
+7. **Read it back as a position.** Then look at it next to the other twelve and
    check it does not read as one of them.
 
 The accent stripe and the card frame are not part of this: the accent comes
@@ -295,13 +328,16 @@ from the channel map, and adding a game means adding it there too — see below.
 
 ## Known hazards
 
-- **The channel accent map is written three times** and nothing tests that the
-  copies agree: `:root[data-game=…]` at the top of `styles.css`, `.game[data-game=…]`
-  in the game-picker block, and `CHANNELS` in `src/client/palette.ts`. A new
-  game needs all three.
+- **The channel accent map is written three times**, and `css.test.ts` →
+  "the channel accents" is what now tests that the copies agree:
+  `:root[data-game=…]` in `styles/palette.css`, `.game[data-game=…]` in
+  `styles/picker.css`, and `CHANNELS` in `src/client/palette.ts`. A new game
+  needs all three.
 - **`.next-game` reuses `.game`** and renders no motif at all. Card-level
   changes land on the end-of-game screen; `.art` changes do not.
-- **Class names are global and unprefixed** in one stylesheet of ~3,400 lines.
+- **Class names are global and unprefixed**, and splitting the stylesheet into
+  `styles/*.css` did not change that: one namespace, ~3,400 lines, now spread
+  over more files to search.
   `.art`, `.game`, `.name`, `.meta` and `.stripe` are all generic. This project
   has already shipped two collisions of exactly that kind — the second was in
   these motifs. **`.art i` and `.pips i` have identical specificity**, and `.art`
@@ -314,7 +350,7 @@ from the channel map, and adding a game means adding it there too — see below.
   now also match.**
 - **Ultimate's motif *is* the board.** It renders `.ut-small` / `.ut-cell` /
   `.ut-mark` and takes its cross, its nought and its two hash gaps from the
-  Ultimate block at the foot of `styles.css`. Deliberate, and the sharpest form
+  Ultimate block in `styles/games/ultimate.css`. Deliberate, and the sharpest form
   of the hazard above: a change to a cell there changes the card. The
   `.art-ultimate` block holds the frame and nothing else.
 - **Backgammon's motif and the board share two `clip-path` polygons.** They are
@@ -367,6 +403,16 @@ against each other.
 | Letterpress letter on a claimed tile | 6.33 / 9.76 | 4.90 / 4.73 |
 | Letterpress letter on an unclaimed tile | 17.75 | 17.58 |
 | Letterpress locked frame / its tile | 8.29 | 3.65 |
+| Word Chain letter (`--ink`) | 14.71 | 14.14 |
+| Word Chain joint letter (`--accent`) | 10.04 | 3.47 |
+| Word Chain seat-1 bar | 8.29 | 3.65 |
+| Word Chain seat-0 bar | 5.37 | 3.78 |
+| Vocab panel border (`--accent`) / board | 10.04 | 3.47 |
+| Vocab panel border / panel | 10.92 | 4.50 |
+| Vocab clue (`--muted`) / panel | 5.56 | 6.02 |
+| Vocab answer (`--ink`) / panel | 16.00 | 18.35 |
+| Vocab score chip edge / board | 3.91 | 3.33 |
+| Vocab seat edge / chip | 5.84 | 4.90 |
 
 Backgammon checkers get a two-unit ring of `--board` because every seat colour
 sits within 2:1 of `--motif-off` in one palette or the other. A checker is on a

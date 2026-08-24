@@ -65,7 +65,7 @@ export const LANG_NAME: Record<ChainLang, string> = {
  * against `chainListSizes()`, so a rebuild that changes a list fails there
  * rather than quietly skewing a percentage.
  */
-export const LIST_SIZE: Record<ChainLang, number> = { en: 25_000, pl: 28_848, ja: 12_000 };
+export const LIST_SIZE: Record<ChainLang, number> = { en: 25_000, pl: 62_669, ja: 12_000 };
 
 /**
  * The shortest word the game will take, in every language.

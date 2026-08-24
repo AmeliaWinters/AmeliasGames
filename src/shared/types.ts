@@ -2,6 +2,18 @@
  * The contract every game implements. Pure functions only: no I/O, no
  * randomness that isn't passed in, no framework imports. This is what makes
  * the rules testable in milliseconds and runnable on both client and server.
+ *
+ * ## The display-module boundary
+ *
+ * Each game splits its constants, state shape and pure predicates into a
+ * `*Display.ts` leaf that the board imports instead of the reducer. The rule
+ * is not "no imports" but *nothing that reaches a reducer* — type-only imports
+ * are erased and are fine. Taking the reducer would drag `applyMove`, the
+ * registry and any dictionary behind it into the client bundle;
+ * `bundle.test.ts` fails the build over it. Each reducer re-exports its
+ * display module, so rules and tests still name a game from one place.
+ *
+ * Every display module says only why *its* game needs the split beyond that.
  */
 
 /** Returns a float in [0, 1), like Math.random. Injectable so tests are exact. */
@@ -17,56 +29,38 @@ export interface GameDefinition<S = unknown, M = unknown> {
   minPlayers: number;
   maxPlayers: number;
 
-  /**
-   * `now` is epoch milliseconds, supplied for the same reason `rng` is: a game
-   * on a clock has to stamp its deadline, and reading one itself would make
-   * `setup` untestable. Untimed games ignore it, which is most of them.
-   */
+  /** `now` is injected for the reason `rng` is: reading a clock here would make
+   * `setup` untestable. Most games ignore it. */
   setup(playerCount: number, rng: Rng, now?: number): S;
 
   /**
-   * Validate and apply a move made by `seat`. Never mutates `state`.
+   * Validate and apply a move by `seat`. Never mutates `state`.
    *
-   * `rng` only ever runs on the server: the client renders the state it is
-   * sent and never applies moves locally, so dice cannot be re-rolled by a
-   * player until they like the result.
-   *
-   * `now` is there so a timed game can refuse a move that arrives after the
-   * whistle. The server's clock is the only one that counts — a client's may
-   * be wrong or lying.
+   * `rng` runs only on the server — the client never applies moves locally, so
+   * dice cannot be re-rolled until a player likes the result. `now` lets a
+   * timed game refuse a late move; a client's clock may be wrong or lying.
    */
   applyMove(state: S, move: M, seat: number, rng: Rng, now?: number): MoveResult<S>;
 
   /**
-   * Seat whose turn it is, or null if the game is over.
-   *
-   * A hint for the status line and for the highlight on the seat list, and
-   * nothing more. It assumes one active seat, which four of the games here are
-   * not: Word Duel, Word Hunt and Battleships' placing phase are all
-   * free-simultaneous, and Battleships changes its mind halfway through. Those
-   * games answer it with whoever the game is most obviously waiting on, purely
-   * so the status line has something to say.
+   * A hint for the status line, nothing more. It assumes one active seat, which
+   * four games here are not — Word Duel, Word Hunt and Battleships' placing
+   * phase are free-simultaneous — and those answer with whoever the game is
+   * most obviously waiting on.
    *
    * **Never gate a control on this.** `canAct` is the question the UI means.
    */
   turn(state: S): number | null;
 
   /**
-   * Whether `seat` may move right now.
+   * Whether `seat` may move right now — the one predicate a board gates on.
+   * On the contract rather than derived from `turn` because for a
+   * free-simultaneous game `turn` is a guess and this is the answer;
+   * alternating games implement it as exactly `turn(state) === seat`.
    *
-   * The one predicate a board should ask before enabling anything, and the
-   * reason it is on the contract rather than derived from `turn`: for a
-   * free-simultaneous game `turn` is a guess, while this is the answer. For
-   * the strictly alternating games the two agree, and those implement it as
-   * exactly `turn(state) === seat`.
-   *
-   * It is not a permission check — `applyMove` re-decides everything and its
-   * answer is what counts. This is what the *player* is shown, and the value
-   * of having the server compute it is that the greyed-out control and the
-   * refused move can no longer disagree.
-   *
-   * `now` for the same reason `applyMove` takes one: a seat whose clock has
-   * run out may not act, and only the server's clock decides that.
+   * Not a permission check: `applyMove` re-decides and its answer counts. This
+   * is what the *player* is shown, so the greyed-out control and the refused
+   * move can no longer disagree.
    */
   canAct(state: S, seat: number, now?: number): boolean;
 
@@ -75,44 +69,30 @@ export interface GameDefinition<S = unknown, M = unknown> {
   /** One-line human-readable status, e.g. "Amelia's turn". */
   status(state: S, names: string[]): string;
 
-  /**
-   * Redact state before sending it to `seat`. Identity for open-information
-   * games; this is the hook that makes hidden-hand games (Hearts) possible
-   * without leaking cards to the wrong client.
-   */
+  /** Redact before sending to `seat`. Identity for open games; the hook that
+   * keeps hidden-hand games from leaking to the wrong client. */
   view?(state: S, seat: number): S;
 
 
   /**
-   * Start a timed game's clock, or null if there is nothing to start.
-   *
-   * Called by the room the moment every seat is filled, because that is when
-   * play can actually begin — the room turns moves away until then, so a clock
-   * started when the room was *opened* would run down while the second player
-   * was still reading the invite.
-   *
-   * Must be idempotent: a player reconnecting fills the room again, and that
-   * is not a reason to hand everybody a fresh two minutes.
+   * Start a timed game's clock, or null if there is nothing to start. Called
+   * when the last seat fills, not when the room opens — otherwise the clock
+   * runs down while the second player is still reading the invite. Must be
+   * idempotent: a reconnect refills the room and must not hand out fresh time.
    */
   start?(state: S, now: number): S | null;
 
   /**
-   * When this game must be settled by, in epoch milliseconds, or null if it is
-   * not on a clock.
-   *
-   * The room reads this to arm a timer, so a timed game ends on time even if
-   * every player has wandered off — which is the whole point of a timer, and
-   * something no amount of client-side counting can promise.
+   * Epoch ms this game must be settled by, or null if untimed. The room arms a
+   * timer on it, so a timed game ends on time even if everyone wandered off —
+   * which no amount of client-side counting can promise.
    */
   deadline?(state: S): number | null;
 
   /**
-   * Settle a game whose clock has run out, or null if there was nothing to
-   * settle. Called by the room when a deadline passes, and again before any
-   * move that arrives late.
-   *
-   * Separate from `applyMove` because nobody made this move: it is the clock
-   * that ended the game, and there may well be no one connected to blame.
+   * Settle a game whose clock ran out, or null if there was nothing to settle.
+   * Separate from `applyMove` because nobody made this move — the clock ended
+   * it, and there may be no one connected at all.
    */
   expire?(state: S, now: number): S | null;
 }

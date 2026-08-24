@@ -1,22 +1,16 @@
 /**
- * The parts of Ultimate Tic-Tac-Toe the board is allowed to know.
- *
- * Like `morrisDisplay.ts`, this module deliberately imports nothing. Ultimate
- * hides nothing from anybody, so secrecy is not the reason here — it is that
- * one number does three jobs on this board, and both halves of the app have to
- * read it the same way. A square's index within its small board is *also* the
- * small board the opponent is sent to, and it is *also* a position in the same
- * eight lines the big board is won on. Two copies of that arithmetic would be
- * a board pointing at the wrong square.
- *
- * `ultimate.ts` re-exports the lot, so the rules and their tests carry on
- * importing a game from one place.
+ * The parts of Ultimate Tic-Tac-Toe the board may know — see the boundary note
+ * in `types.ts`. Not secrecy: one number does three jobs here, and both halves
+ * of the app must read it the same way. A square's index within its small
+ * board is *also* the board the opponent is sent to, and *also* a position in
+ * the eight lines the big board is won on. Two copies of that arithmetic would
+ * be a board pointing at the wrong square.
  */
 
 /**
  * Nine squares to a board, nine boards to the game — the same nine, which is
- * the whole trick. `SPOTS` is therefore both counts, and a `spot` is both a
- * square within a board and the index of a board within the big one.
+ * the trick. A `spot` is both a square within a board and a board within the
+ * big one.
  */
 export const SPOTS = 9;
 export const CELLS = SPOTS * SPOTS;
@@ -25,12 +19,9 @@ export const CELLS = SPOTS * SPOTS;
 export type Cell = 0 | 1 | null;
 
 /**
- * What has become of a small board: a seat that won it, `'drawn'` for one
- * that filled up with no line in it, or null while it is still in play.
- *
- * A drawn board counts for nobody — the big board's line cannot run through
- * it — which is why this is not `Cell`. Two states mean "no seat owns this"
- * and only one of them is still worth playing in.
+ * A seat that won the small board, `'drawn'` for full-with-no-line, or null
+ * while in play. Not `Cell`: two states mean "no seat owns this" and only one
+ * is still worth playing in, and the big board's line cannot cross a drawn one.
  */
 export type Result = 0 | 1 | 'drawn' | null;
 
@@ -38,10 +29,9 @@ export type Result = 0 | 1 | 'drawn' | null;
 export type Line = readonly [number, number, number];
 
 /**
- * Squares are numbered row by row, left to right, within a board; boards are
- * numbered the same way within the big one. So square 4 of board 0 is the
- * centre of the top-left board, and playing it sends the opponent to board 4,
- * the centre board.
+ * Row by row, left to right, within a board — and boards the same way within
+ * the big one. Square 4 of board 0 is the centre of the top-left board, and
+ * playing it sends the opponent to board 4.
  *
  * ```
  *   0 │ 1 │ 2
@@ -67,10 +57,7 @@ export function boardOf(cell: number): number {
   return Math.floor(cell / SPOTS);
 }
 
-/**
- * Where a square sits within its board — and, because they are the same nine
- * positions, the board whoever plays it sends the opponent to.
- */
+/** Where a square sits in its board — and so the board it sends the opponent to. */
 export function spotOf(cell: number): number {
   return cell % SPOTS;
 }
@@ -105,9 +92,8 @@ export function boardName(board: number): string {
 }
 
 /**
- * A square, said the way a player would say it: which board, then where in it.
- * Both halves are needed — "centre" alone names nine different squares, and a
- * screen reader announcing nine of them is announcing none.
+ * Which board, then where in it. Both halves are needed: "centre" alone names
+ * nine squares, and a screen reader announcing nine of them announces none.
  */
 export function cellName(cell: number): string {
   return `${SPOT_NAMES[spotOf(cell)]} of the ${boardName(boardOf(cell))}`;
@@ -124,19 +110,15 @@ export interface UtState {
   /** One per small board, in board order. */
   results: Result[];
   /**
-   * The three squares that won each small board, for the board to draw. Null
-   * for a board nobody won — the rules never read this, but a player looking
-   * at a settled board wants to know which line settled it.
+   * The three squares that won each small board, for drawing only — the rules
+   * never read it, but a player wants to see which line settled it.
    */
   lines: Array<Line | null>;
   /**
-   * The board the mover must play in, or null for a free choice.
-   *
-   * Normalised on the way in: a move that points at a board which is already
-   * settled leaves this null rather than naming a board nobody may play in.
-   * The rule that a spent target frees the opponent lives in exactly one
-   * place, and this is it — so the client's question is only ever "am I sent
-   * somewhere, or anywhere?"
+   * The board the mover must play in, or null for free choice. Normalised on
+   * the way in: pointing at a settled board leaves this null. The rule that a
+   * spent target frees the opponent lives here and nowhere else, so the client
+   * only ever asks "am I sent somewhere, or anywhere?"
    */
   sent: number | null;
   turn: 0 | 1;
@@ -151,12 +133,9 @@ export interface UtState {
 }
 
 /**
- * The line through `spot` that `owner` has just completed, or null.
- *
- * `read` is how a position is looked up, which is what lets the small boards
- * and the big one share this: one reads squares of `board`, the other reads
- * `results`. Only the position just filled can complete a new line, so the
- * search starts from it rather than sweeping all eight.
+ * The line through `spot` that `owner` just completed, or null. `read` is the
+ * lookup, which is what lets the small boards and the big one share this. Only
+ * the position just filled can complete a line, so the search starts there.
  */
 export function lineThrough(
   read: (position: number) => Cell | Result,
@@ -184,10 +163,7 @@ export function openBoards(state: UtState): number[] {
   );
 }
 
-/**
- * Whether this square could be played right now, by whoever's turn it is.
- * Seat is not part of the question: the board asks it only about the mover.
- */
+/** Playable right now by whoever is on turn. Seat is not part of the question. */
 export function legal(state: UtState, cell: number): boolean {
   if (state.winner !== null || state.draw) return false;
   if (!isCell(cell)) return false;

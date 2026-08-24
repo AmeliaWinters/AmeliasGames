@@ -1,0 +1,473 @@
+/* ── Wheel of Fortune ────────────────────────────────────────
+   A tile per character, wrapped a whole word at a time — a word broken across
+   two rows is a word you cannot read the shape of, and the shape is the game.
+   Blanks and letters share a tile so the board does not shift as it fills in;
+   punctuation gets no box, because it was never hidden. */
+.wof {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wof-round {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wof-puzzle {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  /* The gap between words has to beat the gap between letters by enough that
+     the eye groups them without counting: about a whole tile, against the 3px
+     inside a word. At 13px it was four letter-gaps and looked like five, and a
+     two-word answer read as one long word nobody could see the shape of. */
+  gap: 7px clamp(15px, 5.4vw, 28px);
+  padding: 12px 10px;
+  background: var(--board);
+  /* Room for two rows, so a short puzzle and a long one sit in the same place
+     on the screen rather than shunting everything below them about. */
+  min-height: 108px;
+}
+
+.wof-word {
+  display: flex;
+  gap: 3px;
+}
+
+/* An unturned tile is the board's dark ground; a turned one is cream, which
+   is the contrast a real Wheel board has and the reason a filled puzzle can be
+   read across a room. */
+.wof-tile {
+  width: clamp(17px, 6.2vw, 28px);
+  height: clamp(24px, 8.6vw, 38px);
+  display: grid;
+  place-items: center;
+  background: var(--hole);
+  font-family: var(--display);
+  font-size: clamp(0.95rem, 4vw, 1.35rem);
+  font-weight: 700;
+  line-height: 1;
+}
+/* A tile carrying a called letter. `.blank` keeps the board's dark ground, so
+   the two states are the same contrast a real Wheel board has. */
+.wof-tile.letter {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ground);
+}
+
+.wof-tile.mark {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+/* The third animation in the app, and it carries the same kind of information
+   as the other two: which tiles just turned. One called letter can land in
+   four places at once, and without this you are left comparing the board to
+   your memory of it. The class follows the last letter called, so a reconnect
+   re-renders the same board without replaying it. */
+@keyframes turn-over {
+  from {
+    transform: rotateX(90deg);
+  }
+}
+
+.wof-tile.just {
+  animation: turn-over 260ms ease-out;
+}
+
+.wof-note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  /* Holds its line whether or not anything has happened yet, so the board
+     above does not jump the first time the note appears. */
+  min-height: 1.4em;
+}
+
+.wof-money {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wof-purse {
+  flex: 1 1 42%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 1px 7px;
+  padding: 8px 11px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+/* Whose turn it is gets weight, not a colour wash — the same as the players
+   strip above it. */
+.wof-purse.active {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.wof-purse .chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.wof-purse.p0 .chip {
+  background: var(--seat-0);
+}
+.wof-purse.p1 .chip {
+  background: var(--seat-1);
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.wof-purse.p2 .chip {
+  background: var(--seat-2);
+}
+.wof-purse.p3 .chip {
+  background: var(--seat-3);
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+.wof-purse .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.wof-purse .round {
+  grid-column: 1 / -1;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.wof-purse .banked {
+  grid-column: 1 / -1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The wheel and what it means, stacked: the thing you watch, then the fact it
+   settled on, then how many guesses that leaves you. */
+/* No card. The wheel is a piece of machinery seen through a window, not a
+   picture of one — and a panel drawn round it fought the shape: the band ran
+   off the left and right edges into a border, which is what made a crop that
+   is meant to read as "there is more of this" read as "this has been cut". */
+.wof-wheel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A window onto the wheel — see VIEW_W, SHOW and CROP in `WheelBoard.tsx`.
+   The wheel is drawn far bigger than this and runs off both sides and the
+   bottom, which is what makes a wedge big enough to read at thirty-six of
+   them; what the box holds is the arc under the pointer, where the reading
+   happens. */
+.wof-wheel-frame {
+  position: relative;
+  width: 100%;
+  max-width: 608px;
+  /* VIEW_W / CROP, and it has to stay that. The SVG's own
+     `preserveAspectRatio` is the default, so a box that disagrees with the
+     viewBox does not crop harder — it letterboxes, and the wheel shrinks away
+     from the sides of a frame that is still the old height. */
+  aspect-ratio: 90 / 68;
+}
+
+.wof-disc {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The rim is thrown by hand, so it has to look like something you can take
+   hold of. `touch-action` is the load-bearing half: without it a flick up the
+   wheel is a flick down the page, and the browser takes the gesture away
+   mid-drag. Only while it is actually throwable — a wheel that resisted the
+   scroll on somebody else's turn would just be a bug. */
+.wof-disc.grabbable {
+  cursor: grab;
+  touch-action: none;
+}
+.wof-disc.dragging {
+  cursor: grabbing;
+}
+
+/* The turn itself. The easing is not a taste: a wheel slowed by a constant
+   frictional torque covers `2t - t²` of its distance in normalised time, which
+   is exactly quadratic ease-out, which is exactly this cubic-bezier — the
+   quadratic Bézier (0, 0) (0.5, 1) (1, 1) raised a degree. So the curve on
+   screen is the same equation `spinThrow` resolved the landing with, and the
+   duration beside it is that throw's own. Change SPIN_DRAG and nothing here
+   moves; change this and the wheel starts lying about the other.
+
+   The rotation is set from React as an absolute angle, signed both ways now —
+   a flick left is a smaller number than the one before it — so this never has
+   to work out which way round to go.
+
+   `center` here means half the box measured from the element's own origin, so
+   the wheel is drawn about (0, 0) and then moved to the middle of a box that
+   starts at (0, 0) — see CENTRE in WheelBoard.tsx. Drawing it about the middle
+   of a viewBox that starts at -110 put the pivot a full radius off the wheel
+   and threw it clean off the screen on the first spin. */
+.wof-turn {
+  transform-box: view-box;
+  /* The wheel's own hub, handed over by the board. `center` meant half the
+     box, which was the same point only while the box was square — the crop
+     made it a band, and half of that is a good way above the hub. The hub is
+     below the frame entirely, which is why neither number can be guessed
+     from the box. */
+  transform-origin: var(--wof-hub-x) var(--wof-hub-y);
+  /* The old curve was 45% of the way round by the first tenth of the time and
+     99.7% by the last sixth, so the wheel snapped and then sat apparently
+     still for four hundred milliseconds. This one is physics: it sheds speed
+     at a constant rate from the moment the finger lets go, right down to the
+     stop. `cubic-bezier(.333,.667,.667,1)` is exactly `2t - t²`, which is the
+     distance a constantly-decelerating wheel has covered — the same equation
+     `spinMs` times and `spinThrow` resolves, not an impression of it.
+
+     Do not retune this curve to fix "it does not slow down". It was reported
+     that way once and the curve was already right; the fault was `SPIN_DRAG`,
+     which put every spin between 1.3 and 3.0 seconds. Deceleration nobody has
+     time to watch reads as none. The drag moved, this did not. */
+  transition: transform var(--wof-spin, 2400ms) cubic-bezier(0.333, 0.667, 0.667, 1);
+}
+
+/* Under the finger there is nothing to ease: the wheel is where the hand put
+   it, and a transition here would lag the drag by the length of a whole spin. */
+.wof-disc.dragging .wof-turn {
+  transition: none;
+}
+
+.wof-wedge {
+  stroke: var(--rule);
+  /* Units, not pixels, and the box is now half the width it was — so the same
+     hairline needs half the number to stay a hairline. */
+  stroke-width: 0.3;
+}
+.wof-wedge.cash {
+  fill: var(--board);
+}
+.wof-wedge.cash.alt {
+  fill: var(--surface);
+}
+/* The two wedges that cost you something, and the one that costs you the lot.
+   They are told apart by colour before anything is read, which is the point:
+   at a glance the wheel is mostly money and these are not. */
+.wof-wedge.bankrupt {
+  fill: var(--ink);
+}
+.wof-wedge.lose {
+  fill: var(--alert);
+}
+
+/* In viewBox units, so this is a share of the wheel and not a size in pixels:
+   at the crop's scale it comes out around 17px on a phone.
+
+   It is the *ratio* that was wrong before, not the pixels. At 12 units against
+   a wedge nineteen units wide, "900" was fractionally wider than the wedge
+   carrying it — three digits set edge to edge with their neighbours, which is
+   why the wheel read as a wall of numbers. Measured rather than guessed: 5.4
+   units puts "900" at 73% of the fourteen-unit wedge carrying it, so there is
+   a clear seventh of a wedge of air on each side — and the wheel around it
+   grew by more than the number shrank, so it lost nothing on screen. */
+.wof-face {
+  font-family: var(--body);
+  font-size: 5.4px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  fill: var(--ink);
+}
+/* Bankrupt and Lose a Turn, as marks. A 10° slice is about fourteen units of
+   arc where the labels sit, which is not room for a word — so those two wedges
+   carry a drawing instead, and say what they are in the readout below. Both
+   sit on a filled wedge, so both are struck in the reversed ink. */
+.wof-glyph {
+  fill: none;
+  stroke: var(--ground);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The pointer, at twelve o'clock. A notch rather than an arrow: it overlaps
+   the rim, so the wedge it is sitting on is unmistakable. Drawn inside the
+   wheel's own viewBox, so it keeps its place on the rim at every width.
+   The stroke is the ground, which is what lifts it off a dark wedge. */
+/* The rim. Not decoration: with the card gone the wheel needs an edge of its
+   own, and a real wheel has exactly this one. It runs off both sides of the
+   frame, which is the whole point of a wheel too big for its window. */
+.wof-rim {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+
+/* The hub, over the point where thirty-six wedges meet — see HUB_RADIUS. Two
+   circles: the cap, and the pin it turns on. Filled from the page rather than
+   from the wheel, so it reads as a fitting on top of the disc and not as a
+   thirty-seventh wedge. */
+.wof-hub {
+  fill: var(--ground);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+.wof-hub.pin {
+  fill: var(--ink);
+  stroke: none;
+}
+
+/* The flapper. Hinged along its top edge rather than pinned at its middle, so
+   the tip is knocked aside by each peg that passes under it and falls back
+   between them — see `flapAngle`. The angle is written straight onto the
+   element from a frame loop, so there is no transition here: it would smear
+   thirty-six ticks a turn into one slow wobble. */
+.wof-pointer {
+  transform-box: view-box;
+  transform-origin: var(--wof-hub-x) 1px;
+  fill: var(--accent);
+  stroke: var(--ground);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.wof-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 9px;
+  min-height: 34px;
+  margin: 0;
+  text-align: center;
+}
+
+/* Guesses left, as three pips and a count. The pips are the glanceable half —
+   nobody reads a sentence to find out whether they can risk a letter. */
+.wof-guesses {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.wof-guesses.last {
+  color: var(--alert);
+}
+
+.wof-guesses .wof-pips {
+  display: flex;
+  gap: 4px;
+}
+.wof-guesses .wof-pips i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.wof-guesses .wof-pips i.spent {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--rule-hi);
+}
+
+/* Guesses left and letters left, side by side — two ways the same turn ends,
+   so they are read as a pair. They wrap on a narrow phone rather than shrink:
+   a meter nobody can count is not a meter. */
+.wof-meters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The wheel still lands on the right wedge — it just gets there at once.
+     The value below it is never held back in this mode, so nothing is lost
+     but the flourish. */
+  .wof-turn {
+    transition: none;
+  }
+}
+
+/* A number, so it takes the numeral treatment rather than the display face:
+   body at 700, tabular, tightened, and sized well above its own label. */
+.wof-value {
+  font-family: var(--body);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.wof-prompt {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.wof-keys {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.wof-key {
+  /* The same 44px the invite button gets: twenty-six of these are the main
+     way the game is played, and they are hit at speed. */
+  min-height: 44px;
+  padding: 9px 0;
+  background: var(--surface);
+  border-color: var(--rule);
+  letter-spacing: 0;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.wof-key:disabled {
+  cursor: default;
+}
+/* A letter already called is spent, and says so — struck through rather than
+   faded, because you still need to read which ones have gone. */
+.wof-key.spent {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.wof-legend {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wof-solve {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wof-guess input {
+  text-transform: uppercase;
+}
+
+.wof-actions {
+  display: flex;
+  gap: 8px;
+}
+.wof-actions button {
+  flex: 1;
+}
+
+

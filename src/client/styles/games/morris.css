@@ -1,0 +1,208 @@
+/* ── Nine Men's Morris ──────────────────────────────────
+   A board that is drawn rather than tiled: twenty-four points on three nested
+   squares, and the lines between them are the rules made visible. Everything
+   here is positioned from `pointXY` in morrisDisplay.ts -- the geometry the
+   reducer itself uses -- so a road on the screen is a road a man may walk.
+
+   The men are buttons laid over one SVG of the lines, rather than each point
+   drawing its own: a point has two, three or four roads out of it, and
+   splitting those across twenty-four elements would be twenty-four chances to
+   draw a road that is not there. */
+.mm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mm-board {
+  position: relative;
+  /* Square, and the one board in the app that has to be: the three rings are
+     concentric, and a stretched board would put the men off their own lines. */
+  aspect-ratio: 1;
+  width: 100%;
+  background: var(--board);
+  border-radius: var(--board-radius);
+}
+
+.mm-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  /* The board's own line work, on the board with nothing over it -- which is
+     what --motif-off is for. --rule-hi, the brightest border in the app,
+     manages 1.6:1 here and would leave the board a blank slab. */
+  stroke: var(--motif-off);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* A point. The button is the touch target and stays a comfortable size at
+   every board width; the man inside it is smaller, because two neighbouring
+   points are only a seventh of the board apart and buttons that touch are
+   buttons pressed by mistake. */
+.mm-point {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 13.5%;
+  height: 13.5%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.mm-point:disabled {
+  cursor: default;
+}
+
+.mm-man {
+  width: 82%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+/* An empty point is a node on the line rather than a slot: small, and the
+   colour of the lines it belongs to. */
+.mm-point.empty .mm-man {
+  width: 30%;
+  background: var(--motif-off);
+}
+/* The men. Seat 0 is a plain disc and seat 1 carries a ring, as in every other
+   game here; the ring of board colour underneath is what lifts either of them
+   off the line they stand on. */
+.mm-point.p0 .mm-man {
+  background: var(--seat-0);
+  box-shadow:
+    0 0 0 3px var(--board),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18);
+}
+.mm-point.p1 .mm-man {
+  background: var(--seat-1);
+  box-shadow:
+    0 0 0 3px var(--board),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    inset 0 0 0 3px var(--ring);
+}
+
+/* Where the last man came from, and where he ended up. Marks rather than an
+   animation: this is a fact about the position, and the same board is already
+   using green and ink to say what happens next.
+
+   Both are drawn in --muted, which clears 4.6:1 on the board in both palettes
+   -- an empty point the size the ring needs is otherwise the four-pixel dot,
+   and --rule-hi, the brightest border in the app, manages 1.55:1 here.
+
+   These come first so the marks below can paint over them: last move is the
+   least of what a point might have to say. */
+.mm-point.vacated .mm-man {
+  width: 62%;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+.mm-point.landed .mm-man {
+  outline: 1px dashed var(--muted);
+  outline-offset: 3px;
+}
+
+/* A man you can pick up, and the one you have picked up -- the same green and
+   the same ink, in the same order, as the checkers in Backgammon. The outline
+   sits outside the disc, in the ring of board colour: green on an ice-blue man
+   is a contrast of 1.07 and may as well not be drawn, where against --board it
+   is 8.9, or 3.8 at the worst of daylight. */
+.mm-point.live .mm-man,
+.mm-point.chosen .mm-man {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+.mm-point.chosen .mm-man {
+  outline-color: var(--ink);
+}
+/* Somewhere the man you are holding may go. The empty point grows into a
+   hollow ring rather than lighting up where it is: at 30% of a point it is
+   four pixels across, and four pixels is not an invitation. */
+.mm-point.target .mm-man {
+  width: 62%;
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--live);
+}
+/* A man your mill may take. Red, because this is the one press on the board
+   that removes something, and it is aimed at the other player's pieces. It
+   lands on the board ring for the same reason the green does -- red on an
+   ember man would be 1.0. */
+.mm-point.doomed .mm-man {
+  outline: 2px solid var(--alert);
+  outline-offset: 2px;
+}
+/* The mill just closed: the same ink ring Connect Four draws round a winning
+   line, and for the same reason -- it is the line that explains why the turn
+   has not moved on. */
+.mm-point.milled .mm-man {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.mm-point:focus-visible .mm-man {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Men still in hand, per player. Nine pips and a count: the pips are the
+   glanceable half and the count the exact one, which is the bargain the
+   Wheel's guesses-left row already makes. Once a hand is empty the row says
+   how many men are left on the board instead, because that is the same
+   question asked in the second half of the game. */
+.mm-hands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm-hand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mm-who {
+  font-family: var(--display);
+  color: var(--ink);
+  /* A name is anyone's to choose, so this is the part that gives. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.mm-count {
+  flex: none;
+}
+
+.mm-pips {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+
+.mm-pips .mm-pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--motif-off);
+}
+.mm-pips .mm-pip.held {
+  background: var(--ink);
+  box-shadow: none;
+}
+

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from "vitest";
 import {
   ALPHABET,
   BLANK,
@@ -22,29 +22,31 @@ import {
   occurrences,
   remaining,
   seatCount,
+  spinMs,
   spinThrow,
   wedgeAfter,
   wheel,
   type WofMove,
   type WofState,
-} from './wheel.js';
-import { RoomEngine } from '../room.js';
-import type { MoveResult } from '../types.js';
+} from "./wheel.js";
+import { RoomEngine } from "../room.js";
+import type { MoveResult } from "../types.js";
 
 /** A position to hang a specific test on. Seat count follows `bank` if given. */
 function position(overrides: Partial<WofState> = {}): WofState {
   const seats = overrides.bank?.length ?? overrides.score?.length ?? 2;
   return {
     round: 1,
-    category: 'Phrase',
-    answer: 'A PIECE OF CAKE',
+    category: "Phrase",
+    answer: "A PIECE OF CAKE",
     used: [],
     called: [],
     starter: 0,
     turn: 0,
-    phase: 'spin',
+    phase: "spin",
     wedge: null,
     wedgeAt: null,
+    rest: 0,
     spins: 0,
     travel: 0,
     finds: 0,
@@ -73,17 +75,17 @@ function ok(result: MoveResult<WofState>): WofState {
 }
 
 function rejection(result: MoveResult<WofState>): string {
-  if (result.ok) throw new Error('expected this move to be refused');
+  if (result.ok) throw new Error("expected this move to be refused");
   return result.error;
 }
 
 /** Wedge positions found by kind, so reordering the wheel does not break tests. */
-const CASH = WHEEL.findIndex((w) => w.kind === 'cash');
-const BANKRUPT = WHEEL.findIndex((w) => w.kind === 'bankrupt');
-const LOSE_TURN = WHEEL.findIndex((w) => w.kind === 'lose-turn');
+const CASH = WHEEL.findIndex((w) => w.kind === "cash");
+const BANKRUPT = WHEEL.findIndex((w) => w.kind === "bankrupt");
+const LOSE_TURN = WHEEL.findIndex((w) => w.kind === "lose-turn");
 const cashValue = (index: number) => {
   const w = WHEEL[index];
-  return w.kind === 'cash' ? w.value : 0;
+  return w.kind === "cash" ? w.value : 0;
 };
 
 /** An rng that always stops the wheel on one wedge. */
@@ -102,20 +104,23 @@ function seeded(seed: number): () => number {
 
 /** Spin onto a cash wedge and take the state where a consonant is owed. */
 function spun(state: WofState, seat = state.turn, index = CASH): WofState {
-  return ok(apply(state, { type: 'spin' }, seat, spinTo(index)));
+  return ok(apply(state, { type: "spin" }, seat, spinTo(index)));
 }
 
-describe('setup', () => {
-  it.each([2, 3, 4])('lays out one seat per player for a table of %i', (players) => {
-    const s = wheel.setup(players, seeded(7));
-    expect(s.bank).toHaveLength(players);
-    expect(s.score).toHaveLength(players);
-    expect(seatCount(s)).toBe(players);
-    expect(s.turn).toBeLessThan(players);
-    expect(s.starter).toBe(s.turn);
-  });
+describe("setup", () => {
+  it.each([2, 3, 4])(
+    "lays out one seat per player for a table of %i",
+    (players) => {
+      const s = wheel.setup(players, seeded(7));
+      expect(s.bank).toHaveLength(players);
+      expect(s.score).toHaveLength(players);
+      expect(seatCount(s)).toBe(players);
+      expect(s.turn).toBeLessThan(players);
+      expect(s.starter).toBe(s.turn);
+    },
+  );
 
-  it('clamps a table size the game cannot seat', () => {
+  it("clamps a table size the game cannot seat", () => {
     // The room clamps too, but a reducer that divides by `seats` cannot afford
     // to find out that it was handed a zero.
     expect(seatCount(wheel.setup(0, never))).toBe(wheel.minPlayers);
@@ -123,71 +128,80 @@ describe('setup', () => {
     expect(seatCount(wheel.setup(NaN, never))).toBe(wheel.minPlayers);
   });
 
-  it('opens on a real puzzle with nobody ahead', () => {
+  it("opens on a real puzzle with nobody ahead", () => {
     const s = wheel.setup(2, seeded(3));
-    expect(PUZZLES.some((p) => p.answer === s.answer && p.category === s.category)).toBe(true);
+    expect(
+      PUZZLES.some((p) => p.answer === s.answer && p.category === s.category),
+    ).toBe(true);
     expect(s.bank).toEqual([0, 0]);
     expect(s.score).toEqual([0, 0]);
     expect(s.called).toEqual([]);
     expect(s.round).toBe(1);
-    expect(s.phase).toBe('spin');
+    expect(s.phase).toBe("spin");
     expect(wheel.isOver(s)).toBe(false);
   });
 
-  it('decides who opens by chance rather than by who made the room', () => {
+  it("decides who opens by chance rather than by who made the room", () => {
     expect(wheel.setup(4, () => 0.1).starter).toBe(0);
     expect(wheel.setup(4, () => 0.9).starter).toBe(3);
   });
 
-  it('is a pure function of its rng', () => {
+  it("is a pure function of its rng", () => {
     expect(wheel.setup(3, seeded(11))).toEqual(wheel.setup(3, seeded(11)));
   });
 });
 
-describe('the puzzle bank', () => {
-  it('holds only characters the mask knows how to handle', () => {
+describe("the puzzle bank", () => {
+  it("holds only characters the mask knows how to handle", () => {
     for (const { answer } of PUZZLES) {
       expect(answer, answer).toMatch(/^[A-Z' ]+$/);
       expect(answer.includes(BLANK), answer).toBe(false);
       expect(answer.trim(), answer).toBe(answer);
-      expect(answer.includes('  '), answer).toBe(false);
+      expect(answer.includes("  "), answer).toBe(false);
     }
   });
 
-  it('gives every puzzle both a consonant to win and a vowel to buy', () => {
+  it("gives every puzzle both a consonant to win and a vowel to buy", () => {
     for (const { answer } of PUZZLES) {
-      expect([...CONSONANTS].some((c) => answer.includes(c)), answer).toBe(true);
-      expect([...VOWELS].some((v) => answer.includes(v)), answer).toBe(true);
+      expect(
+        [...CONSONANTS].some((c) => answer.includes(c)),
+        answer,
+      ).toBe(true);
+      expect(
+        [...VOWELS].some((v) => answer.includes(v)),
+        answer,
+      ).toBe(true);
     }
   });
 
-  it('never lists the same answer twice', () => {
+  it("never lists the same answer twice", () => {
     expect(new Set(PUZZLES.map((p) => p.answer)).size).toBe(PUZZLES.length);
   });
 
-  it('stays inside what the board can draw', () => {
+  it("stays inside what the board can draw", () => {
     // The board lays a tile per character and wraps whole words. A word wider
     // than the phone it is on has nowhere to go.
     for (const { answer } of PUZZLES) {
       expect(answer.length, answer).toBeLessThanOrEqual(30);
-      for (const word of answer.split(' ')) expect(word.length, word).toBeLessThanOrEqual(12);
+      for (const word of answer.split(" "))
+        expect(word.length, word).toBeLessThanOrEqual(12);
     }
   });
 
-  it('has far more puzzles than a match can use', () => {
+  it("has far more puzzles than a match can use", () => {
     expect(PUZZLES.length).toBeGreaterThan(ROUNDS * 4);
     expect(PUZZLES.every((p) => p.category.length > 0)).toBe(true);
   });
 });
 
-describe('hiding the answer', () => {
-  it('replaces every uncalled letter and keeps everything else', () => {
-    expect(mask('A PIECE OF CAKE', [])).toBe('_ _____ __ ____');
-    expect(mask('A PIECE OF CAKE', ['E'])).toBe('_ __E_E __ ___E');
-    expect(mask("A BAKER'S DOZEN", ['A'])).toBe("A _A___'_ _____");
+describe("hiding the answer", () => {
+  it("replaces every uncalled letter and keeps everything else", () => {
+    expect(mask("A PIECE OF CAKE", [])).toBe("_ _____ __ ____");
+    expect(mask("A PIECE OF CAKE", ["E"])).toBe("_ __E_E __ ___E");
+    expect(mask("A BAKER'S DOZEN", ["A"])).toBe("A _A___'_ _____");
   });
 
-  it('never sends a letter nobody has called', () => {
+  it("never sends a letter nobody has called", () => {
     // The whole game rests on this: the client is handed the state, so an
     // answer that reaches it is an answer anyone can read out of devtools.
     for (const { answer } of PUZZLES) {
@@ -198,34 +212,37 @@ describe('hiding the answer', () => {
     }
   });
 
-  it('reveals exactly the letters that have been called', () => {
-    const seen = wheel.view!(position({ answer: 'A PIECE OF CAKE', called: ['C', 'E'] }), 0);
-    expect(seen.answer).toBe('_ __ECE __ C__E');
+  it("reveals exactly the letters that have been called", () => {
+    const seen = wheel.view!(
+      position({ answer: "A PIECE OF CAKE", called: ["C", "E"] }),
+      0,
+    );
+    expect(seen.answer).toBe("_ __ECE __ C__E");
   });
 
-  it('hides the same amount from every seat', () => {
-    const state = position({ answer: 'GARDEN SHED', called: ['D'] });
+  it("hides the same amount from every seat", () => {
+    const state = position({ answer: "GARDEN SHED", called: ["D"] });
     expect(wheel.view!(state, 0)).toEqual(wheel.view!(state, 1));
   });
 
-  it('shows the whole phrase once the round is over', () => {
-    const state = position({ answer: 'GARDEN SHED', roundOver: true });
-    expect(wheel.view!(state, 0).answer).toBe('GARDEN SHED');
+  it("shows the whole phrase once the round is over", () => {
+    const state = position({ answer: "GARDEN SHED", roundOver: true });
+    expect(wheel.view!(state, 0).answer).toBe("GARDEN SHED");
   });
 
-  it('never names the answer in the status line', () => {
+  it("never names the answer in the status line", () => {
     for (const { answer } of PUZZLES) {
-      const line = wheel.status(position({ answer }), ['Ann', 'Bo']);
+      const line = wheel.status(position({ answer }), ["Ann", "Bo"]);
       expect(line, answer).not.toContain(answer);
     }
   });
 
-  it('is redacted by the room, not merely available to be', () => {
+  it("is redacted by the room, not merely available to be", () => {
     // `view` only protects anything if the room actually calls it on the way
     // out. This is the assertion that the wiring is real.
-    const room = RoomEngine.create('TEST', 'wheel')!;
-    room.join('a', 'Ann');
-    room.join('b', 'Bo');
+    const room = RoomEngine.create("TEST", "wheel")!;
+    room.join("a", "Ann");
+    room.join("b", "Bo");
     room.start(0, seeded(5));
     const sent = room.viewFor(0, new Set([0, 1])).state as WofState;
     expect(sent.answer).not.toMatch(/[A-Z]/);
@@ -233,170 +250,223 @@ describe('hiding the answer', () => {
   });
 });
 
-describe('the wheel', () => {
-  it('asks for a consonant when it stops on money', () => {
+describe("the wheel", () => {
+  it("asks for a consonant when it stops on money", () => {
     const s = spun(position());
-    expect(s.phase).toBe('call');
-    expect(s.wedge).toEqual({ kind: 'cash', value: cashValue(CASH) });
+    expect(s.phase).toBe("call");
+    expect(s.wedge).toEqual({ kind: "cash", value: cashValue(CASH) });
     expect(s.turn).toBe(0);
   });
 
-  it('takes the round bank on Bankrupt but never the banked score', () => {
+  it("takes the round bank on Bankrupt but never the banked score", () => {
     const start = position({ bank: [1200, 0], score: [4000, 0] });
-    const s = ok(apply(start, { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    const s = ok(apply(start, { type: "spin" }, 0, spinTo(BANKRUPT)));
     expect(s.bank[0]).toBe(0);
     expect(s.score[0]).toBe(4000);
     expect(s.turn).toBe(1);
-    expect(s.phase).toBe('spin');
+    expect(s.phase).toBe("spin");
     expect(s.wedge).toBeNull();
     expect(s.note?.text).toMatch(/Bankrupt/);
   });
 
-  it('passes the turn on Lose a Turn without touching the money', () => {
+  it("passes the turn on Lose a Turn without touching the money", () => {
     const start = position({ bank: [1200, 0] });
-    const s = ok(apply(start, { type: 'spin' }, 0, spinTo(LOSE_TURN)));
+    const s = ok(apply(start, { type: "spin" }, 0, spinTo(LOSE_TURN)));
     expect(s.bank).toEqual([1200, 0]);
     expect(s.turn).toBe(1);
     expect(s.note?.text).toMatch(/Lose a Turn/);
   });
 
-  it('lands on a real wedge however badly the rng behaves', () => {
+  it("lands on a real wedge however badly the rng behaves", () => {
     // Rng is documented as [0, 1). A hand-written one returning exactly 1 would
     // otherwise index past the end of the wheel and hand back undefined.
-    for (const rng of [() => 0, () => 1, () => -1, () => NaN, () => 0.999999999]) {
-      const s = ok(apply(position(), { type: 'spin' }, 0, rng));
-      expect(s.wedge === null || WHEEL.some((w) => w.kind === s.wedge?.kind)).toBe(true);
+    for (const rng of [
+      () => 0,
+      () => 1,
+      () => -1,
+      () => NaN,
+      () => 0.999999999,
+    ]) {
+      const s = ok(apply(position(), { type: "spin" }, 0, rng));
+      expect(
+        s.wedge === null || WHEEL.some((w) => w.kind === s.wedge?.kind),
+      ).toBe(true);
       expect(s.note).not.toBeNull();
     }
   });
 
-  it('will not spin while a consonant is owed', () => {
-    expect(rejection(apply(spun(position()), { type: 'spin' }, 0))).toMatch(/consonant/i);
+  it("will not spin while a consonant is owed", () => {
+    expect(rejection(apply(spun(position()), { type: "spin" }, 0))).toMatch(
+      /consonant/i,
+    );
   });
 });
 
-describe('consonants', () => {
-  it('pays per occurrence and keeps the turn', () => {
-    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'C' }, 0));
+describe("consonants", () => {
+  it("pays per occurrence and keeps the turn", () => {
+    const s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "C" },
+        0,
+      ),
+    );
     expect(s.bank[0]).toBe(cashValue(CASH));
     expect(s.turn).toBe(0);
-    expect(s.phase).toBe('spin');
+    expect(s.phase).toBe("spin");
     // The spin is spent — another consonant needs another one.
     expect(s.wedge).toBeNull();
-    expect(s.called).toEqual(['C']);
+    expect(s.called).toEqual(["C"]);
   });
 
-  it('multiplies by how many there are', () => {
-    const answer = 'THE KITCHEN SINK';
-    expect(occurrences(answer, 'T')).toBe(2);
-    const s = ok(apply(spun(position({ answer })), { type: 'letter', letter: 'T' }, 0));
+  it("multiplies by how many there are", () => {
+    const answer = "THE KITCHEN SINK";
+    expect(occurrences(answer, "T")).toBe(2);
+    const s = ok(
+      apply(spun(position({ answer })), { type: "letter", letter: "T" }, 0),
+    );
     expect(s.bank[0]).toBe(cashValue(CASH) * 2);
     expect(s.note?.text).toContain(money(cashValue(CASH) * 2));
   });
 
-  it('ends the turn when the letter is not there', () => {
-    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'Z' }, 0));
+  it("ends the turn when the letter is not there", () => {
+    const s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "Z" },
+        0,
+      ),
+    );
     expect(s.bank[0]).toBe(0);
     expect(s.turn).toBe(1);
     // The spin goes with the turn: another consonant needs another wedge.
-    expect(s.phase).toBe('spin');
+    expect(s.phase).toBe("spin");
     expect(s.wedge).toBeNull();
-    expect(s.called).toEqual(['Z']);
+    expect(s.called).toEqual(["Z"]);
     expect(s.note?.text).toMatch(/no Z/i);
-    expect(s.note?.text).toContain('The turn moves on.');
+    expect(s.note?.text).toContain("The turn moves on.");
   });
 
-  it('refuses a vowel while a consonant is owed', () => {
-    expect(rejection(apply(spun(position()), { type: 'letter', letter: 'E' }, 0))).toMatch(
-      /consonant/i,
+  it("refuses a vowel while a consonant is owed", () => {
+    expect(
+      rejection(apply(spun(position()), { type: "letter", letter: "E" }, 0)),
+    ).toMatch(/consonant/i);
+  });
+
+  it("refuses a consonant nobody spun for", () => {
+    expect(
+      rejection(apply(position(), { type: "letter", letter: "C" }, 0)),
+    ).toMatch(/spin/i);
+  });
+
+  it("refuses a letter already called", () => {
+    const s = spun(position({ called: ["C"] }));
+    expect(rejection(apply(s, { type: "letter", letter: "C" }, 0))).toMatch(
+      /already/i,
     );
   });
 
-  it('refuses a consonant nobody spun for', () => {
-    expect(rejection(apply(position(), { type: 'letter', letter: 'C' }, 0))).toMatch(/spin/i);
+  it.each(["", "1", "AB", "#", " "])("refuses %p as a letter", (letter) => {
+    expect(
+      rejection(apply(spun(position()), { type: "letter", letter }, 0)),
+    ).toMatch(/not a letter/i);
   });
 
-  it('refuses a letter already called', () => {
-    const s = spun(position({ called: ['C'] }));
-    expect(rejection(apply(s, { type: 'letter', letter: 'C' }, 0))).toMatch(/already/i);
+  it("accepts a lowercase letter rather than punishing the client for it", () => {
+    const s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "c" },
+        0,
+      ),
+    );
+    expect(s.called).toEqual(["C"]);
   });
 
-  it.each(['', '1', 'AB', '#', ' '])('refuses %p as a letter', (letter) => {
-    expect(rejection(apply(spun(position()), { type: 'letter', letter }, 0))).toMatch(/not a letter/i);
-  });
-
-  it('accepts a lowercase letter rather than punishing the client for it', () => {
-    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'c' }, 0));
-    expect(s.called).toEqual(['C']);
-  });
-
-  it('hands the turn on rather than stranding a player when every consonant is gone', () => {
+  it("hands the turn on rather than stranding a player when every consonant is gone", () => {
     // Otherwise the only legal move in the `call` phase no longer exists.
-    const s = ok(apply(position({ called: [...CONSONANTS] }), { type: 'spin' }, 0, spinTo(CASH)));
-    expect(s.phase).toBe('spin');
+    const s = ok(
+      apply(
+        position({ called: [...CONSONANTS] }),
+        { type: "spin" },
+        0,
+        spinTo(CASH),
+      ),
+    );
+    expect(s.phase).toBe("spin");
     expect(s.turn).toBe(1);
     expect(s.note?.text).toMatch(/every consonant is gone/i);
   });
 });
 
-describe('vowels', () => {
-  it('costs the same whether or not it is there', () => {
-    const rich = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    expect(ok(apply(rich, { type: 'letter', letter: 'E' }, 0)).bank[0]).toBe(1000 - VOWEL_COST);
-    expect(ok(apply(rich, { type: 'letter', letter: 'I' }, 0)).bank[0]).toBe(1000 - VOWEL_COST);
+describe("vowels", () => {
+  it("costs the same whether or not it is there", () => {
+    const rich = position({ answer: "A CUP OF TEA", bank: [1000, 0] });
+    expect(ok(apply(rich, { type: "letter", letter: "E" }, 0)).bank[0]).toBe(
+      1000 - VOWEL_COST,
+    );
+    expect(ok(apply(rich, { type: "letter", letter: "I" }, 0)).bank[0]).toBe(
+      1000 - VOWEL_COST,
+    );
   });
 
-  it('keeps the turn on a vowel that is there, and loses it on one that is not', () => {
-    const rich = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    const hit = ok(apply(rich, { type: 'letter', letter: 'E' }, 0));
+  it("keeps the turn on a vowel that is there, and loses it on one that is not", () => {
+    const rich = position({ answer: "A CUP OF TEA", bank: [1000, 0] });
+    const hit = ok(apply(rich, { type: "letter", letter: "E" }, 0));
     expect(hit.turn).toBe(0);
     expect(hit.finds).toBe(1);
 
-    const missed = ok(apply(rich, { type: 'letter', letter: 'I' }, 0));
+    const missed = ok(apply(rich, { type: "letter", letter: "I" }, 0));
     expect(missed.turn).toBe(1);
     // Charged either way: the money buys the question, not the answer.
     expect(missed.bank[0]).toBe(1000 - VOWEL_COST);
   });
 
-  it('refuses a vowel nobody can afford', () => {
+  it("refuses a vowel nobody can afford", () => {
     const broke = position({ bank: [VOWEL_COST - 1, 0] });
-    expect(rejection(apply(broke, { type: 'letter', letter: 'E' }, 0))).toContain(money(VOWEL_COST));
+    expect(
+      rejection(apply(broke, { type: "letter", letter: "E" }, 0)),
+    ).toContain(money(VOWEL_COST));
   });
 
-  it('sells it at exactly the asking price', () => {
-    const s = position({ answer: 'A CUP OF TEA', bank: [VOWEL_COST, 0] });
-    expect(ok(apply(s, { type: 'letter', letter: 'E' }, 0)).bank[0]).toBe(0);
+  it("sells it at exactly the asking price", () => {
+    const s = position({ answer: "A CUP OF TEA", bank: [VOWEL_COST, 0] });
+    expect(ok(apply(s, { type: "letter", letter: "E" }, 0)).bank[0]).toBe(0);
   });
 });
 
-describe('solving', () => {
-  const start = position({ answer: 'A PIECE OF CAKE', bank: [3000, 0] });
+describe("solving", () => {
+  const start = position({ answer: "A PIECE OF CAKE", bank: [3000, 0] });
 
-  it('takes the round and banks the money, with the bonus on top', () => {
-    const s = ok(apply(start, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+  it("takes the round and banks the money, with the bonus on top", () => {
+    const s = ok(apply(start, { type: "solve", answer: "A PIECE OF CAKE" }, 0));
     expect(s.roundOver).toBe(true);
     expect(s.score[0]).toBe(3000 + SOLVE_BONUS);
     expect(s.note?.text).toMatch(/solved/i);
     // And the board now shows the whole phrase.
-    expect(wheel.view!(s, 1).answer).toBe('A PIECE OF CAKE');
+    expect(wheel.view!(s, 1).answer).toBe("A PIECE OF CAKE");
   });
 
   it.each([
-    'a piece of cake',
-    '  A Piece Of Cake  ',
-    'APIECEOFCAKE',
-    'a-piece-of-cake!',
-  ])('accepts %p', (guess) => {
-    expect(ok(apply(start, { type: 'solve', answer: guess }, 0)).roundOver).toBe(true);
+    "a piece of cake",
+    "  A Piece Of Cake  ",
+    "APIECEOFCAKE",
+    "a-piece-of-cake!",
+  ])("accepts %p", (guess) => {
+    expect(
+      ok(apply(start, { type: "solve", answer: guess }, 0)).roundOver,
+    ).toBe(true);
   });
 
-  it('ignores an apostrophe the player did not type', () => {
+  it("ignores an apostrophe the player did not type", () => {
     const s = position({ answer: "A BAKER'S DOZEN" });
-    expect(ok(apply(s, { type: 'solve', answer: 'a bakers dozen' }, 0)).roundOver).toBe(true);
+    expect(
+      ok(apply(s, { type: "solve", answer: "a bakers dozen" }, 0)).roundOver,
+    ).toBe(true);
   });
 
-  it('ends the turn on a wrong answer', () => {
-    const s = ok(apply(start, { type: 'solve', answer: 'A SLICE OF CAKE' }, 0));
+  it("ends the turn on a wrong answer", () => {
+    const s = ok(apply(start, { type: "solve", answer: "A SLICE OF CAKE" }, 0));
     expect(s.roundOver).toBe(false);
     expect(s.turn).toBe(1);
     expect(s.score[0]).toBe(0);
@@ -404,24 +474,38 @@ describe('solving', () => {
     expect(s.bank[0]).toBe(3000);
   });
 
-  it('refuses an empty answer rather than spending the turn on it', () => {
-    expect(rejection(apply(start, { type: 'solve', answer: '   ' }, 0))).toMatch(/type an answer/i);
+  it("refuses an empty answer rather than spending the turn on it", () => {
+    expect(
+      rejection(apply(start, { type: "solve", answer: "   " }, 0)),
+    ).toMatch(/type an answer/i);
   });
 
-  it('refuses a solve while a consonant is owed', () => {
+  it("refuses a solve while a consonant is owed", () => {
     const owed = spun(start);
-    expect(rejection(apply(owed, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0))).toMatch(
-      /consonant/i,
-    );
+    expect(
+      rejection(apply(owed, { type: "solve", answer: "A PIECE OF CAKE" }, 0)),
+    ).toMatch(/consonant/i);
   });
 
-  it('pays the solve bonus to someone who solves with nothing in the bank', () => {
-    const s = ok(apply(position({ bank: [0, 0] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+  it("pays the solve bonus to someone who solves with nothing in the bank", () => {
+    const s = ok(
+      apply(
+        position({ bank: [0, 0] }),
+        { type: "solve", answer: "A PIECE OF CAKE" },
+        0,
+      ),
+    );
     expect(s.score[0]).toBe(SOLVE_BONUS);
   });
 
-  it('pays the solve bonus on top of the round', () => {
-    const s = ok(apply(position({ bank: [3000, 0] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+  it("pays the solve bonus on top of the round", () => {
+    const s = ok(
+      apply(
+        position({ bank: [3000, 0] }),
+        { type: "solve", answer: "A PIECE OF CAKE" },
+        0,
+      ),
+    );
     expect(s.score[0]).toBe(3000 + SOLVE_BONUS);
   });
 
@@ -429,27 +513,48 @@ describe('solving', () => {
    * The rule that decides what a round feels like from second place: the money
    * you won is yours whether or not you were the one to spot the phrase.
    */
-  it('lets everyone keep what they won, not only the solver', () => {
+  it("lets everyone keep what they won, not only the solver", () => {
     const s = ok(
-      apply(position({ bank: [1200, 800, 400] }), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0),
+      apply(
+        position({ bank: [1200, 800, 400] }),
+        { type: "solve", answer: "A PIECE OF CAKE" },
+        0,
+      ),
     );
     expect(s.score).toEqual([1200 + SOLVE_BONUS, 800, 400]);
   });
 
-  it('still lets Bankrupt take a round bank to nothing', () => {
+  it("still lets Bankrupt take a round bank to nothing", () => {
     // Bankrupt is what makes the money at risk; solving is no longer.
-    const s = ok(apply(position({ bank: [900, 500] }), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    const s = ok(
+      apply(
+        position({ bank: [900, 500] }),
+        { type: "spin" },
+        0,
+        spinTo(BANKRUPT),
+      ),
+    );
     expect(s.bank[0]).toBe(0);
-    const done = ok(apply({ ...s, turn: 1 }, { type: 'solve', answer: 'A PIECE OF CAKE' }, 1));
+    const done = ok(
+      apply({ ...s, turn: 1 }, { type: "solve", answer: "A PIECE OF CAKE" }, 1),
+    );
     expect(done.score).toEqual([0, 500 + SOLVE_BONUS]);
   });
 
-  it('takes the round when the last letter goes up, with no solve needed', () => {
+  it("takes the round when the last letter goes up, with no solve needed", () => {
     // There is nothing left to solve, and no state worth having where the
     // board is complete and the game is still waiting to be told so.
-    const answer = 'GARDEN SHED';
-    const called = [...new Set([...answer])].filter((c) => ALPHABET.includes(c) && c !== 'N');
-    const s = ok(apply(spun(position({ answer, called })), { type: 'letter', letter: 'N' }, 0));
+    const answer = "GARDEN SHED";
+    const called = [...new Set([...answer])].filter(
+      (c) => ALPHABET.includes(c) && c !== "N",
+    );
+    const s = ok(
+      apply(
+        spun(position({ answer, called })),
+        { type: "letter", letter: "N" },
+        0,
+      ),
+    );
     expect(s.roundOver).toBe(true);
     expect(s.score[0]).toBeGreaterThan(0);
     expect(s.note?.text).toMatch(/that's the puzzle/i);
@@ -461,44 +566,66 @@ describe('solving', () => {
  * the game is actually played by: a guess costs the wheel, which is what makes
  * naming a letter you are only half sure of a decision worth making.
  */
-describe('one wrong guess ends the turn', () => {
-  it('treats a wrong consonant, a dud vowel and a wrong phrase all the same', () => {
-    const rich = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    expect(ok(apply(spun(rich), { type: 'letter', letter: 'Z' }, 0)).turn).toBe(1);
-    expect(ok(apply(rich, { type: 'letter', letter: 'I' }, 0)).turn).toBe(1);
-    expect(ok(apply(rich, { type: 'solve', answer: 'NOPE' }, 0)).turn).toBe(1);
+describe("one wrong guess ends the turn", () => {
+  it("treats a wrong consonant, a dud vowel and a wrong phrase all the same", () => {
+    const rich = position({ answer: "A CUP OF TEA", bank: [1000, 0] });
+    expect(ok(apply(spun(rich), { type: "letter", letter: "Z" }, 0)).turn).toBe(
+      1,
+    );
+    expect(ok(apply(rich, { type: "letter", letter: "I" }, 0)).turn).toBe(1);
+    expect(ok(apply(rich, { type: "solve", answer: "NOPE" }, 0)).turn).toBe(1);
   });
 
-  it('hands the spin over with the turn', () => {
-    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'Z' }, 0));
-    expect(s.phase).toBe('spin');
+  it("hands the spin over with the turn", () => {
+    const s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "Z" },
+        0,
+      ),
+    );
+    expect(s.phase).toBe("spin");
     expect(s.wedge).toBeNull();
     // Where the wheel is standing outlives the turn that spun it: the next
     // player watches it spin away from there.
     expect(s.wedgeAt).not.toBeNull();
   });
 
-  it('keeps the turn on a correct call', () => {
-    const s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'C' }, 0));
+  it("keeps the turn on a correct call", () => {
+    const s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "C" },
+        0,
+      ),
+    );
     expect(s.turn).toBe(0);
   });
 
-  it('clears the streak the miss interrupted', () => {
-    let s = ok(apply(spun(position({ answer: 'A CUP OF TEA' })), { type: 'letter', letter: 'C' }, 0));
+  it("clears the streak the miss interrupted", () => {
+    let s = ok(
+      apply(
+        spun(position({ answer: "A CUP OF TEA" })),
+        { type: "letter", letter: "C" },
+        0,
+      ),
+    );
     expect(s.finds).toBe(1);
-    s = ok(apply(spun(s), { type: 'letter', letter: 'Z' }, 0));
+    s = ok(apply(spun(s), { type: "letter", letter: "Z" }, 0));
     expect(s.turn).toBe(1);
     expect(s.finds).toBe(0);
   });
 
-  it('is not spent by Bankrupt or Lose a Turn', () => {
+  it("is not spent by Bankrupt or Lose a Turn", () => {
     // Those are the wheel's doing, not the player's, and they end the turn
     // outright — the note has to say so rather than blame a guess.
     const s = position({ bank: [900, 0] });
-    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(BANKRUPT))).note?.text).toMatch(/bankrupt/i);
-    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(LOSE_TURN))).note?.text).not.toMatch(
-      /turn moves on/i,
-    );
+    expect(
+      ok(apply(s, { type: "spin" }, 0, spinTo(BANKRUPT))).note?.text,
+    ).toMatch(/bankrupt/i);
+    expect(
+      ok(apply(s, { type: "spin" }, 0, spinTo(LOSE_TURN))).note?.text,
+    ).not.toMatch(/turn moves on/i);
   });
 });
 
@@ -507,121 +634,134 @@ describe('one wrong guess ends the turn', () => {
  * right ones — without the second cap a player who got going kept the wheel
  * until the puzzle was gone and everyone else watched.
  */
-describe('three letters to a turn', () => {
+describe("three letters to a turn", () => {
   /** Spin, then call `letter`, as the player to move. */
   const call = (state: WofState, letter: string) =>
-    ok(apply(spun(state), { type: 'letter', letter }, state.turn));
+    ok(apply(spun(state), { type: "letter", letter }, state.turn));
 
-  it('counts a correct consonant', () => {
-    expect(call(position({ answer: 'A CUP OF TEA' }), 'C').finds).toBe(1);
+  it("counts a correct consonant", () => {
+    expect(call(position({ answer: "A CUP OF TEA" }), "C").finds).toBe(1);
   });
 
-  it('counts a bought vowel that was there', () => {
-    const s = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    expect(ok(apply(s, { type: 'letter', letter: 'U' }, 0)).finds).toBe(1);
+  it("counts a bought vowel that was there", () => {
+    const s = position({ answer: "A CUP OF TEA", bank: [1000, 0] });
+    expect(ok(apply(s, { type: "letter", letter: "U" }, 0)).finds).toBe(1);
   });
 
-  it('does not count a letter that was not there', () => {
-    const s = position({ answer: 'A CUP OF TEA', bank: [1000, 0] });
-    expect(ok(apply(spun(s), { type: 'letter', letter: 'Z' }, 0)).finds).toBe(0);
-    expect(ok(apply(s, { type: 'letter', letter: 'I' }, 0)).finds).toBe(0);
+  it("does not count a letter that was not there", () => {
+    const s = position({ answer: "A CUP OF TEA", bank: [1000, 0] });
+    expect(ok(apply(spun(s), { type: "letter", letter: "Z" }, 0)).finds).toBe(
+      0,
+    );
+    expect(ok(apply(s, { type: "letter", letter: "I" }, 0)).finds).toBe(0);
   });
 
-  it('passes the turn on the third one, and keeps the money', () => {
-    let s = position({ answer: 'A PIECE OF CAKE' });
-    const run = ['P', 'C', 'F'].slice(0, FINDS_PER_TURN);
+  it("passes the turn on the third one, and keeps the money", () => {
+    let s = position({ answer: "A PIECE OF CAKE" });
+    const run = ["P", "C", "F"].slice(0, FINDS_PER_TURN);
     for (const letter of run) s = call(s, letter);
     expect(s.turn).toBe(1);
     expect(s.finds).toBe(0);
     expect(s.roundOver).toBe(false);
     // The letters paid on the way through; the cap ends the turn, not the run.
     expect(s.bank[0]).toBeGreaterThan(0);
-    expect(s.note).toEqual({ seat: 0, text: expect.stringMatching(/the turn moves on/) });
+    expect(s.note).toEqual({
+      seat: 0,
+      text: expect.stringMatching(/the turn moves on/),
+    });
   });
 
-  it('still says what the third letter paid before it says the turn is over', () => {
-    let s = position({ answer: 'A PIECE OF CAKE' });
-    for (const letter of ['P', 'C', 'F']) s = call(s, letter);
+  it("still says what the third letter paid before it says the turn is over", () => {
+    let s = position({ answer: "A PIECE OF CAKE" });
+    for (const letter of ["P", "C", "F"]) s = call(s, letter);
     expect(s.note!.text).toMatch(/^found /);
   });
 
-  it('lets the third one finish the puzzle rather than passing the turn', () => {
+  it("lets the third one finish the puzzle rather than passing the turn", () => {
     // Everything but P, C and K already on the board, so the third find
     // completes it. Taking the round beats running out of letters.
-    const called = [...'AEIOUF'];
-    let s = position({ answer: 'A PIECE OF CAKE', called });
-    for (const letter of ['P', 'C', 'K']) s = call(s, letter);
+    const called = [..."AEIOUF"];
+    let s = position({ answer: "A PIECE OF CAKE", called });
+    for (const letter of ["P", "C", "K"]) s = call(s, letter);
     expect(s.roundOver).toBe(true);
     expect(s.finds).toBe(0);
     expect(s.note!.text).toMatch(/that's the puzzle/i);
     expect(s.note!.text).not.toMatch(/the turn moves on/);
   });
 
-  it('gives every seat its own three', () => {
-    let s = position({ answer: 'A PIECE OF CAKE' });
-    for (const letter of ['P', 'C', 'F']) s = call(s, letter);
+  it("gives every seat its own three", () => {
+    let s = position({ answer: "A PIECE OF CAKE" });
+    for (const letter of ["P", "C", "F"]) s = call(s, letter);
     expect(s.turn).toBe(1);
-    s = call(s, 'K');
+    s = call(s, "K");
     expect(s.finds).toBe(1);
     expect(s.turn).toBe(1);
   });
 
-  it('clears the count when the turn ends some other way', () => {
-    let s = call(position({ answer: 'A PIECE OF CAKE' }), 'P');
+  it("clears the count when the turn ends some other way", () => {
+    let s = call(position({ answer: "A PIECE OF CAKE" }), "P");
     expect(s.finds).toBe(1);
-    expect(ok(apply(s, { type: 'spin' }, 0, spinTo(LOSE_TURN))).finds).toBe(0);
+    expect(ok(apply(s, { type: "spin" }, 0, spinTo(LOSE_TURN))).finds).toBe(0);
   });
 
-  it('clears the count when a round ends', () => {
-    let s = call(position({ answer: 'A PIECE OF CAKE' }), 'P');
-    s = ok(apply(s, { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+  it("clears the count when a round ends", () => {
+    let s = call(position({ answer: "A PIECE OF CAKE" }), "P");
+    s = ok(apply(s, { type: "solve", answer: "A PIECE OF CAKE" }, 0));
     expect(s.finds).toBe(0);
-    expect(ok(apply(s, { type: 'next' }, s.turn, seeded(3))).finds).toBe(0);
+    expect(ok(apply(s, { type: "next" }, s.turn, seeded(3))).finds).toBe(0);
   });
 
-  it('says how many letters are left in the status line, once any are gone', () => {
+  it("says how many letters are left in the status line, once any are gone", () => {
     const fresh = position();
-    expect(wheel.status(fresh, ['Ann', 'Bo'])).not.toMatch(/left/);
-    expect(wheel.status({ ...fresh, finds: 1 }, ['Ann', 'Bo'])).toMatch(/two left/i);
-    expect(wheel.status({ ...fresh, finds: 2 }, ['Ann', 'Bo'])).toMatch(/one left/i);
+    expect(wheel.status(fresh, ["Ann", "Bo"])).not.toMatch(/left/);
+    expect(wheel.status({ ...fresh, finds: 1 }, ["Ann", "Bo"])).toMatch(
+      /two left/i,
+    );
+    expect(wheel.status({ ...fresh, finds: 2 }, ["Ann", "Bo"])).toMatch(
+      /one left/i,
+    );
   });
 });
 
 /** What the board needs to draw a wheel that actually spins. */
-describe('where the wheel stopped', () => {
-  it('records the wedge it landed on, by index', () => {
-    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+describe("where the wheel stopped", () => {
+  it("records the wedge it landed on, by index", () => {
+    const s = ok(apply(position(), { type: "spin" }, 0, spinTo(BANKRUPT)));
     expect(s.wedgeAt).toBe(BANKRUPT);
-    expect(WHEEL[s.wedgeAt!].kind).toBe('bankrupt');
+    expect(WHEEL[s.wedgeAt!].kind).toBe("bankrupt");
   });
 
-  it('agrees with the wedge in hand', () => {
+  it("agrees with the wedge in hand", () => {
     const s = spun(position());
     expect(WHEEL[s.wedgeAt!]).toEqual(s.wedge);
   });
 
-  it('leaves the pointer where it stopped when the turn passes', () => {
+  it("leaves the pointer where it stopped when the turn passes", () => {
     // Bankrupt ends the turn, and the wheel still has to be seen landing on it.
-    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    const s = ok(apply(position(), { type: "spin" }, 0, spinTo(BANKRUPT)));
     expect(s.wedge).toBeNull();
     expect(s.wedgeAt).toBe(BANKRUPT);
   });
 
-  it('counts spins upwards, so two of the same wedge still read as two spins', () => {
-    const first = ok(apply(position(), { type: 'spin' }, 0, spinTo(BANKRUPT)));
+  it("counts spins upwards, so two of the same wedge still read as two spins", () => {
+    const first = ok(apply(position(), { type: "spin" }, 0, spinTo(BANKRUPT)));
     expect(first.spins).toBe(1);
-    const second = ok(apply({ ...first, turn: 0 }, { type: 'spin' }, 0, spinTo(BANKRUPT)));
+    const second = ok(
+      apply({ ...first, turn: 0 }, { type: "spin" }, 0, spinTo(BANKRUPT)),
+    );
     expect(second.spins).toBe(2);
     expect(second.wedgeAt).toBe(first.wedgeAt);
   });
 
-  it('resets the pointer for a new round', () => {
-    const solved = ok(apply(position(), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
-    const next = ok(apply(solved, { type: 'next' }, solved.turn, seeded(4)));
+  it("resets the pointer for a new round", () => {
+    const solved = ok(
+      apply(position(), { type: "solve", answer: "A PIECE OF CAKE" }, 0),
+    );
+    const next = ok(apply(solved, { type: "next" }, solved.turn, seeded(4)));
     expect(next.wedgeAt).toBeNull();
   });
 
-  it('lays the wheel out in thirty-six equal wedges', () => {
+  it("lays the wheel out in thirty-six equal wedges", () => {
     expect(WHEEL).toHaveLength(36);
     expect(WEDGE_ARC).toBe(10);
   });
@@ -630,8 +770,8 @@ describe('where the wheel stopped', () => {
      about: not how often a wedge is bad but how often a turn ends on one. Held
      to a number rather than to a count of wedges, because that is the quantity
      the layout is chosen for — see the note on WHEEL. */
-  it('ends fewer than a fifth of full turns badly', () => {
-    const bad = WHEEL.filter((w) => w.kind !== 'cash').length;
+  it("ends fewer than a fifth of full turns badly", () => {
+    const bad = WHEEL.filter((w) => w.kind !== "cash").length;
     expect(bad).toBe(2);
     const spoiled = 1 - ((WHEEL.length - bad) / WHEEL.length) ** FINDS_PER_TURN;
     expect(spoiled).toBeLessThan(0.18);
@@ -643,39 +783,50 @@ describe('where the wheel stopped', () => {
  * they threw is the whole of what decides the wedge — so these are rules, not
  * decoration, and the one thing they must not permit is aiming.
  */
-describe('throwing the wheel by hand', () => {
+describe("throwing the wheel by hand", () => {
   /* Velocities are signed degrees of rotation per millisecond at the moment of
      release, which is what a pointer trail measures. */
   const flick = (velocity: number, state = position()) =>
-    ok(apply(state, { type: 'spin', velocity }, 0, seeded(1)));
+    ok(apply(state, { type: "spin", velocity }, 0, seeded(1)));
 
-  it('travels further the harder it is thrown', () => {
+  it("travels further the harder it is thrown", () => {
     const gentle = flick(SPIN_MIN_SPEED);
     const hard = flick(SPIN_MAX_SPEED);
     expect(gentle.travel).toBe(SPIN_MIN_TRAVEL);
     expect(hard.travel).toBe(SPIN_MAX_TRAVEL);
-    // Distance goes as the square of the speed, so twice as hard is four times
-    // as far — the thing a linear dial could never give back.
-    expect(flick(2 * SPIN_MIN_SPEED).travel).toBeCloseTo(4 * SPIN_MIN_TRAVEL, -1);
+    // Distance goes as the square of the speed, so half again as hard is well
+    // over twice as far — the thing a linear dial could never give back.
+    // Measured at 1.5x rather than 2x because the clamp is only 3.5x the floor
+    // now, and a doubled flick runs into the ceiling before it can show the
+    // square law.
+    expect(flick(1.5 * SPIN_MIN_SPEED).travel).toBeCloseTo(
+      2.25 * SPIN_MIN_TRAVEL,
+      -1,
+    );
   });
 
   /* The reason any of this changed. A wheel that only ever went one way is a
      button with a gesture in front of it. */
-  it('throws the wheel the way the finger went', () => {
+  it("throws the wheel the way the finger went", () => {
     // Not the hardest throw available: a distance that happens to be half a
     // whole number of turns lands the same wedge either way round, which would
-    // pass this test by arithmetic accident rather than by direction.
-    const left = flick(-0.95);
-    const right = flick(0.95);
+    // pass this test by arithmetic accident rather than by direction. 0.95
+    // used to be safe and is not any more — under the retuned drag it carries
+    // 270.2 wedges, which is 18.2 past seven and a half turns.
+    const left = flick(-0.8);
+    const right = flick(0.8);
     expect(left.travel).toBe(-right.travel);
     expect(left.wedgeAt).not.toBe(right.wedgeAt);
     expect(left.wedgeAt).toBe(wedgeAfter(0, left.travel));
   });
 
-  it('lands on the wedge that far round from where it was standing', () => {
+  it("lands on the wedge that far round from where it was standing", () => {
     for (const velocity of [0.8, -0.8, SPIN_MAX_SPEED, -SPIN_MIN_SPEED]) {
       const from = 5;
-      const s = flick(velocity, position({ wedgeAt: from }));
+      // `rest` is the anchor, not `wedgeAt` — the wheel is measured from where
+      // it physically stopped. Set both, because a position with the flapper
+      // over wedge 5 and the rim resting at 0 is not a position that happens.
+      const s = flick(velocity, position({ wedgeAt: from, rest: from }));
       expect(s.wedgeAt).toBe(wedgeAfter(from, s.travel));
     }
   });
@@ -685,7 +836,7 @@ describe('throwing the wheel by hand', () => {
      slow careful drag is not a free choice of wedge. And a release that has
      stopped dead is still a throw of a full turn and more, so letting go
      gently is not one either. */
-  it('always carries the wheel at least a full turn, however limp the flick', () => {
+  it("always carries the wheel at least a full turn, however limp the flick", () => {
     for (const velocity of [0, -0, 0.0001, -0.0001, Number.NaN]) {
       const s = flick(velocity);
       expect(Math.abs(s.travel)).toBe(SPIN_MIN_TRAVEL);
@@ -693,7 +844,82 @@ describe('throwing the wheel by hand', () => {
     }
   });
 
-  it('does not let a hard enough throw run for ever', () => {
+  /*
+     The bug this was written for. Every landing in the game's history was on a
+     wedge's exact midpoint, from two separate roundings: `spinThrow` rounded
+     travel to whole wedges, and the board stood the wheel on `restAngle` of
+     the *index*. Physics does not do that, and it read as staged.
+
+     Held to a distribution rather than to one throw, because one throw landing
+     off-centre proves nothing — the old code would have too, if the wedge it
+     rounded to happened to be the one it was already on.
+  */
+  it("stops wherever the throw ran out, not on the midpoint", () => {
+    const rests = [];
+    for (let i = 0; i < 200; i += 1) {
+      // A spread of real flicks across the usable range, open at both ends:
+      // the clamps are whole numbers of wedges, so a throw hard or soft enough
+      // to be clamped *does* land on a midpoint when the wheel starts on one.
+      // That is only ever the first spin of a game — after it the anchor
+      // carries a fraction — and it is the clamp being exact, not a rounding.
+      const v =
+        SPIN_MIN_SPEED + ((SPIN_MAX_SPEED - SPIN_MIN_SPEED) * (i + 1)) / 202;
+      rests.push(flick(v).rest);
+    }
+    // How far each one stopped from the middle of the wedge it stopped on,
+    // as a fraction of a wedge: 0 is dead-centre, 0.5 is the seam.
+    const offsets = rests.map((r) => Math.abs(r - Math.round(r)));
+    // Uniform over a wedge would average 0.25. Anything near zero is the old
+    // behaviour coming back.
+    const mean = offsets.reduce((a, b) => a + b, 0) / offsets.length;
+    expect(mean).toBeGreaterThan(0.2);
+    // And none of them are centred at all. Exact zero rather than a tolerance:
+    // a tolerance of a fiftieth of a wedge is a window a fiftieth of a wedge
+    // wide, so uniform landings fill it about as often as they filled the
+    // first draft of this test, and it caught nothing.
+    expect(offsets.filter((o) => o < 1e-9).length).toBe(0);
+  });
+
+  /* The invented throw behind the Spin button has to look like the others: a
+     button that always landed dead-centre while the flick did not would tell
+     everyone at the table which players had used it. */
+  it("lands a button spin inside the wedge rather than on its middle", () => {
+    const offsets = [];
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const s = ok(apply(position(), { type: "spin" }, 0, seeded(seed)));
+      expect(s.wedgeAt).toBe(Math.round(s.rest) % WHEEL.length);
+      offsets.push(Math.abs(s.rest - Math.round(s.rest)));
+    }
+    const mean = offsets.reduce((a, b) => a + b, 0) / offsets.length;
+    expect(mean).toBeGreaterThan(0.15);
+    // ...but never on the seam, where which wedge won would be a coin toss.
+    expect(Math.max(...offsets)).toBeLessThanOrEqual(0.45);
+  });
+
+  /*
+     The other half of the same complaint: the wheel "does not slow down". The
+     easing curve was already exactly right — `cubic-bezier(.333,.667,.667,1)`
+     is `2t - t²`, which is constant deceleration — but the whole spin used to
+     run between 1.3 and 3.0 seconds, and deceleration you cannot watch reads
+     as no deceleration at all. This pins the window, because the curve being
+     correct is not the thing that was wrong.
+  */
+  it("runs long enough for the slowing to be visible", () => {
+    expect(spinMs(SPIN_MIN_TRAVEL)).toBeGreaterThan(3000);
+    expect(spinMs(SPIN_MAX_TRAVEL)).toBeLessThan(8000);
+    // Under constant deceleration the wheel covers 3/4 of the distance in the
+    // first half of the time — so the second half is the visible crawl, and on
+    // the gentlest throw that is over a second and a half of it.
+    expect(spinMs(SPIN_MIN_TRAVEL) / 2).toBeGreaterThan(1500);
+    // Time goes as the square root of distance: two and a quarter times as far
+    // is one and a half times as long, not two and a quarter times.
+    expect(spinMs(2.25 * SPIN_MIN_TRAVEL)).toBeCloseTo(
+      1.5 * spinMs(SPIN_MIN_TRAVEL),
+      -2,
+    );
+  });
+
+  it("does not let a hard enough throw run for ever", () => {
     expect(Math.abs(flick(50).travel)).toBe(SPIN_MAX_TRAVEL);
     expect(Math.abs(flick(-50).travel)).toBe(SPIN_MAX_TRAVEL);
   });
@@ -701,10 +927,19 @@ describe('throwing the wheel by hand', () => {
   /* Deterministic on purpose: the throw decides, and nothing else does. A
      wheel that scattered the landing would be quietly overruling the player
      who threw it. */
-  it('is the same throw whatever the wheel would have drawn', () => {
+  it("is the same throw whatever the wheel would have drawn", () => {
     const landings = new Set(
-      Array.from({ length: 40 }, (_, i) =>
-        ok(apply(position(), { type: 'spin', velocity: 0.9 }, 0, seeded(i + 1))).wedgeAt,
+      Array.from(
+        { length: 40 },
+        (_, i) =>
+          ok(
+            apply(
+              position(),
+              { type: "spin", velocity: 0.9 },
+              0,
+              seeded(i + 1),
+            ),
+          ).wedgeAt,
       ),
     );
     expect(landings.size).toBe(1);
@@ -712,7 +947,7 @@ describe('throwing the wheel by hand', () => {
 
   /* The board draws what the reducer resolved, off the same function, so this
      is the seam where an animation of a lie would start. */
-  it('agrees with the throw the board is about to draw', () => {
+  it("agrees with the throw the board is about to draw", () => {
     for (const velocity of [0.7, -1.1, SPIN_MAX_SPEED]) {
       const s = flick(velocity);
       expect(s.travel).toBe(spinThrow(velocity).travel);
@@ -725,18 +960,21 @@ describe('throwing the wheel by hand', () => {
      the Spin button does, so this is also the old-client path: a build from
      before the wheel was thrown by hand sends `power`, and gets a button spin
      rather than a wheel that will not turn. */
-  it('treats a velocity that is not a number as no flick at all', () => {
-    for (const velocity of ['1', null, { valueOf: () => 1 }]) {
-      const s = ok(apply(position(), { type: 'spin', velocity }, 0, spinTo(BANKRUPT)));
+  it("treats a velocity that is not a number as no flick at all", () => {
+    for (const velocity of ["1", null, { valueOf: () => 1 }]) {
+      const s = ok(
+        apply(position(), { type: "spin", velocity }, 0, spinTo(BANKRUPT)),
+      );
       expect(s.wedgeAt).toBe(BANKRUPT);
     }
-    expect(ok(apply(position(), { type: 'spin', power: 1 }, 0, spinTo(BANKRUPT))).wedgeAt).toBe(
-      BANKRUPT,
-    );
+    expect(
+      ok(apply(position(), { type: "spin", power: 1 }, 0, spinTo(BANKRUPT)))
+        .wedgeAt,
+    ).toBe(BANKRUPT);
   });
 
-  it('spins the wheel a plausible distance even when nobody threw it', () => {
-    const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(CASH)));
+  it("spins the wheel a plausible distance even when nobody threw it", () => {
+    const s = ok(apply(position(), { type: "spin" }, 0, spinTo(CASH)));
     expect(s.wedgeAt).toBe(CASH);
     expect(s.travel).toBeGreaterThan(WHEEL.length);
     // And by the same geometry as a flick, or the board would draw the button
@@ -745,23 +983,30 @@ describe('throwing the wheel by hand', () => {
   });
 });
 
-describe('rounds', () => {
-  const solved = () => ok(apply(position(), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+describe("rounds", () => {
+  const solved = () =>
+    ok(apply(position(), { type: "solve", answer: "A PIECE OF CAKE" }, 0));
 
-  it('refuses everything but `next` once the round is over', () => {
+  it("refuses everything but `next` once the round is over", () => {
     const s = solved();
-    for (const move of [{ type: 'spin' }, { type: 'letter', letter: 'B' }, { type: 'solve', answer: 'X' }]) {
+    for (const move of [
+      { type: "spin" },
+      { type: "letter", letter: "B" },
+      { type: "solve", answer: "X" },
+    ]) {
       expect(rejection(apply(s, move, s.turn))).toMatch(/finished/i);
     }
   });
 
-  it('refuses `next` while the round is still going', () => {
-    expect(rejection(apply(position(), { type: 'next' }, 0))).toMatch(/still going/i);
+  it("refuses `next` while the round is still going", () => {
+    expect(rejection(apply(position(), { type: "next" }, 0))).toMatch(
+      /still going/i,
+    );
   });
 
-  it('deals a fresh puzzle and clears the round bank', () => {
+  it("deals a fresh puzzle and clears the round bank", () => {
     const s = solved();
-    const round2 = ok(apply(s, { type: 'next' }, s.turn, seeded(2)));
+    const round2 = ok(apply(s, { type: "next" }, s.turn, seeded(2)));
     expect(round2.round).toBe(2);
     expect(round2.roundOver).toBe(false);
     expect(round2.called).toEqual([]);
@@ -769,81 +1014,108 @@ describe('rounds', () => {
     expect(round2.note).toBeNull();
     // The banked score survives the round boundary; that is the whole point of it.
     expect(round2.score).toEqual(s.score);
-    expect(round2.answer).not.toBe('A PIECE OF CAKE');
+    expect(round2.answer).not.toBe("A PIECE OF CAKE");
   });
 
-  it('opens the next round with the next player round the table', () => {
+  it("opens the next round with the next player round the table", () => {
     const s = solved();
     expect(s.turn).toBe(1);
-    expect(ok(apply(s, { type: 'next' }, 1, seeded(2))).turn).toBe(1);
+    expect(ok(apply(s, { type: "next" }, 1, seeded(2))).turn).toBe(1);
   });
 
-  it('never sets the same puzzle twice in one match', () => {
+  it("never sets the same puzzle twice in one match", () => {
     let state = wheel.setup(2, seeded(19));
     const seen = [state.answer];
     for (let round = 1; round < ROUNDS; round++) {
-      state = ok(apply(state, { type: 'solve', answer: state.answer }, state.turn));
-      state = ok(apply(state, { type: 'next' }, state.turn, seeded(round * 31)));
+      state = ok(
+        apply(state, { type: "solve", answer: state.answer }, state.turn),
+      );
+      state = ok(
+        apply(state, { type: "next" }, state.turn, seeded(round * 31)),
+      );
       seen.push(state.answer);
     }
     expect(new Set(seen).size).toBe(seen.length);
   });
 
-  it('ends the match after the last round rather than dealing another', () => {
+  it("ends the match after the last round rather than dealing another", () => {
     let state = wheel.setup(2, seeded(23));
     for (let round = 1; round <= ROUNDS; round++) {
-      state = ok(apply(state, { type: 'solve', answer: state.answer }, state.turn));
-      if (round < ROUNDS) state = ok(apply(state, { type: 'next' }, state.turn, seeded(round)));
+      state = ok(
+        apply(state, { type: "solve", answer: state.answer }, state.turn),
+      );
+      if (round < ROUNDS)
+        state = ok(apply(state, { type: "next" }, state.turn, seeded(round)));
     }
     expect(state.round).toBe(ROUNDS);
     expect(state.over).toBe(true);
     expect(wheel.isOver(state)).toBe(true);
     expect(wheel.turn(state)).toBeNull();
-    expect(rejection(apply(state, { type: 'next' }, state.turn))).toMatch(/already over/i);
+    expect(rejection(apply(state, { type: "next" }, state.turn))).toMatch(
+      /already over/i,
+    );
   });
 });
 
-describe('more than two at the table', () => {
-  it('walks the turn round the table', () => {
+describe("more than two at the table", () => {
+  it("walks the turn round the table", () => {
     let state = position({ bank: [0, 0, 0, 0], score: [0, 0, 0, 0] });
     for (const expected of [1, 2, 3, 0]) {
-      state = ok(apply(state, { type: 'spin' }, state.turn, spinTo(LOSE_TURN)));
+      state = ok(apply(state, { type: "spin" }, state.turn, spinTo(LOSE_TURN)));
       expect(state.turn).toBe(expected);
     }
   });
 
-  it('rotates who opens each round', () => {
-    let state = position({ bank: [0, 0, 0], score: [0, 0, 0], starter: 2, turn: 2 });
-    state = ok(apply(state, { type: 'solve', answer: 'A PIECE OF CAKE' }, 2));
+  it("rotates who opens each round", () => {
+    let state = position({
+      bank: [0, 0, 0],
+      score: [0, 0, 0],
+      starter: 2,
+      turn: 2,
+    });
+    state = ok(apply(state, { type: "solve", answer: "A PIECE OF CAKE" }, 2));
     expect(state.starter).toBe(0);
-    expect(ok(apply(state, { type: 'next' }, 0, seeded(4))).turn).toBe(0);
+    expect(ok(apply(state, { type: "next" }, 0, seeded(4))).turn).toBe(0);
   });
 
-  it('names a single winner and a tie by their scores', () => {
-    const names = ['Ann', 'Bo', 'Cai'];
-    const won = position({ score: [900, 100, 100], bank: [0, 0, 0], over: true });
-    expect(wheel.status(won, names)).toBe('Ann wins with $900');
+  it("names a single winner and a tie by their scores", () => {
+    const names = ["Ann", "Bo", "Cai"];
+    const won = position({
+      score: [900, 100, 100],
+      bank: [0, 0, 0],
+      over: true,
+    });
+    expect(wheel.status(won, names)).toBe("Ann wins with $900");
 
-    const tied = position({ score: [900, 900, 100], bank: [0, 0, 0], over: true });
-    expect(wheel.status(tied, names)).toContain('Ann and Bo');
+    const tied = position({
+      score: [900, 900, 100],
+      bank: [0, 0, 0],
+      over: true,
+    });
+    expect(wheel.status(tied, names)).toContain("Ann and Bo");
     expect(leaders(tied)).toEqual([0, 1]);
   });
 });
 
-describe('the contract', () => {
-  it('refuses a move from the seat that is not to play', () => {
-    expect(rejection(apply(position(), { type: 'spin' }, 1))).toMatch(/not your turn/i);
+describe("the contract", () => {
+  it("refuses a move from the seat that is not to play", () => {
+    expect(rejection(apply(position(), { type: "spin" }, 1))).toMatch(
+      /not your turn/i,
+    );
   });
 
-  it.each([null, undefined, 'spin', 42, { type: 'teleport' }])('refuses %p as a move', (move) => {
-    expect(apply(position(), move, 0).ok).toBe(false);
-  });
+  it.each([null, undefined, "spin", 42, { type: "teleport" }])(
+    "refuses %p as a move",
+    (move) => {
+      expect(apply(position(), move, 0).ok).toBe(false);
+    },
+  );
 
-  it('never mutates the state it is given', () => {
+  it("never mutates the state it is given", () => {
     const moves: unknown[] = [
-      { type: 'spin' },
-      { type: 'solve', answer: 'A PIECE OF CAKE' },
-      { type: 'letter', letter: 'E' },
+      { type: "spin" },
+      { type: "solve", answer: "A PIECE OF CAKE" },
+      { type: "letter", letter: "E" },
     ];
     for (const move of moves) {
       const state = position({ bank: [1000, 0] });
@@ -852,56 +1124,58 @@ describe('the contract', () => {
       expect(JSON.stringify(state), JSON.stringify(move)).toBe(before);
     }
     // And the same for the round boundary, which rebuilds most of the state.
-    const finished = ok(apply(position(), { type: 'solve', answer: 'A PIECE OF CAKE' }, 0));
+    const finished = ok(
+      apply(position(), { type: "solve", answer: "A PIECE OF CAKE" }, 0),
+    );
     const before = JSON.stringify(finished);
-    apply(finished, { type: 'next' }, finished.turn, seeded(1));
+    apply(finished, { type: "next" }, finished.turn, seeded(1));
     expect(JSON.stringify(finished)).toBe(before);
   });
 
-  it('gives the same answer to the same rng', () => {
-    const a = apply(position(), { type: 'spin' }, 0, seeded(9));
-    const b = apply(position(), { type: 'spin' }, 0, seeded(9));
+  it("gives the same answer to the same rng", () => {
+    const a = apply(position(), { type: "spin" }, 0, seeded(9));
+    const b = apply(position(), { type: "spin" }, 0, seeded(9));
     expect(a).toEqual(b);
   });
 
-  it('reports the turn as nobody once the match is over', () => {
+  it("reports the turn as nobody once the match is over", () => {
     expect(wheel.turn(position({ over: true }))).toBeNull();
     expect(wheel.turn(position())).toBe(0);
   });
 });
 
-describe('helpers', () => {
-  it('groups money the way it is read aloud', () => {
-    expect(money(0)).toBe('$0');
-    expect(money(500)).toBe('$500');
-    expect(money(1250)).toBe('$1,250');
-    expect(money(1234567)).toBe('$1,234,567');
+describe("helpers", () => {
+  it("groups money the way it is read aloud", () => {
+    expect(money(0)).toBe("$0");
+    expect(money(500)).toBe("$500");
+    expect(money(1250)).toBe("$1,250");
+    expect(money(1234567)).toBe("$1,234,567");
   });
 
-  it('reduces a guess to the letters that matter', () => {
-    expect(normalize("  it's  a  test! ")).toBe('ITSATEST');
-    expect(normalize('')).toBe('');
+  it("reduces a guess to the letters that matter", () => {
+    expect(normalize("  it's  a  test! ")).toBe("ITSATEST");
+    expect(normalize("")).toBe("");
   });
 
-  it('caps a guess before working on it', () => {
+  it("caps a guess before working on it", () => {
     // A hostile client is not owed an unbounded string to normalise.
-    expect(normalize('A'.repeat(10_000)).length).toBeLessThanOrEqual(200);
+    expect(normalize("A".repeat(10_000)).length).toBeLessThanOrEqual(200);
   });
 
-  it('reports what is left to call', () => {
-    expect(remaining(VOWELS, ['A', 'E'])).toEqual(['I', 'O', 'U']);
+  it("reports what is left to call", () => {
+    expect(remaining(VOWELS, ["A", "E"])).toEqual(["I", "O", "U"]);
     expect(remaining(CONSONANTS, [...CONSONANTS])).toEqual([]);
   });
 });
 
-describe('full games', () => {
+describe("full games", () => {
   /**
    * Plays whole matches with a seeded rng, checking after every accepted move
    * that the money, the turn and the round are all still somewhere they could
    * legitimately be. The move cap is not decoration: it is what would catch a
    * round that can no longer be brought to an end.
    */
-  it.each([2, 3, 4])('plays 40 random matches at a table of %i', (players) => {
+  it.each([2, 3, 4])("plays 40 random matches at a table of %i", (players) => {
     for (let game = 0; game < 40; game++) {
       const rng = seeded(game * 977 + players);
       let state = wheel.setup(players, rng);
@@ -911,22 +1185,32 @@ describe('full games', () => {
       const seen: string[] = [state.answer];
 
       while (!state.over) {
-        if (++moves > 2000) throw new Error('a match failed to reach an end');
+        if (++moves > 2000) throw new Error("a match failed to reach an end");
 
         const seat = state.turn;
         let move: WofMove;
         if (state.roundOver) {
-          move = { type: 'next' };
-        } else if (state.phase === 'call') {
+          move = { type: "next" };
+        } else if (state.phase === "call") {
           const pool = remaining(CONSONANTS, state.called);
-          move = { type: 'letter', letter: pool[Math.floor(rng() * pool.length)] };
+          move = {
+            type: "letter",
+            letter: pool[Math.floor(rng() * pool.length)],
+          };
         } else {
           const vowels = remaining(VOWELS, state.called);
           const roll = rng();
-          if (roll < 0.12) move = { type: 'solve', answer: state.answer };
-          else if (roll < 0.3 && vowels.length > 0 && state.bank[seat] >= VOWEL_COST) {
-            move = { type: 'letter', letter: vowels[Math.floor(rng() * vowels.length)] };
-          } else move = { type: 'spin' };
+          if (roll < 0.12) move = { type: "solve", answer: state.answer };
+          else if (
+            roll < 0.3 &&
+            vowels.length > 0 &&
+            state.bank[seat] >= VOWEL_COST
+          ) {
+            move = {
+              type: "letter",
+              letter: vowels[Math.floor(rng() * vowels.length)],
+            };
+          } else move = { type: "spin" };
         }
 
         const before = state;
@@ -954,7 +1238,9 @@ describe('full games', () => {
         // single failure that ruins the game silently, and the one the static
         // per-puzzle assertion cannot see.
         if (!state.roundOver) {
-          expect(wheel.view!(state, state.turn).answer).toBe(mask(state.answer, state.called));
+          expect(wheel.view!(state, state.turn).answer).toBe(
+            mask(state.answer, state.called),
+          );
         }
 
         expect(state.bank.every((n) => n >= 0)).toBe(true);

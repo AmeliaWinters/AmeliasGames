@@ -25,6 +25,45 @@ describe('the manifest', () => {
     expect(gameEntry(GAME_MANIFEST.wheel.id)?.maxPlayers).toBe(4);
     expect(gameEntry('chess')).toBeUndefined();
   });
+
+  /**
+   * The blurbs, held to the two lines the lobby reserves for them.
+   *
+   * `picker.css` gives every card the same height by reserving a fixed number
+   * of lines for the name and a fixed number for the blurb -- which is the
+   * only thing making the grid even, since three of the thirteen names wrap
+   * and ten do not. A blurb that runs to one line more than the reserve does
+   * not overflow its own card; it pushes its whole grid row taller than the
+   * row above it, and the unevenness reads as the bug it is two rows further
+   * down, nowhere near the sentence that caused it.
+   *
+   * That failure is measurable and was shipped twice in one afternoon while
+   * this screen was being built, so it is pinned here rather than left to
+   * somebody re-measuring a phone. 42 characters is the budget at 375px; the
+   * narrowest phone gets a third line reserved for it in the stylesheet, so
+   * this is the number that has to hold.
+   */
+  it('gives every game a blurb that fits the card', () => {
+    const BUDGET = 42;
+    for (const game of gameList()) {
+      expect(game.blurb.length, `${game.id}: "${game.blurb}"`).toBeGreaterThan(0);
+      expect(
+        game.blurb.length,
+        `${game.id}: "${game.blurb}" is ${game.blurb.length} characters; the card ` +
+          `reserves two lines, which is about ${BUDGET}. A longer one makes its ` +
+          'whole grid row taller than its neighbours.',
+      ).toBeLessThanOrEqual(BUDGET);
+      // A sentence, because it is read as one beneath a name in caps.
+      expect(game.blurb, game.id).toMatch(/^[A-Z].*\.$/s);
+    }
+  });
+
+  it('says something different on every card', () => {
+    // The line exists because "2 players" was true of nine of them. Two games
+    // sharing a sentence would be the same failure with more words.
+    const blurbs = gameList().map((g) => g.blurb);
+    expect(new Set(blurbs).size).toBe(blurbs.length);
+  });
 });
 
 /**

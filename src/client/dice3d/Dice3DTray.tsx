@@ -7,6 +7,17 @@ import { clatter, buzz } from "../feel.js";
 import { wantsStillness } from "../motion.js";
 import type { DiceScene, OnScreen, Placed } from "./scene.js";
 import type * as Engine from "./engine.js";
+import {
+  cheerFlash,
+  cheerLength,
+  cheerPose,
+  inSlowMoment,
+  landedBetween,
+  paceOf,
+  windUp,
+  WINDUP_MS,
+  type CheerKind,
+} from "./beats.js";
 
 /**
  * A tray of real dice.
@@ -58,6 +69,16 @@ export interface Dice3DTrayProps {
   held?: readonly boolean[];
   /** Dice already played this turn. Backgammon's; nothing else has them. */
   spent?: readonly boolean[];
+  /**
+   * A flourish to run once the dice are down, or nothing.
+   *
+   * Counted rather than compared, like every other repeatable event in this
+   * app: two Yahtzees in two rounds are two of them, and `{ kind: "all" }`
+   * twice running is indistinguishable from `{ kind: "all" }` once. The board
+   * decides *whether* — it is the one that knows the rules — and this decides
+   * when and what it looks like, which is why three games can share it.
+   */
+  cheer?: { n: number; kind: CheerKind } | null;
   /** What the tray is, for anyone who cannot see it. */
   label: string;
   /** The line along the bottom edge, or nothing. */
@@ -75,6 +96,10 @@ export interface Dice3DTrayProps {
   keepable?: boolean;
   onRest(): void;
 }
+
+/* Re-exported so a board naming a flourish imports it from the component it
+   hands it to, rather than reaching past it into `beats.ts`. */
+export type { CheerKind };
 
 /**
  * What a board can ask the tray to do.
@@ -138,6 +163,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     mine,
     held,
     spent,
+    cheer,
     label,
     hint,
     onThrow,
@@ -148,6 +174,19 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
   handle,
 ) {
   const box = useRef<HTMLDivElement>(null);
+  /*
+    The layer the beats are drawn on, and the reason it is a separate element
+    rather than a class on the tray itself.
+
+    The slow moment and the flourish are marked by writing classes straight
+    onto a node, sixty times a second, because routing them through React would
+    re-render every die button on the tray to catch a border colour. React,
+    though, owns `className` on any element it renders — the moment `armed` or
+    `throwable` changes it rewrites the whole attribute and takes anything
+    written by hand with it. This element's `className` is a constant, so React
+    never writes it after the first render and never has anything to take.
+  */
+  const beat = useRef<HTMLDivElement>(null);
   /* Two trays can be on screen at once — Liar's Dice shows every player's — so
      the hint's id has to be unique per instance or `aria-describedby` points
      every tray at the first one's line. */
@@ -157,6 +196,12 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
   const scene = useRef<DiceScene | null>(null);
   const live = useRef<Engine.ThrowWorld | null>(null);
   const pending = useRef(0);
+  /** The flourish's own frame handle: it runs after the throw, not inside it. */
+  const cheering = useRef(0);
+  /** The last flourish this tray has run, by the counter the board hands it. */
+  const cheered = useRef(0);
+  /** One asked for while the dice were still in the air, owed until they land. */
+  const queued = useRef<CheerKind | null>(null);
   const [ready, setReady] = useState(false);
   /** Where each die is on screen, so the buttons can be put over them. */
   const [spots, setSpots] = useState<Array<OnScreen | null>>([]);
@@ -184,11 +229,16 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     };
   }, []);
 
-  /** Draw whatever the world currently holds, and place the buttons over it. */
-  const paint = useCallback((dice: readonly Placed[]) => {
+  /**
+   * Draw whatever the world currently holds, and place the buttons over it.
+   *
+   * `glow` is how brightly the dice are lit from inside, and it is nought on
+   * every frame but a flourish's.
+   */
+  const paint = useCallback((dice: readonly Placed[], glow = 0) => {
     const view = scene.current;
     if (!view) return;
-    setSpots(view.draw(dice, { held: latest.current.held, spent: latest.current.spent }));
+    setSpots(view.draw(dice, { held: latest.current.held, spent: latest.current.spent, glow }));
   }, []);
 
   /** The dice standing still, where the throw left them. */
@@ -229,6 +279,12 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     () => (toss?.rest?.length === count ? toss.rest : row3(tray, count)),
     [toss, tray, count],
   );
+  /* Where the dice are lying, reachable from a loop that outlived the render
+     that knew. A ref rather than a dependency so `startCheer` stays stable —
+     it is held by the throw's own loop, and a new identity every time the dice
+     move would mean the loop holding a stale one for the length of a throw. */
+  const lie = useRef(resting);
+  lie.current = resting;
 
   // Where the dice are when nothing is happening. Not while a throw is running,
   // and not for a throw about to start either — this effect is declared before
@@ -260,6 +316,91 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     return () => watch.disconnect();
   }, [paint, place, resting]);
 
+  /**
+   * The flourish, run here and now.
+   *
+   * Its own animation loop and its own handle, because it is not part of the
+   * throw: the dice have already been reported, the scoresheet beside the tray
+   * has already been written, and nothing this does is ever read back. That is
+   * also the safety argument — see `beats.ts` for why the hop is scripted
+   * rather than thrown, and why a turn about the world's vertical axis is the
+   * one kind of spin that cannot change the number on top.
+   */
+  const startCheer = useCallback(
+    (kind: CheerKind) => {
+      const mods = kit.current;
+      const el = beat.current;
+      if (!mods || !el) return;
+      const { count: many, tray: table } = latest.current;
+      const rest = placedFrom(lie.current, table, mods.engine.scaleOf(table), mods.engine.DIE_HALF);
+      const flash = cheerFlash(kind);
+      el.style.setProperty("--cheer", String(flash));
+
+      if (wantsStillness()) {
+        /*
+          The moment still happens; it simply does not move. The rim takes its
+          tint — a colour is not motion, and the one player who most needs to
+          be told something rare occurred is the one who cannot watch it do so —
+          and the dice are left lying exactly where they are.
+        */
+        el.classList.add("cheering", "still");
+        clatter(0.85, false, 1.35);
+        cancelAnimationFrame(cheering.current);
+        cheering.current = 0;
+        window.setTimeout(() => el.classList.remove("cheering", "still"), 900);
+        return;
+      }
+
+      el.classList.add("cheering");
+      const total = cheerLength(kind, many);
+      let opened = 0;
+      let was = 0;
+
+      const frame = (now: number) => {
+        if (opened === 0) opened = now;
+        const ms = now - opened;
+        // Each die is heard as it touches down, a little higher than the one
+        // before it — which is what makes a row of identical knocks a run.
+        for (const i of landedBetween(kind, many, was, ms)) {
+          clatter(0.8, false, 1 + i * 0.13);
+        }
+        was = ms;
+        if (ms >= total) {
+          cheering.current = 0;
+          el.classList.remove("cheering");
+          el.style.removeProperty("--cheer");
+          paint(rest);
+          return;
+        }
+        // One envelope over the whole flourish rather than one per die, so the
+        // tray brightens and fades once instead of flickering five times.
+        paint(cheerPose(rest, kind, ms), flash * 4 * (ms / total) * (1 - ms / total));
+        cheering.current = requestAnimationFrame(frame);
+      };
+
+      cancelAnimationFrame(cheering.current);
+      cheering.current = requestAnimationFrame(frame);
+    },
+    [paint],
+  );
+
+  /*
+    A flourish asked for from outside.
+
+    Keyed by `n` rather than by what it is, for the reason every other counter
+    in this app exists: two Yahtzees in two rounds are two events, and one
+    compared by value would fire once. Held back while a throw is running,
+    because the move that says "five alike" arrives while the dice that say so
+    are still in the air — celebrating a number before it is on the table gives
+    the result away and then plays the reveal.
+  */
+  useLayoutEffect(() => {
+    if (!ready || !cheer || cheer.n === cheered.current) return;
+    cheered.current = cheer.n;
+    if (pending.current !== 0) queued.current = cheer.kind;
+    else startCheer(cheer.kind);
+  }, [ready, cheer, startCheer]);
+
   // The throw.
   useLayoutEffect(() => {
     if (!ready || !toss || toss.n === seen.current) return;
@@ -278,30 +419,90 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       return;
     }
 
-    const world = mods.engine.openThrow({
+    /*
+      The whole flick, aim included.
+
+      `ax`/`ay` used to be dropped here — the spec was built as a fresh
+      `{ x, y }` literal — and that is not a tidier way of saying the same
+      thing. `entryOf` reads the aim to decide which edge of the tray the dice
+      come in by, and a replay without it enters them somewhere else entirely,
+      runs a different throw, and then snaps to the reported resting places at
+      the end. `toss.ts` says it in as many words where it stores the field:
+      "a re-run missing where the dice came in from lands them somewhere else."
+    */
+    const spec = {
       tray,
       count,
       seed: toss.seed,
-      flick: { x: toss.x, y: toss.y },
+      flick: { x: toss.x, y: toss.y, ax: toss.ax, ay: toss.ay },
       from: toss.from,
       held: keeping,
-    });
+    };
+
+    // Run it once with nobody watching, to find out where its beats are — see
+    // `scoutThrow`. Two milliseconds, and it is what lets the slow moment start
+    // *before* the contact it is there for.
+    const beats = mods.engine.scoutThrow(spec);
+
+    const world = mods.engine.openThrow(spec);
     live.current = world;
-    if (latest.current.mine) buzz(16);
-    paint(mods.engine.placedOf(world));
+
+    /*
+      The handful leaving the table.
+
+      `placedOf` is where `openThrow` put the dice — up in the air, already
+      moving — and `toss.from` is where they were lying before it. The wind-up
+      draws the journey between the two, and until it is over the physics has
+      not been stepped at all: `last` stays zero, so the first stepped frame
+      measures its delta from the release rather than from the wind-up's start
+      and the throw does not begin a sixth of a second behind itself.
+    */
+    const release = mods.engine.placedOf(world);
+    const origin = placedFrom(toss.from, tray, mods.engine.scaleOf(tray), mods.engine.DIE_HALF);
+    paint(windUp(origin, release, 0, keeping));
 
     const hits: Engine.Hit[] = [];
+    let opened = 0;
     let last = 0;
     let carried = 0;
 
     const frame = (now: number) => {
       const running = live.current;
       if (!running) return;
-      if (last === 0) last = now;
+      if (opened === 0) opened = now;
+
+      if (now - opened < WINDUP_MS) {
+        paint(windUp(origin, release, (now - opened) / WINDUP_MS, keeping));
+        pending.current = requestAnimationFrame(frame);
+        return;
+      }
+
+      if (last === 0) {
+        last = now;
+        // The throw leaves the hand *here*, not when the world was built. A
+        // buzz at the top of the wind-up is a buzz for the pick-up.
+        if (latest.current.mine) buzz(16);
+      }
       // Capped, so a tab that was hidden for a minute does not try to simulate
       // a minute of dice the moment it comes back.
-      carried += Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000;
+      /*
+        Real time, remapped.
+
+        `paceOf` runs the clock slowly through the contact that settles the last
+        die and then faster than life through the tail behind it. It is time
+        being handed out, not physics being changed: the same steps happen in
+        the same order and compute the same thing, so the dice still land
+        exactly where the throw already reported they did.
+      */
+      carried +=
+        (Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000) *
+        paceOf(running.steps, beats);
       last = now;
+      // Directly on the node rather than through state: this changes on the
+      // frame the beat starts and again on the frame it ends, and routing two
+      // class toggles through React would re-render the whole tray sixty times
+      // a second to catch them.
+      beat.current?.classList.toggle("slowed", inSlowMoment(running.steps, beats));
 
       let moving = 1;
       let steps = 0;
@@ -337,6 +538,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       pending.current = 0;
       mods.engine.disposeThrow(running);
       live.current = null;
+      beat.current?.classList.remove("slowed");
       /*
         Placed from the record rather than left where the local replay stopped.
 
@@ -349,15 +551,23 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       */
       place(toss.rest);
       latest.current.onRest();
+      // A flourish that arrived with the move rather than after it. See
+      // `startCheer` for why it waits rather than being dropped.
+      const owed = queued.current;
+      if (owed) {
+        queued.current = null;
+        startCheer(owed);
+      }
     };
 
     cancelAnimationFrame(pending.current);
     pending.current = requestAnimationFrame(frame);
-  }, [ready, toss, tray, count, place, paint]);
+  }, [ready, toss, tray, count, place, paint, startCheer]);
 
   useEffect(
     () => () => {
       cancelAnimationFrame(pending.current);
+      cancelAnimationFrame(cheering.current);
       const world = live.current;
       if (world && kit.current) kit.current.engine.disposeThrow(world);
       live.current = null;
@@ -460,6 +670,10 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       aria-describedby={hint ? hintId : undefined}
       {...handlers}
     >
+      {/* The beats. Empty and inert until a class is written onto it — see the
+          ref's note above, and `dice.css` for why being under the canvas is
+          where this belongs rather than a stacking bug. */}
+      <div ref={beat} className="dice-beat" aria-hidden="true" />
       {Array.from({ length: count }, (_, i) => {
         const spot = spots[i];
         /*

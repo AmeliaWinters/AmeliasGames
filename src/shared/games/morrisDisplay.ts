@@ -1,15 +1,9 @@
 /**
- * The parts of Nine Men's Morris the board is allowed to know.
- *
- * Like `wheelDisplay.ts` and `battleshipDisplay.ts`, this module deliberately
- * imports nothing. Morris hides nothing from anybody, so secrecy is not the
- * reason here — it is that the board and the reducer must agree, to the point,
- * about where the twenty-four points are, which of them touch, and which
- * three-in-a-rows count as a mill. Two copies of that geometry would be a
- * board offering moves the rules refuse.
- *
- * `morris.ts` re-exports the lot, so the rules and their tests carry on
- * importing from one place.
+ * The parts of Nine Men's Morris the board may know — see the boundary note in
+ * `types.ts`. Nothing is hidden in Morris, so the reason here is not secrecy:
+ * board and reducer must agree exactly on where the twenty-four points are,
+ * which touch, and which lines are mills. Two copies of that geometry would be
+ * a board offering moves the rules refuse.
  */
 
 /** Three concentric squares of eight points. */
@@ -20,10 +14,7 @@ export const POINTS = RINGS * SPOTS;
 /** Men each player starts with, which is where the game gets its name. */
 export const MEN = 9;
 
-/**
- * A player reduced to two men has lost: two men cannot make three in a row,
- * so there is nothing left for them to play for.
- */
+/** Two men cannot make three in a row, so a player down to two has lost. */
 export const MIN_MEN = 3;
 
 /** Seat index of the man on the point, or null for an empty one. */
@@ -49,11 +40,9 @@ export type Cell = 0 | 1 | null;
  *   6 ────────── 5 ────────── 4
  * ```
  *
- * The scheme is worth the diagram: it makes every rule below arithmetic
- * rather than a table. Neighbours within a ring are the next spot round, and
- * the spokes between the rings pass through exactly the odd spots — the edge
- * midpoints. Corners have no spoke, which is the one thing about this board
- * that surprises people who have only seen it drawn.
+ * The scheme makes every rule below arithmetic rather than a table:
+ * neighbours are the next spot round, and spokes pass through exactly the odd
+ * spots. Corners have no spoke — the one thing here that surprises people.
  */
 export function ring(point: number): number {
   return Math.floor(point / SPOTS);
@@ -86,8 +75,8 @@ function buildAdjacency(): number[][] {
   for (let r = 0; r < RINGS; r++) {
     for (let s = 0; s < SPOTS; s++) join(pointAt(r, s), pointAt(r, (s + 1) % SPOTS));
   }
-  // Along each spoke: outer to middle, middle to inner. Never outer to inner —
-  // the middle ring is in the way, and a man standing there blocks the road.
+  // Never outer straight to inner: the middle ring is in the way, and a man
+  // standing there blocks the road.
   for (const s of MIDPOINTS) {
     join(pointAt(0, s), pointAt(1, s));
     join(pointAt(1, s), pointAt(2, s));
@@ -114,10 +103,9 @@ function buildMills(): number[][] {
 }
 
 /**
- * The sixteen lines of three. Twelve run along the edges of the squares and
- * four run out along the spokes; nothing else counts. In particular the
- * diagonals through the corners do not — those belong to a different game
- * that is played on the same drawing.
+ * Sixteen lines of three: twelve along the edges, four along the spokes. The
+ * corner diagonals do *not* count — those belong to a different game played on
+ * the same drawing.
  */
 export const MILLS: ReadonlyArray<readonly number[]> = buildMills();
 
@@ -128,12 +116,9 @@ export const MILLS_AT: ReadonlyArray<ReadonlyArray<readonly number[]>> = Array.f
 );
 
 /**
- * Where a point sits, in a square running -3 to 3 with y downward: the outer
- * ring at ±3, the middle at ±2, the inner at ±1. That is the board every
- * printed set draws — three squares nested with an even gap between them.
- *
- * Nothing here is in pixels. The board component scales these to the width it
- * has been given, and the lobby's card motif draws the same points smaller.
+ * Where a point sits, in a square running -3 to 3 with y downward: outer ring
+ * at ±3, middle ±2, inner ±1. Not pixels — the board scales these to whatever
+ * width it is given, and the lobby card motif draws them smaller.
  */
 const OFFSET: ReadonlyArray<readonly [number, number]> = [
   [-1, -1], // 0  top left
@@ -189,13 +174,11 @@ export interface MmState {
   hand: [number, number];
   turn: 0 | 1;
   /**
-   * The seat that has just closed a mill and owes itself a man, or null.
-   *
-   * Taking is a move of its own rather than a field on the move that closed
-   * the mill: the player has to look at the board before choosing, the choice
-   * can be refused (a man in a mill is usually safe), and a client guessing
-   * for them would be guessing at the most consequential decision in the game.
-   * `turn` stays with them while this is set.
+   * The seat that closed a mill and owes itself a man, or null. A move of its
+   * own, not a field on the move that closed the mill: the player must look at
+   * the board first, the choice can be refused, and a client guessing for them
+   * would guess at the most consequential decision in the game. `turn` stays
+   * with them while this is set.
    */
   taking: 0 | 1 | null;
   winner: 0 | 1 | null;
@@ -210,22 +193,17 @@ export interface MmState {
    */
   quiet: number;
   /**
-   * How often each position has come round since the last man was taken.
-   * Cleared by a take, because a take makes every earlier position
-   * unreachable — there is no sense carrying counts of positions that can
-   * never occur again, and the record would grow all game if it did.
+   * Positions seen since the last take. Cleared by a take, which makes every
+   * earlier position unreachable — otherwise this grows all game.
    */
   seen: Record<string, number>;
 }
 
 /**
- * Plies without a man being taken before the game is called a draw — fifty
- * moves each, counted the way chess counts them.
- *
- * Some ending is needed: two careful players can walk men back and forth
- * forever, and a room that never finishes is a room nobody can leave
- * gracefully. Threefold repetition catches the tight loops, this catches the
- * wandering ones.
+ * Plies without a take before a draw — fifty moves each, counted as chess does.
+ * Two careful players can walk men back and forth forever, and a room that
+ * never finishes is one nobody leaves gracefully. Threefold repetition catches
+ * the tight loops; this catches the wandering ones.
  */
 export const QUIET_LIMIT = 100;
 
@@ -237,11 +215,8 @@ export function menOnBoard(board: readonly Cell[], seat: number): number {
 }
 
 /**
- * A seat's men, in hand and on the board together.
- *
- * The total is what the losing condition is measured against, and that is not
- * a technicality: a player down to two men on the board during the placing
- * phase, with five still in their hand, is not remotely beaten.
+ * In hand and on the board together — the total the losing condition is
+ * measured against. Two on the board with five in hand is not beaten.
  */
 export function menLeft(state: MmState, seat: number): number {
   return state.hand[seat] + menOnBoard(state.board, seat);
@@ -253,12 +228,9 @@ export function mustPlace(state: MmState, seat: number): boolean {
 }
 
 /**
- * Whether a seat's men may fly — jump to any empty point rather than stepping
- * to a neighbour.
- *
- * The standard mercy rule, and it earns its place: a player down to their last
- * three is otherwise walled in and lost on the spot, while three men who can
- * go anywhere can still close a mill. It keeps the end of a game a game.
+ * Whether a seat's men may jump to any empty point rather than step. The
+ * standard mercy rule: three men who can go anywhere can still close a mill,
+ * where three that must step are walled in and lost on the spot.
  */
 export function canFly(state: MmState, seat: number): boolean {
   return state.hand[seat] === 0 && menOnBoard(state.board, seat) === MIN_MEN;
@@ -279,12 +251,8 @@ export function inMill(board: readonly Cell[], point: number): boolean {
 }
 
 /**
- * The opposing men that may be taken.
- *
- * A man in a mill is protected — unless every man they have left is in one, in
- * which case the protection would make a mill unanswerable and the rule gives
- * way. Without that second half, a player whose men were all milled could
- * never be taken from again.
+ * A man in a mill is protected — unless every man they have left is in one,
+ * or a player whose men were all milled could never be taken from again.
  */
 export function takeable(board: readonly Cell[], victim: number): number[] {
   const theirs: number[] = [];
@@ -317,16 +285,13 @@ export function movers(state: MmState, seat: number): number[] {
 }
 
 /**
- * Whether a seat has any legal move at all.
+ * Whether a seat has any legal move. One with men in hand always does —
+ * eighteen men on twenty-four points leaves six empty however the game went —
+ * so only a player out of men to place can be walled in.
  *
- * A seat with men still in hand always has one: placing needs an empty point,
- * and eighteen men on twenty-four points leaves six of them however the game
- * has gone. Only a player who has run out of men to place can be walled in.
- *
- * Deliberately not `canAct`, which on `GameDefinition` means "may this seat
- * move *right now*" and here would be false for the player not on turn. This
- * asks the losing condition — being walled in — and it is asked about the seat
- * about to receive the turn, before they have it.
+ * Deliberately *not* `canAct`, which asks "may this seat move right now" and
+ * would be false for the player not on turn. This asks the losing condition,
+ * about the seat that is about to receive the turn.
  */
 export function hasMove(state: MmState, seat: number): boolean {
   if (mustPlace(state, seat)) return state.board.some((cell) => cell === null);
@@ -334,10 +299,8 @@ export function hasMove(state: MmState, seat: number): boolean {
 }
 
 /**
- * The key a repetition is counted against: the position, and who is to play
- * in it. The same board with the other player to move is a different problem,
- * and counting the two together would draw games that were still going
- * somewhere.
+ * Position plus who is to play. The same board with the other player to move
+ * is a different problem; merging them would draw games still going somewhere.
  */
 export function positionKey(state: MmState): string {
   return `${state.board.map((cell) => (cell === null ? '.' : cell)).join('')}:${state.turn}`;

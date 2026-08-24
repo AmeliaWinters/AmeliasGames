@@ -1,0 +1,76 @@
+/* ── Clocks ────────────────────────────────────────────────────────────
+   Two games run on one, and they run on the same clock face: Word Hunt's
+   two-minute round and Word Duel's one-minute shot clock. Big, tabular so the
+   digits never jostle, and quiet until it has something to say.
+
+   `.compact` is the Word Duel size. There the clock sits beside the guess box
+   rather than over the whole board, and a 2rem countdown next to a text field
+   reads as the point of the screen, which it is not -- the grids are. */
+.clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.clock-face {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+  /* Tabular, or every tick shifts the digits and the clock jitters. */
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-note {
+  font-family: var(--body);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.clock.compact .clock-face {
+  font-size: 1.35rem;
+}
+
+/* The closing seconds. The colour is the message; the pulse is a second
+   channel for anyone reading the board rather than the clock, which is where
+   every player is looking by then. One beat a second, matching the count. */
+.clock.urgent {
+  color: var(--alert);
+}
+.clock.urgent .clock-face {
+  animation: clock-tick 1s steps(1, end) infinite;
+}
+.clock.urgent .clock-note {
+  color: var(--alert);
+}
+
+/* Time. Nothing left to count, so the pulse stops -- a clock still flashing
+   after the whistle reads as a game still running. */
+.clock.done .clock-face {
+  animation: none;
+}
+
+@keyframes clock-tick {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock.urgent .clock-face {
+    animation: none;
+  }
+}
+

@@ -1,15 +1,8 @@
 /**
- * The parts of Letterpress the board is allowed to know.
- *
- * Same boundary as `wordHuntDisplay.ts`, and for the same reason: the board
- * has to draw which tiles are locked, count what a word would take before it
- * is played, and refuse a word the grid has already seen — all of which is
- * real logic, and none of which is worth a megabyte of dictionary on a phone.
- * `bundle.test.ts` holds that line.
- *
- * Like the other display modules this one imports nothing, so nothing can
- * follow it into the client bundle. `letterpress.ts` re-exports the lot, so
- * the reducer, its tests and the server carry on naming a game from one place.
+ * The parts of Letterpress the board may know — see the boundary note in
+ * `types.ts`. The board draws which tiles are locked, counts what a word would
+ * take before it is played, and refuses a word the grid has seen — none of it
+ * worth a megabyte of dictionary on a phone.
  */
 
 /** The board is SIZE × SIZE tiles. Five, as Letterpress has always been. */

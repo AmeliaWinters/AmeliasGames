@@ -33,27 +33,27 @@ export const SOLVE_BONUS = 2000;
  */
 export const FINDS_PER_TURN = 3;
 
-export const VOWELS = 'AEIOU';
+export const VOWELS = "AEIOU";
 /** Y is a consonant here, exactly as it is on the show. */
-export const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXYZ';
-export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+export const CONSONANTS = "BCDFGHJKLMNPQRSTVWXYZ";
+export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /**
  * Stands in for a letter nobody has called yet. Never appears in a puzzle —
  * `wheel.test.ts` holds the bank to that.
  */
-export const BLANK = '_';
+export const BLANK = "_";
 
 /**
  * A wedge on the wheel. Public information — this is a wheel in a room with
  * everyone looking at it, and the only secret in this game is the phrase.
  */
 export type Wedge =
-  | { kind: 'cash'; value: number }
-  | { kind: 'bankrupt' }
-  | { kind: 'lose-turn' };
+  | { kind: "cash"; value: number }
+  | { kind: "bankrupt" }
+  | { kind: "lose-turn" };
 
-const cash = (value: number): Wedge => ({ kind: 'cash', value });
+const cash = (value: number): Wedge => ({ kind: "cash", value });
 
 /**
  * Thirty-six wedges in wheel order: thirty-four cash, one Bankrupt and one
@@ -96,7 +96,7 @@ export const WHEEL: readonly Wedge[] = [
   cash(300),
   cash(500),
   cash(650),
-  { kind: 'bankrupt' },
+  { kind: "bankrupt" },
   cash(400),
   cash(750),
   cash(300),
@@ -113,7 +113,7 @@ export const WHEEL: readonly Wedge[] = [
   cash(800),
   cash(400),
   cash(600),
-  { kind: 'lose-turn' },
+  { kind: "lose-turn" },
 ];
 
 /** Degrees of arc each wedge takes up. */
@@ -135,32 +135,40 @@ export const WEDGE_ARC = 360 / WHEEL.length;
  * cubic-bezier the stylesheet carries. The wheel on screen is not *like* the
  * throw the reducer resolved; it is the same equation drawn.
  */
-export const SPIN_DRAG = 0.00045;
+export const SPIN_DRAG = 0.000167;
 
 /**
  * How far a spin carries, in wedges, at the gentlest and the hardest flick.
  *
- * The floor is a little over a full turn, and it is a floor on the *speed* the
- * wheel leaves at rather than on the distance: let go slower than that — or
+ * The floor is nearly three turns, and it is a floor on the *speed* the wheel
+ * leaves at rather than on the distance: let go slower than that — or
  * backwards-then-forwards, or without moving at all — and the wheel still goes
  * this far. A wheel that crept a wedge and stopped would let a player line up
  * the one they fancied and release, which is the one way a grabbable wheel can
- * be cheated. The ceiling is five and a half turns, past which a spin is only
- * a longer wait for the same answer.
+ * be cheated. The ceiling is ten turns, past which a spin is only a longer
+ * wait for the same answer.
+ *
+ * These were 40 and 198 against a drag of 0.00045, which put the whole range
+ * between 1.3 and 3.0 seconds. That is the reported bug: constant deceleration
+ * is *correct* over that window and still unreadable, because a wheel that is
+ * done in a second and a third never gets to the crawl where the slowing shows.
+ * A real wheel is heavy and it is watched, so the floor here is long enough to
+ * watch: 3.5 seconds at the gentlest, 6.6 at the hardest.
  */
-export const SPIN_MIN_TRAVEL = 40;
-export const SPIN_MAX_TRAVEL = 198;
+export const SPIN_MIN_TRAVEL = 102;
+export const SPIN_MAX_TRAVEL = 360;
 
 /** The release speed, in degrees of rotation per millisecond, that carries the
     wheel exactly `wedges` wedges: `v = sqrt(2 * a * s)`. */
-const speedFor = (wedges: number) => Math.sqrt(2 * SPIN_DRAG * wedges * WEDGE_ARC);
+const speedFor = (wedges: number) =>
+  Math.sqrt(2 * SPIN_DRAG * wedges * WEDGE_ARC);
 
 /**
  * The two ends of a flick, in degrees per millisecond.
  *
  * Derived rather than chosen, so that the clamps on speed and the clamps on
  * distance are the same two facts and cannot drift apart. `MAX` is about a
- * quarter of a turn in the length of a frame — a hard thumb across a phone.
+ * twentieth of a turn in the length of a frame — a hard thumb across a phone.
  */
 export const SPIN_MIN_SPEED = speedFor(SPIN_MIN_TRAVEL);
 export const SPIN_MAX_SPEED = speedFor(SPIN_MAX_TRAVEL);
@@ -215,8 +223,12 @@ export function spinMs(travel: number): number {
 export function spinThrow(velocity: number): Throw {
   const v = Number.isFinite(velocity) ? velocity : 0;
   const speed = Math.min(Math.max(Math.abs(v), SPIN_MIN_SPEED), SPIN_MAX_SPEED);
-  // s = v² / 2a, in degrees, then in wedges.
-  const wedges = Math.round((speed * speed) / (2 * SPIN_DRAG * WEDGE_ARC));
+  // s = v² / 2a, in degrees, then in wedges. Deliberately *not* rounded: a
+  // whole number of wedges is a wheel that can only ever stop dead on a
+  // midpoint, which is what made every landing look staged. The throw carries
+  // however far it carries, and whichever wedge that leaves under the flapper
+  // is the one that came up.
+  const wedges = (speed * speed) / (2 * SPIN_DRAG * WEDGE_ARC);
   const travel = Math.min(Math.max(wedges, SPIN_MIN_TRAVEL), SPIN_MAX_TRAVEL);
   return { travel: v < 0 ? -travel : travel, ms: spinMs(travel) };
 }
@@ -224,15 +236,42 @@ export function spinThrow(velocity: number): Throw {
 /**
  * Where the pointer ends up: `from`, carried `travel` wedges of rotation.
  *
+ * The unit here is *wedges of pointer position*, and it is fractional. Whole
+ * numbers are wedge midpoints, not wedge edges — `restAngle` puts position `p`
+ * at `-(p * WEDGE_ARC + WEDGE_ARC / 2)`, so `p = 3` is the middle of wedge 3
+ * and `p = 3.5` is the seam between 3 and 4. Everything downstream that wants
+ * an index rounds; everything that wants an angle does not.
+ *
  * The minus sign is the one piece of this geometry worth reading twice. The
  * wedges are numbered clockwise from twelve o'clock — see `sectorPath` — so
  * turning the disc clockwise brings the wedge *before* the current one under
  * the pointer. Rotation and index run opposite ways, and every place that
  * converts between them goes through here.
  */
-export function wedgeAfter(from: number, travel: number): number {
+export function restAfter(from: number, travel: number): number {
   const count = WHEEL.length;
-  return (((from - travel) % count) + count) % count;
+  const at = (((from - travel) % count) + count) % count;
+  // `from - travel` can land a hair under `count` and round up to it, which is
+  // wedge `count` — an index that does not exist. Fold it back to zero.
+  return at === count ? 0 : at;
+}
+
+/**
+ * Which wedge the flapper is over, given a resting position from `restAfter`.
+ *
+ * Rounds rather than floors, because whole positions are midpoints: the wedge
+ * runs from `at - 0.5` to `at + 0.5`. A rest of exactly `at + 0.5` is the seam,
+ * and it goes to the higher wedge — arbitrary, but it has to go somewhere, and
+ * the flapper is standing on the peg between them either way.
+ */
+export function wedgeUnder(rest: number): number {
+  const count = WHEEL.length;
+  return Math.round(rest) % count;
+}
+
+/** `restAfter` and `wedgeUnder` in one, for callers that only want the index. */
+export function wedgeAfter(from: number, travel: number): number {
+  return wedgeUnder(restAfter(from, travel));
 }
 
 /**
@@ -245,14 +284,14 @@ export function wedgeAfter(from: number, travel: number): number {
  * thirds of its type is a trap for the next caller.
  */
 export function wedgeLabel(wedge: Wedge): string {
-  if (wedge.kind === 'cash') return String(wedge.value);
-  return wedge.kind === 'bankrupt' ? 'BANKRUPT' : 'LOSE TURN';
+  if (wedge.kind === "cash") return String(wedge.value);
+  return wedge.kind === "bankrupt" ? "BANKRUPT" : "LOSE TURN";
 }
 
 /** How a wedge reads in a sentence: "Ann spun Bankrupt." */
 export function wedgeName(wedge: Wedge): string {
-  if (wedge.kind === 'cash') return money(wedge.value);
-  return wedge.kind === 'bankrupt' ? 'Bankrupt' : 'Lose a Turn';
+  if (wedge.kind === "cash") return money(wedge.value);
+  return wedge.kind === "bankrupt" ? "Bankrupt" : "Lose a Turn";
 }
 
 /**
@@ -262,10 +301,10 @@ export function wedgeName(wedge: Wedge): string {
  */
 export function money(amount: number): string {
   const digits = String(Math.abs(Math.trunc(amount)));
-  let grouped = '';
+  let grouped = "";
   for (let i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 === 0) grouped += ',';
+    if (i > 0 && (digits.length - i) % 3 === 0) grouped += ",";
     grouped += digits[i];
   }
-  return `${amount < 0 ? '-' : ''}$${grouped}`;
+  return `${amount < 0 ? "-" : ""}$${grouped}`;
 }

@@ -1,0 +1,75 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Rebellia Games — Playbill
+
+   One dark stage, four channels. Everything below the palette blocks — type,
+   layout, motion — is shared, so switching palette changes only colour.
+
+   Stage is the default: near-black ground, cream type, condensed caps. Four
+   signal colours do double duty — as seats they sit on pieces, and as channels
+   they identify a game — so the whole palette is five neutrals and four hues.
+   No gradients, no glows, no glassmorphism.
+
+   ── How this is laid out ──────────────────────────────────────────────
+   This file is the running order and nothing else. CSS is decided by source
+   order, so the sequence below *is* the cascade -- it is the one thing here
+   worth reading top to bottom, and the only place the whole stylesheet is
+   visible at once.
+
+   It was a single 5,191-line file until it was cut along the section banners
+   already written in it. The cut was mechanical and the order was left alone:
+   concatenating these imports reproduces that file rule for rule, in the same
+   sequence, so nothing about the cascade changed and nothing had to be
+   re-checked in a browser. Two rules did move, both orphans left wherever they
+   were first typed -- `.sr-only` was sitting at the bottom of Yahtzee and the
+   desktop `@media` at the bottom of Word Hunt. Both are in `base.css` now;
+   neither selector is touched by anything else, so the move cannot reorder
+   anything.
+
+   Which means the order below is the *old* file's order, not a tidy one.
+   Connect 4 sits up among the chrome because the board it styles was once the
+   only board; the dice land in the middle of Backgammon and the Wheel because
+   the two games that throw them were written on either side of them. Sorting
+   this list into ground / shared / games would read far better and is a
+   separate change -- one that moves real pixels and has to be checked as such,
+   because `hover.css` and `controls.css` both carry bare element selectors
+   that a game file can currently outrank simply by coming after them.
+
+   So: files are named for what is in them, and the list is honest about the
+   order it inherited.
+
+   Adding a game means a file in `games/` and a line at the end of this list.
+   Append, do not insert -- the end is the only position that cannot disturb
+   what is already here.
+
+   Two files are shared on purpose and a game file must not restyle them:
+   `dice.css` (Backgammon, Yahtzee and Liar's Dice draw the same die) and
+   `clock.css` (Word Hunt's round and Word Duel's shot clock are one face).
+   `hover.css` is a single `@media (hover: hover)` block gathering every hover
+   in the app, because a bare `:hover` sticks after a tap on a touchscreen and
+   left a tapped column lit for the rest of the turn -- keeping them in one
+   place is what stops the next one being written outside the guard.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import "./palette.css";
+@import "./base.css";
+@import "./shell.css";
+@import "./games/connect4.css";
+@import "./clock.css";
+@import "./controls.css";
+@import "./hover.css";
+@import "./games/backgammon.css";
+@import "./dice.css";
+@import "./games/wheel.css";
+@import "./picker.css";
+@import "./games/wordle.css";
+@import "./games/battleship.css";
+@import "./games/yahtzee.css";
+@import "./games/liarsdice.css";
+@import "./endgame.css";
+@import "./games/wordhunt.css";
+@import "./games/morris.css";
+@import "./games/ultimate.css";
+@import "./games/letterpress.css";
+@import "./games/wordchain.css";
+@import "./games/vocab.css";
+@import "./toast.css";

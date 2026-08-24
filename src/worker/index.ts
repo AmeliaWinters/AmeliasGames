@@ -242,7 +242,16 @@ export class GameRoom implements DurableObject {
     }
 
     const engine = await this.loadEngine();
-    if (!engine) return this.fail(ws, { kind: 'no-room', error: 'This room no longer exists.' });
+    if (!engine) {
+      // The routing code is the object's identity and outlives the engine, so
+      // a player whose room has been swept is told *which* room went — they
+      // very likely still have the invite link open in another tab.
+      const code = await this.state.storage.get<string>('code');
+      return this.fail(ws, {
+        kind: 'no-room',
+        error: code ? `Room ${code} no longer exists.` : 'This room no longer exists.',
+      });
+    }
 
     if (isAction(msg)) {
       const result = applyAction(engine, meta.seat, msg);

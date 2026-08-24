@@ -1,36 +1,23 @@
 /**
- * Yahtzee's constants, state shape and scoring table.
- *
- * Split out of the reducer for the reason `wheelDisplay.ts` and
- * `wordleDisplay.ts` were: the board needs these values at runtime, and this
- * module imports nothing, so taking them cannot drag `applyMove` and the
- * registry behind it into the client bundle. `bundle.test.ts` holds the whole
- * client to that line, not only the games with something to hide.
- *
- * There is no secret here — every score on the sheet is public and the dice
- * are on the table — so the split buys bundle size and nothing else. That is
- * still worth it: the scoring table is exactly what the board needs, and it is
- * the one part of these rules that is pure arithmetic over five numbers.
+ * Yahtzee's constants, state shape and scoring table — see the boundary note
+ * in `types.ts`. Nothing here is secret: every score is public and the dice are
+ * on the table, so the split buys bundle size and nothing else. Still worth it,
+ * since the scoring table is pure arithmetic over five numbers.
  */
 
-// Both are leaves like this one — no reducer, no registry — so the board can
-// take them without dragging `applyMove` into the browser behind them.
+// Type-only: erased at compile time, so neither reaches the bundle.
 import type { Tray } from './dice.js';
 import type { Toss } from './toss.js';
 
 /**
- * The tray the dice are thrown into, in its own units.
+ * The tray, in its own units — not pixels. The throw is simulated against this
+ * tray and the faces read off it, so it must be the tray every device draws at
+ * whatever size; the stylesheet holds the same shape as an `aspect-ratio`.
  *
- * Not pixels: the server simulates the throw and reads the faces off it, so
- * the tray it simulates has to be the tray every device draws, whatever size
- * that device draws it at. The stylesheet holds the same shape as an
- * `aspect-ratio`, and the board scales one to the other.
- *
- * The die was 7.5 and is a quarter smaller, which is a bigger change than it
- * sounds: the tray is that much larger around the dice, so they travel further
- * before they meet anything, and a cube's resistance to being spun falls with
- * the square of its size, so the same knock spins it half again as hard. Both
- * cost a retune in `dice.ts` — see `STEP` and `SPIN_MAX`.
+ * The die was 7.5 and is now a quarter smaller, which is a bigger change than
+ * it sounds: the dice travel further before meeting anything, and a cube's
+ * resistance to spin falls with the square of its size, so the same knock
+ * spins it half again as hard. Both cost a retune — see `STEP` and `SPIN_MAX`.
  */
 export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 5.63 };
 
@@ -113,9 +100,9 @@ export interface YState {
   /** Five faces. 0 means "not rolled yet this turn" — see `hasRolled`. */
   dice: number[];
   /**
-   * The last throw, or null before anyone has rolled. Not cleared at the turn
-   * boundary: `n` has to keep counting for the life of the game, and a board
-   * tells "nothing rolled yet" from the dice being zero rather than from this.
+   * The last throw, or null before anyone rolled. Not cleared at the turn
+   * boundary — `n` counts for the life of the game, and "nothing rolled yet"
+   * is told from the dice being zero instead.
    */
   toss: Toss | null;
   /** Which dice the player to move is keeping. Cleared at the turn boundary. */
@@ -135,10 +122,9 @@ export interface YState {
 }
 
 export type YMove =
-  // The throw is what the client's simulation did, reported back — not a
-  // request to roll. `readThrow` in `toss.ts` says how far it is believed, and
-  // a move with nothing usable in it is rolled by the reducer instead, which
-  // is what a keyboard roll and a client with no WebAssembly both take.
+  // What the client's simulation did, reported back — not a request to roll.
+  // `readThrow` in `toss.ts` says how far it is believed; nothing usable means
+  // the reducer rolls instead, which is what a keyboard roll takes.
   | { type: 'roll'; throw?: unknown }
   | { type: 'hold'; die: number }
   | { type: 'score'; category: Category };
@@ -182,26 +168,19 @@ function longestRun(dice: readonly number[]): number {
 }
 
 /**
- * Whether a rolled Yahtzee is being played as a joker.
- *
  * Joker rules turn on the Yahtzee box being *filled*, not on it having scored:
- * a player who crossed Yahtzee off for zero still plays later Yahtzees as
- * jokers, they just collect no bonus for them. The two conditions stay
- * separate everywhere below for exactly that reason.
+ * a player who crossed it off for zero still plays later Yahtzees as jokers,
+ * they just collect no bonus. The two conditions stay separate below for that.
  */
 export function jokerApplies(sheet: Sheet, dice: readonly number[]): boolean {
   return isYahtzee(dice) && sheet.yahtzee !== null;
 }
 
 /**
- * What `dice` are worth in `category`.
- *
- * `joker` is the one place the rules bend: a Yahtzee played as a joker fills
- * full house or either straight at face value, because the hand cannot form
- * them and the alternative — a forced zero in a box the player was *told* to
- * use — is not what the rules intend. Everything else scores as it reads, so
- * a Yahtzee of threes is 15 in Threes, 15 in either of-a-kind and 15 in
- * Chance, joker or not.
+ * `joker` is the one place the rules bend: a Yahtzee played as one fills full
+ * house or either straight at face value, since the hand cannot form them and
+ * a forced zero in a box the player was *told* to use is not the intent.
+ * Everything else scores as it reads — a Yahtzee of threes is 15 either way.
  */
 export function scoreFor(category: Category, dice: readonly number[], joker = false): number {
   if (joker) {
@@ -222,8 +201,8 @@ export function scoreFor(category: Category, dice: readonly number[], joker = fa
     case 'fourKind':
       return tally.some((n) => n >= 4) ? sumDice(dice) : 0;
     case 'fullHouse':
-      // Strictly three of one and two of another: five of a kind is a Yahtzee,
-      // and only the joker rule above lets it stand in for a full house.
+      // Strictly 3+2: five of a kind is a Yahtzee, and only the joker rule
+      // above lets it stand in for a full house.
       return tally.some((n) => n === 3) && tally.some((n) => n === 2) ? FULL_HOUSE : 0;
     case 'smallStraight':
       return longestRun(dice) >= 4 ? SMALL_STRAIGHT : 0;
@@ -237,13 +216,10 @@ export function scoreFor(category: Category, dice: readonly number[], joker = fa
 }
 
 /**
- * The boxes this hand may be written into, which is usually "any open one".
- *
- * A joker is the exception, and the order matters: the matching upper box
- * first while it is open, then any open lower box, and only once the whole
- * lower section is full does the player get to cross off an upper box — which
- * by then can only score zero, since the box for the face they rolled is the
- * one that was already taken.
+ * Usually any open box. A joker is the exception and the order matters: the
+ * matching upper box while it is open, then any open lower box, and only once
+ * the lower section is full may an upper box be crossed off — which by then
+ * can only score zero, the box for the rolled face being the one already taken.
  */
 export function legalCategories(sheet: Sheet, dice: readonly number[]): Category[] {
   const open = CATEGORIES.filter((category) => sheet[category] === null);

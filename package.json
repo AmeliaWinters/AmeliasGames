@@ -10,6 +10,7 @@
     "test": "vitest run",
     "render:throw": "tsx scripts/render-throw3d.ts",
     "render:wheel": "tsx scripts/render-wheel.ts",
+    "render:spin": "tsx scripts/render-wheel.ts --spin",
     "build:wordchain": "tsx scripts/build-wordchain.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.client.json && tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json",

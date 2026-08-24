@@ -1,0 +1,243 @@
+/* ── Ultimate Tic-Tac-Toe ──────────────────────────────
+   Nine boards inside a board, and both grids are drawn the same way: the
+   container is --motif-off and the cells are --board, so the colour shows
+   through only in the gaps. A gap falls between cells and never outside them,
+   which is exactly the four lines of a hash and not the five-sided box a
+   border would draw. Two gap widths, one nested inside the other, are the
+   whole of the board's line work.
+
+   --motif-off rather than --rule-hi for the same reason the Morris board uses
+   it: this is line work straight onto --board with nothing over it, and the
+   brightest border in the app manages 1.6:1 there. */
+.ut {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ut-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  /* Square, because nine square boards will not tile anything else. */
+  aspect-ratio: 1;
+  background: var(--motif-off);
+  border-radius: var(--board-radius);
+  /* The rounded corner would otherwise cut the corner boards, which are the
+     four the big board's lines run through. */
+  overflow: hidden;
+}
+
+.ut-small {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  /* The inner hash, drawn one pixel thinner than the outer one. The two have
+     to differ or the board reads as one nine-by-nine grid, which is a
+     different game entirely. */
+  background: var(--motif-off);
+}
+
+/* A board still in play that the mover may land in. One is an instruction and
+   eight are a permission, so they are drawn at two weights rather than one:
+   an inset ring for "you may", a full outline for "you must".
+
+   Inset, not an outline, on the weaker of the two -- an outline sits in the
+   3px gap between boards and two adjacent ones would touch. */
+.ut-small.target {
+  box-shadow: inset 0 0 0 1px var(--live);
+}
+.ut-small.target.only {
+  box-shadow: inset 0 0 0 3px var(--live);
+}
+
+/* "You must play here" said a second time, on the squares themselves. The ring
+   alone was one green outline among nine boards on a phone, and it says which
+   board without saying which squares are left in it -- a board sent to late in
+   the game may have two empty cells in it and seven that cannot be pressed.
+
+   Keyed on the mark, not on the button: an empty square in the board being
+   played is the fact worth drawing whether or not it is your turn, and off
+   :disabled it would vanish on the opponent's move, which is exactly the
+   moment a player is trying to read where the game is going next. */
+.ut-small.only .ut-cell.empty {
+  background: var(--ut-target);
+}
+
+/* Whose a settled board is. The marks in it say it too -- three in a seat
+   colour, six deadened -- but nine marks in a block this size is not something
+   anybody reads across nine blocks, and "who won that one" was being counted
+   rather than seen.
+
+   The three that won it keep the plain board under them, so the line reads as
+   punched through the wash rather than sitting on it, and stays at the full
+   contrast the seat colour has against --board: 5.4:1 and 8.3:1 dark, 3.8:1
+   and 3.7:1 light. It also draws the shape of the line for free.
+
+   A drawn board takes a neutral ground of the same weight. It is settled and
+   it is nobody's, and those are two different facts from "still open" -- which
+   is what it looked like before, being the only settled board with no tint. */
+.ut-small.won0 .ut-cell {
+  background: var(--ut-won-0);
+}
+.ut-small.won1 .ut-cell {
+  background: var(--ut-won-1);
+}
+.ut-small.drawn .ut-cell {
+  background: var(--ut-drawn);
+}
+.ut-small.settled .ut-cell.line {
+  background: var(--board);
+}
+
+/* A settled board keeps its marks: it is the record of how it was won, and one
+   big mark laid over nine small ones is two shapes in one colour on a board
+   the size of a phone. What changes is that the marks stop being live -- the
+   three that won it hold their seat colour and every other mark goes to the
+   line colour, which is the same "dead ground" a drawn board is drawn in.
+
+   A cross and a nought have to be deadened separately: one is two bars and the
+   other is a ring, and there is no property they share. */
+.ut-small.settled .ut-cell.m1:not(.line) .ut-mark {
+  box-shadow: inset 0 0 0 3px var(--motif-off);
+}
+.ut-small.settled .ut-cell.m0:not(.line) .ut-mark::before,
+.ut-small.settled .ut-cell.m0:not(.line) .ut-mark::after {
+  background: var(--motif-off);
+}
+
+/* One of the three boards that won the game: the ink ring Connect Four draws
+   round a winning line, on the scale this game wins at. */
+.ut-small.crowned {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
+/* A square. Buttons, because every one of them is somewhere a move can be
+   made, and a keyboard walks them in reading order.
+
+   Both minimums are reset, and that is the whole point of this rule -- the
+   same one the Battleships cell is written around. The global 44px touch floor
+   on `button` beats `aspect-ratio` once the column is narrower than 44px: at
+   375px the cells came out 44 square in a 44 column and looked right, and at
+   320px they came out 44 square in a 31 column, so nine of them overlapped and
+   buried both hashes. Measuring the wide case first produced a confident wrong
+   answer, which is the trap this file has already sprung twice.
+
+   `width: 100%` then makes the width definite, so the ratio only ever derives
+   the height from it and nothing is left to resolve from an indefinite size.
+
+   The floor is genuinely unreachable here: eighty-one squares across a 320px
+   phone is 31px each, and the alternative to a small square is not a big one
+   but a board that scrolls. */
+.ut-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--board);
+  cursor: pointer;
+}
+.ut-cell:disabled {
+  cursor: default;
+}
+.ut-cell:focus-visible {
+  outline: 2px solid var(--ink);
+  /* Inward, because a cell's neighbours are one pixel away and an outline that
+     grew would be drawn over the hash. */
+  outline-offset: -2px;
+}
+
+/* Where the last mark went. The same dashed --muted the Morris board uses to
+   say the same thing, and for the same reason: it is a fact about the
+   position, not something happening. */
+.ut-cell.landed {
+  outline: 1px dashed var(--muted);
+  outline-offset: -3px;
+}
+
+/* The two marks. Shape, not colour, is what tells the seats apart here --
+   which for once is the game's own doing rather than this project's, though
+   both want it. A cross is two bars; a nought is a ring. */
+.ut-mark {
+  position: relative;
+  width: 56%;
+  aspect-ratio: 1;
+}
+.ut-cell.m1 .ut-mark,
+.ut-mark.m1 {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px var(--seat-1);
+}
+.ut-cell.m0 .ut-mark::before,
+.ut-cell.m0 .ut-mark::after,
+.ut-mark.m0::before,
+.ut-mark.m0::after {
+  content: "";
+  position: absolute;
+  /* A bar a tenth of the cell high, run past the corners so the two cross at
+     full width rather than meeting short of them. */
+  inset: 45% -3%;
+  background: var(--seat-0);
+}
+.ut-cell.m0 .ut-mark::before,
+.ut-mark.m0::before {
+  transform: rotate(45deg);
+}
+.ut-cell.m0 .ut-mark::after,
+.ut-mark.m0::after {
+  transform: rotate(-45deg);
+}
+
+/* Boards won, per player, with the mark each is leaving on the board beside
+   the name -- which makes this the legend for everything above it as well as
+   the score. The count is the tiebreak if nobody manages three in a row, so it
+   is worth carrying all game rather than only at the end. */
+.ut-tally {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ut-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ut-side .ut-mark {
+  flex: none;
+  width: 13px;
+}
+
+.ut-who {
+  font-family: var(--display);
+  color: var(--ink);
+  /* A name is anyone's to choose, so this is the part that gives. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.ut-side.you .ut-who::after {
+  content: " (you)";
+  color: var(--muted);
+}
+
+.ut-count {
+  flex: none;
+}
+

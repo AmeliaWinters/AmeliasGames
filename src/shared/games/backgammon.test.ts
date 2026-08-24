@@ -27,6 +27,12 @@ function position(overrides: Partial<BgState> = {}): BgState {
     phase: "move",
     winner: null,
     result: null,
+    last: null,
+    stats: [
+      { rolls: 0, doubles: 0, pips: 0, wasted: 0, hits: 0 },
+      { rolls: 0, doubles: 0, pips: 0, wasted: 0, hits: 0 },
+    ],
+    race: [0],
     ...overrides,
   };
 }
@@ -787,5 +793,146 @@ describe("the dice on the table", () => {
     expect(diceOnTable(position({ roll: [3, 5], dice: [3] })).spent).toEqual([false, true]);
     expect(diceOnTable(position({ roll: [3, 5], dice: [5] })).spent).toEqual([true, false]);
     expect(diceOnTable(position({ roll: [3, 5], dice: [3, 5] })).spent).toEqual([false, false]);
+  });
+});
+
+/*
+  The account a game keeps of itself.
+
+  None of this is in the position when the game ends, which is the whole
+  reason it is in the state: a hit leaves no trace once the checker comes back
+  in, and a die nobody could play leaves none at all. The end-of-game summary
+  is built from these numbers, so a wrong one is a confident wrong sentence
+  rather than a crash.
+*/
+describe("what the game remembers", () => {
+  it("records the move just played, and counts them", () => {
+    const s = position({ points: [...position().points], dice: [3, 4], roll: [3, 4] });
+    s.points[12] = 2;
+    const after = backgammon.applyMove(s, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.last).toEqual({ seat: 0, from: 12, to: 9, die: 3, hit: false, n: 1 });
+
+    const again = backgammon.applyMove(after.state, { type: "move", from: 12, die: 4 }, 0, never);
+    expect(again.ok && again.state.last?.n).toBe(2);
+  });
+
+  /*
+    The counter is what a board watches, and it has to keep climbing across
+    identical moves: two checkers on one point played the same distance twice
+    running produce the same `from`, `to` and `die`, and a board that told
+    them apart by value would draw the second one as nothing happening.
+  */
+  it("keeps counting when the same move is played twice", () => {
+    const s = position({ dice: [3, 3, 3, 3], roll: [3, 3] });
+    s.points[12] = 2;
+    const first = backgammon.applyMove(s, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = backgammon.applyMove(first.state, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.state.last?.from).toBe(first.state.last?.from);
+    expect(second.state.last?.to).toBe(first.state.last?.to);
+    expect(second.state.last?.n).toBe(2);
+  });
+
+  it("marks the move that sent a checker to the bar, and counts the hit", () => {
+    const s = position({ dice: [3, 5], roll: [3, 5] });
+    s.points[12] = 1;
+    s.points[9] = -1; // a lone enemy checker, three pips ahead
+    const after = backgammon.applyMove(s, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.last?.hit).toBe(true);
+    expect(after.state.bar[1]).toBe(1);
+    expect(after.state.stats[0].hits).toBe(1);
+    expect(after.state.stats[1].hits).toBe(0);
+  });
+
+  it("does not call an ordinary landing a hit", () => {
+    const s = position({ dice: [3, 5], roll: [3, 5] });
+    s.points[12] = 1;
+    const after = backgammon.applyMove(s, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(after.ok && after.state.last?.hit).toBe(false);
+    expect(after.ok && after.state.stats[0].hits).toBe(0);
+  });
+
+  it("says a checker went off rather than to a point", () => {
+    const s = position({ dice: [3], roll: [3, 3], off: [14, 0] });
+    s.points[2] = 1; // the fifteenth checker, on the three point
+    const after = backgammon.applyMove(s, { type: "move", from: 2, die: 3 }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.last?.to).toBe("off");
+    expect(after.state.winner).toBe(0);
+  });
+
+  it("counts what the dice offered, four faces to a double", () => {
+    const s = backgammon.setup(2, () => 0.1); // seat 0 to start
+    const split = rolls(s, (roll) => roll[0] !== roll[1]);
+    expect(split.stats[0].rolls).toBe(1);
+    expect(split.stats[0].doubles).toBe(0);
+    expect(split.stats[0].pips).toBe(split.roll![0] + split.roll![1]);
+
+    const double = rolls(s, (roll) => roll[0] === roll[1]);
+    expect(double.stats[0].doubles).toBe(1);
+    expect(double.stats[0].pips).toBe(double.roll![0] * 4);
+    // The other seat has not rolled, and nothing here belongs to them.
+    expect(double.stats[1]).toEqual({ rolls: 0, doubles: 0, pips: 0, wasted: 0, hits: 0 });
+  });
+
+  it("counts the pips a position would not let them spend", () => {
+    // A lone checker with the only landing three pips ahead of it blocked:
+    // the 3 cannot be played at all, so it is wasted rather than declined.
+    const s = position({ points: blockedSolo(), dice: [3], roll: [3, 3] });
+    expect(legalMoves(s)).toHaveLength(0);
+    const after = backgammon.applyMove(s, { type: "pass" }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.stats[0].wasted).toBe(3);
+    expect(after.state.stats[1].wasted).toBe(0);
+  });
+
+  /*
+    The race is seat 0's lead, positive when seat 0 is ahead — which means the
+    *lower* pip count, since a pip count is distance still to travel. Getting
+    that sign backwards draws every chart upside down and is invisible in a
+    game that stays close, so it is pinned from a position with a known gap.
+  */
+  it("records seat 0's pip lead, one entry to a turn", () => {
+    const s = position({ points: blockedSolo(), dice: [3], roll: [3, 3] });
+    const after = backgammon.applyMove(s, { type: "pass" }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    // Seat 0 has one checker 13 pips out; seat 1 has two, 15 pips each.
+    expect(pipCount(after.state, 0)).toBe(13);
+    expect(pipCount(after.state, 1)).toBe(30);
+    expect(after.state.race).toEqual([0, 17]);
+  });
+
+  it("ends the race on the position that won it", () => {
+    const s = position({ dice: [3], roll: [3, 3], off: [14, 0] });
+    s.points[2] = 1;
+    s.points[0] = -1;
+    const after = backgammon.applyMove(s, { type: "move", from: 2, die: 3 }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    // The winning move never ends a turn, so without its own entry the chart
+    // would stop one move short of the game.
+    expect(after.state.race).toHaveLength(2);
+    expect(after.state.race[1]).toBe(pipCount(after.state, 1));
+  });
+
+  it("keeps a derived state's history off the one it came from", () => {
+    const s = position({ dice: [3, 5], roll: [3, 5] });
+    s.points[12] = 1;
+    const after = backgammon.applyMove(s, { type: "move", from: 12, die: 3 }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.stats).not.toBe(s.stats);
+    expect(after.state.stats[0]).not.toBe(s.stats[0]);
+    expect(after.state.race).not.toBe(s.race);
   });
 });

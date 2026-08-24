@@ -297,3 +297,23 @@ export function chainListSizes(): Record<ChainLang, number> {
   const l = lists ?? build();
   return { en: l.ordered.en.length, pl: l.ordered.pl.length, ja: l.ordered.ja.length };
 }
+
+/**
+ * A language's whole list, commonest first — the same array `commonestStarting`
+ * scans, handed out read-only.
+ *
+ * Vocab Race needs the list by *rank* rather than by letter: it asks "what is
+ * the hundredth commonest Polish word, and what does it mean", which is a
+ * question neither lookup above answers. Exposing the array rather than a
+ * `nth()` accessor is deliberate — the clue index it builds is a single pass
+ * over the whole thing, and an accessor called sixty thousand times to hand
+ * back the elements of an array that is already sitting here would be a worse
+ * version of the same thing.
+ *
+ * Read-only because it is the live array. `add` writes `rank` onto entries as
+ * it fills it, and a caller that spliced this would silently renumber a list
+ * two games are reading.
+ */
+export function chainRanked(lang: ChainLang): readonly ChainEntry[] {
+  return (lists ?? build()).ordered[lang];
+}

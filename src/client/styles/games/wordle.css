@@ -1,0 +1,269 @@
+/* ── Word Duel ─────────────────────────────────────────────────────────
+   Two grids side by side on one phone: yours on the left, theirs on the
+   right. That is the whole idea of the game made visible, so the panels stay
+   side by side at every width rather than stacking -- a stacked layout would
+   put their progress below the fold, which is exactly the thing you want to
+   watch. The tiles shrink instead. */
+.wd-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* Two across on a phone, and as many more as fit on anything wider. The game
+   plays from two up to eight now, so a hardcoded pair of columns would put
+   eight grids in one tall stack of two and push the input off the screen.
+   `auto-fit` with a floor keeps a panel readable rather than letting eight of
+   them share a phone's width. */
+.wd-panels {
+  display: grid;
+  /*
+    Two across at every width, and as many more as fit on anything wider.
+
+    The floor used to be a flat 140px, which quietly broke the promise above
+    it: two of those plus the 10px gap need 290px of panel row, and a 320px
+    phone has about 270px once the board's padding is off. `auto-fit` did
+    exactly what it was asked and dropped to one column — so on the narrowest
+    phones your grid and theirs stacked, and their progress went below the
+    fold, which is the one thing this layout exists to prevent.
+
+    `min()` gives the floor a ceiling: 140px where there is room for it, and
+    otherwise precisely half the row, which always fits two.
+  */
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 50% - 5px), 1fr));
+  gap: 10px;
+}
+
+.wd-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: var(--surface);
+}
+
+.wd-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+/* The guess count is reference, not headline: same line, less weight. */
+.wd-count {
+  flex: none;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The word that side is hunting. Yours reads out; theirs is five dots until
+   the game ends. Monospace so the two panels line up whichever it is. */
+.wd-target {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.wd-target.masked {
+  /* Nothing to read, so nothing that looks readable. */
+  color: var(--rule);
+}
+
+.wd-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wd-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+}
+
+.wd-tile {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  background: var(--hole);
+  font-family: var(--display);
+  font-size: clamp(0.8rem, 3.6vw, 1.15rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.wd-tile.hit,
+.wd-tile.near,
+.wd-tile.miss {
+  border-color: transparent;
+  color: var(--mark-text);
+}
+.wd-tile.hit {
+  background: var(--mark-hit);
+}
+/* Right letter, wrong place -- and the one mark that needs a second channel.
+   Hit and near are the whole decision this game asks you to make every guess,
+   and they were separated by hue alone: measured, their luminances sit at
+   1.03:1 in stage and 1.11:1 in daylight, which is to say they are the same
+   brightness and differ only in being green or amber. Simulated through
+   deuteranopia and protanopia they do stay apart, but by a third less than
+   they look to be.
+   So near carries a ring and hit does not, which is the distinction the seats
+   already make between a plain disc and a ringed one, and the rule Battleships
+   states outright a few hundred lines down: differ in colour *and* in shape. */
+.wd-tile.near {
+  background: var(--mark-near);
+  box-shadow: inset 0 0 0 2px var(--board);
+}
+.wd-tile.miss {
+  background: var(--mark-miss);
+  color: var(--mark-miss-text);
+}
+
+.wd-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wd-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wd-entry-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wd-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  /* Wide tracking so five letters read as five slots, and 16px so iOS does
+     not zoom the viewport the moment the field takes focus. */
+  font-size: 1rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.wd-submit {
+  flex: none;
+  /* A thumb target, matching the other actions in the app. */
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.9rem;
+}
+.wd-submit:disabled {
+  opacity: 0.45;
+}
+
+.wd-brief,
+.wd-locked,
+.wd-waiting {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.wd-locked strong {
+  font-family: var(--mono);
+  letter-spacing: 0.18em;
+  color: var(--ink);
+}
+
+.wd-setup {
+  gap: 12px;
+}
+
+/* ── Word Duel: the keyboard ───────────────────────────────────────────
+   Two jobs at once. It is the record of what you have learned -- green,
+   yellow, tried-and-absent, untried -- and on a phone it is how you type,
+   which keeps the OS keyboard from covering the grids you are meant to be
+   watching. It shows your own letters only. */
+.wd-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wd-keys-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.wd-key {
+  flex: 1 1 auto;
+  letter-spacing: 0;
+  border-color: var(--rule);
+  /* Thumbs, not cursors. 32px is the floor that still fits ten keys across
+     the narrowest phone this app supports. */
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(0.72rem, 3.1vw, 0.95rem);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+/* Enter and backspace earn their width from the letters around them. */
+.wd-key.wide {
+  flex: 1 4 auto;
+  font-family: var(--body);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+/* The same three colours as the tiles, so a green key and a green tile are
+   obviously the same claim. An untried key is left alone: "not yet guessed"
+   is the fourth state, and it reads as absence rather than as a colour. */
+.wd-key.hit,
+.wd-key.near,
+.wd-key.miss {
+  border-color: transparent;
+  color: var(--mark-text);
+}
+.wd-key.hit {
+  background: var(--mark-hit);
+}
+/* The same ring the tiles carry, so the keyboard and the grid say "near" the
+   same way. Thinner, because the key is smaller. */
+.wd-key.near {
+  background: var(--mark-near);
+  box-shadow: inset 0 0 0 1.5px var(--board);
+}
+.wd-key.miss {
+  /* Tried and absent. Dimmed rather than recoloured -- it is the one state
+     that means "stop considering this", and it should recede. */
+  background: var(--mark-miss);
+  color: var(--mark-miss-text);
+  opacity: 0.75;
+}
+
+/* Disabled keys are the whole keyboard at once (you have solved it, or run
+   out), so this must not read as twenty-six individually broken buttons. */
+.wd-keys:has(.wd-key:disabled) {
+  opacity: 0.55;
+}
+

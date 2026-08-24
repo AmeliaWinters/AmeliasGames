@@ -1,6 +1,7 @@
-import type { GameDefinition, MoveResult, Rng } from '../types.js';
-import { GAME_MANIFEST } from './manifest.js';
-import { pick } from './random.js';
+import type { GameDefinition, MoveResult, Rng } from "../types.js";
+import { GAME_MANIFEST } from "./manifest.js";
+import { named } from "../refusal.js";
+import { pick } from "./random.js";
 
 /**
  * Wheel of Fortune, for two to four.
@@ -39,7 +40,7 @@ import { pick } from './random.js';
  *
  * That is structure, not bundler luck — an earlier version relied on Rollup
  * shaking the answers back out of a graph that did reach them, which held, but
- * only until someone added one value import. `wheel.bundle.test.ts` builds the
+ * only until someone added one value import. `bundle.test.ts` builds the
  * client and greps it, so the guarantee is now checked rather than asserted.
  */
 
@@ -57,11 +58,12 @@ import {
   VOWEL_COST,
   WHEEL,
   money,
+  restAfter,
   spinThrow,
-  wedgeAfter,
   wedgeName,
-} from './wheelDisplay.js';
-import type { Wedge } from './wheelDisplay.js';
+  wedgeUnder,
+} from "./wheelDisplay.js";
+import type { Wedge } from "./wheelDisplay.js";
 
 export {
   ALPHABET,
@@ -80,13 +82,15 @@ export {
   WEDGE_ARC,
   WHEEL,
   money,
+  restAfter,
   spinMs,
   spinThrow,
   wedgeAfter,
   wedgeLabel,
   wedgeName,
-} from './wheelDisplay.js';
-export type { Throw, Wedge } from './wheelDisplay.js';
+  wedgeUnder,
+} from "./wheelDisplay.js";
+export type { Throw, Wedge } from "./wheelDisplay.js";
 
 /** A hostile client is not owed an unbounded string to normalise. */
 const MAX_GUESS = 200;
@@ -120,7 +124,7 @@ export interface WofState {
   starter: number;
   turn: number;
   /** `call` means the wheel has stopped and a consonant is owed. */
-  phase: 'spin' | 'call';
+  phase: "spin" | "call";
   /**
    * The cash wedge backing a consonant the player still owes, or null when
    * nothing is owed. This is the *entitlement*, and it is spent — cleared when
@@ -140,6 +144,18 @@ export interface WofState {
    */
   wedgeAt: number | null;
   /**
+   * Where the flapper actually stands, in wedges of pointer position — see
+   * `restAfter`. Fractional, and `wedgeAt` is this rounded.
+   *
+   * Two fields for what sounds like one fact, because they are answers to two
+   * questions: `wedgeAt` is which wedge came up and is what the game is scored
+   * on; `rest` is where the wheel physically stopped, and a wheel that only
+   * ever stopped on midpoints was the complaint that got this written. It is
+   * also the anchor the next throw is measured from, so the fraction is not
+   * cosmetic — it carries from spin to spin the way a real rim does.
+   */
+  rest: number;
+  /**
    * Spins so far this game, only ever going up. The board watches it to know
    * a spin has happened at all: two spins running can land on the same wedge,
    * and without this the wheel would sit still on the second one.
@@ -156,7 +172,10 @@ export interface WofState {
    * the only one who knows how hard, and the other three would otherwise see a
    * different wheel reach the same wedge. Zero before the first spin.
    *
-   * `wedgeAfter` is the only thing that turns this into `wedgeAt`, and it
+   * Fractional: a throw carries however far it carries, and rounding it to
+   * whole wedges was one of the two reasons every landing sat dead-centre.
+   *
+   * `restAfter` is the only thing that turns this into `rest`, and it
    * subtracts — rotation and wedge numbering run opposite ways round.
    */
   travel: number;
@@ -189,10 +208,10 @@ export type WofMove =
    * a screen reader and a player who would rather tap all reach the wheel that
    * way, and for them the wheel decides, as it always did.
    */
-  | { type: 'spin'; velocity?: number }
-  | { type: 'letter'; letter: string }
-  | { type: 'solve'; answer: string }
-  | { type: 'next' };
+  | { type: "spin"; velocity?: number }
+  | { type: "letter"; letter: string }
+  | { type: "solve"; answer: string }
+  | { type: "next" };
 
 // ── The puzzles ────────────────────────────────────────────────────────
 
@@ -211,331 +230,330 @@ export type WofMove =
  * per-category weighting to adjust.
  */
 export const PUZZLES: readonly Puzzle[] = [
-  { category: 'Phrase', answer: 'BETTER LATE THAN NEVER' },
-  { category: 'Phrase', answer: 'A PIECE OF CAKE' },
-  { category: 'Phrase', answer: 'BREAK THE ICE' },
-  { category: 'Phrase', answer: 'ONCE IN A BLUE MOON' },
-  { category: 'Phrase', answer: 'THE EARLY BIRD' },
-  { category: 'Phrase', answer: 'BACK TO SQUARE ONE' },
-  { category: 'Phrase', answer: 'SPILL THE BEANS' },
-  { category: 'Phrase', answer: 'UNDER THE WEATHER' },
-  { category: 'Phrase', answer: 'COSTS AN ARM AND A LEG' },
-  { category: 'Phrase', answer: 'HIT THE NAIL ON THE HEAD' },
-  { category: 'Phrase', answer: 'A BLESSING IN DISGUISE' },
-  { category: 'Phrase', answer: 'CROSSING MY FINGERS' },
-  { category: 'Phrase', answer: 'SAVED BY THE BELL' },
-  { category: 'Phrase', answer: "A BAKER'S DOZEN" },
-  { category: 'Phrase', answer: 'THE LAST WORD' },
-  { category: 'Phrase', answer: 'BOB IS YOUR UNCLE' },
-  { category: 'Phrase', answer: 'CHALK AND CHEESE' },
-  { category: 'Phrase', answer: 'SWINGS AND ROUNDABOUTS' },
-  { category: 'Phrase', answer: 'RAINING CATS AND DOGS' },
-  { category: 'Phrase', answer: 'OVER THE MOON' },
-  { category: 'Phrase', answer: 'A DAMP SQUIB' },
-  { category: 'Phrase', answer: 'PULL YOUR SOCKS UP' },
-  { category: 'Phrase', answer: 'MIND THE GAP' },
-  { category: 'Phrase', answer: 'FULL OF BEANS' },
-  { category: 'Phrase', answer: 'A STORM IN A TEACUP' },
-  { category: 'Phrase', answer: 'GOING FOR A SONG' },
-  { category: 'Phrase', answer: 'PLENTY MORE FISH' },
-  { category: 'Phrase', answer: 'NONE THE WISER' },
-  { category: 'Phrase', answer: 'SIXES AND SEVENS' },
-  { category: 'Phrase', answer: 'ROUND THE HOUSES' },
-  { category: 'Phrase', answer: 'ON YOUR BIKE' },
-  { category: 'Phrase', answer: 'A BIT OF A FAFF' },
-  { category: 'Phrase', answer: 'EASY DOES IT' },
-  { category: 'Phrase', answer: 'CHEAP AND CHEERFUL' },
-  { category: 'Phrase', answer: 'HORSES FOR COURSES' },
-  { category: 'Phrase', answer: 'THE PENNY DROPPED' },
-  { category: 'Phrase', answer: 'PUT THE KETTLE ON' },
-  { category: 'Phrase', answer: 'FIRST THINGS FIRST' },
-  { category: 'Phrase', answer: 'THE LONG GAME' },
-  { category: 'Phrase', answer: 'A CLEAN SLATE' },
-  { category: 'Phrase', answer: 'SLEEP ON IT' },
-  { category: 'Phrase', answer: 'WORTH A PUNT' },
-  { category: 'Phrase', answer: 'BITS AND BOBS' },
-  { category: 'Phrase', answer: 'ODDS AND ENDS' },
-  { category: 'Phrase', answer: 'FAIR AND SQUARE' },
-  { category: 'Phrase', answer: 'ALL IN GOOD TIME' },
-  { category: 'Phrase', answer: 'THE DONE THING' },
-  { category: 'Phrase', answer: 'A FLASH IN THE PAN' },
-  { category: 'Phrase', answer: 'MAKING A MEAL OF IT' },
-  { category: 'Phrase', answer: 'A SIGHT FOR SORE EYES' },
-  { category: 'Phrase', answer: 'LOVE IS LOVE' },
-  { category: 'Phrase', answer: 'OUT AND PROUD' },
-  { category: 'Phrase', answer: 'FOUND MY PEOPLE' },
-  { category: 'Phrase', answer: 'FRIEND OF DOROTHY' },
-  { category: 'Phrase', answer: 'WE ARE EVERYWHERE' },
-  { category: 'Phrase', answer: 'HAPPY PRIDE' },
+  { category: "Phrase", answer: "BETTER LATE THAN NEVER" },
+  { category: "Phrase", answer: "A PIECE OF CAKE" },
+  { category: "Phrase", answer: "BREAK THE ICE" },
+  { category: "Phrase", answer: "ONCE IN A BLUE MOON" },
+  { category: "Phrase", answer: "THE EARLY BIRD" },
+  { category: "Phrase", answer: "BACK TO SQUARE ONE" },
+  { category: "Phrase", answer: "SPILL THE BEANS" },
+  { category: "Phrase", answer: "UNDER THE WEATHER" },
+  { category: "Phrase", answer: "COSTS AN ARM AND A LEG" },
+  { category: "Phrase", answer: "HIT THE NAIL ON THE HEAD" },
+  { category: "Phrase", answer: "A BLESSING IN DISGUISE" },
+  { category: "Phrase", answer: "CROSSING MY FINGERS" },
+  { category: "Phrase", answer: "SAVED BY THE BELL" },
+  { category: "Phrase", answer: "A BAKER'S DOZEN" },
+  { category: "Phrase", answer: "THE LAST WORD" },
+  { category: "Phrase", answer: "BOB IS YOUR UNCLE" },
+  { category: "Phrase", answer: "CHALK AND CHEESE" },
+  { category: "Phrase", answer: "SWINGS AND ROUNDABOUTS" },
+  { category: "Phrase", answer: "RAINING CATS AND DOGS" },
+  { category: "Phrase", answer: "OVER THE MOON" },
+  { category: "Phrase", answer: "A DAMP SQUIB" },
+  { category: "Phrase", answer: "PULL YOUR SOCKS UP" },
+  { category: "Phrase", answer: "MIND THE GAP" },
+  { category: "Phrase", answer: "FULL OF BEANS" },
+  { category: "Phrase", answer: "A STORM IN A TEACUP" },
+  { category: "Phrase", answer: "GOING FOR A SONG" },
+  { category: "Phrase", answer: "PLENTY MORE FISH" },
+  { category: "Phrase", answer: "NONE THE WISER" },
+  { category: "Phrase", answer: "SIXES AND SEVENS" },
+  { category: "Phrase", answer: "ROUND THE HOUSES" },
+  { category: "Phrase", answer: "ON YOUR BIKE" },
+  { category: "Phrase", answer: "A BIT OF A FAFF" },
+  { category: "Phrase", answer: "EASY DOES IT" },
+  { category: "Phrase", answer: "CHEAP AND CHEERFUL" },
+  { category: "Phrase", answer: "HORSES FOR COURSES" },
+  { category: "Phrase", answer: "THE PENNY DROPPED" },
+  { category: "Phrase", answer: "PUT THE KETTLE ON" },
+  { category: "Phrase", answer: "FIRST THINGS FIRST" },
+  { category: "Phrase", answer: "THE LONG GAME" },
+  { category: "Phrase", answer: "A CLEAN SLATE" },
+  { category: "Phrase", answer: "SLEEP ON IT" },
+  { category: "Phrase", answer: "WORTH A PUNT" },
+  { category: "Phrase", answer: "BITS AND BOBS" },
+  { category: "Phrase", answer: "ODDS AND ENDS" },
+  { category: "Phrase", answer: "FAIR AND SQUARE" },
+  { category: "Phrase", answer: "ALL IN GOOD TIME" },
+  { category: "Phrase", answer: "THE DONE THING" },
+  { category: "Phrase", answer: "A FLASH IN THE PAN" },
+  { category: "Phrase", answer: "MAKING A MEAL OF IT" },
+  { category: "Phrase", answer: "A SIGHT FOR SORE EYES" },
+  { category: "Phrase", answer: "LOVE IS LOVE" },
+  { category: "Phrase", answer: "OUT AND PROUD" },
+  { category: "Phrase", answer: "FOUND MY PEOPLE" },
+  { category: "Phrase", answer: "FRIEND OF DOROTHY" },
+  { category: "Phrase", answer: "WE ARE EVERYWHERE" },
+  { category: "Phrase", answer: "HAPPY PRIDE" },
 
-  { category: 'Thing', answer: 'A CUP OF TEA' },
-  { category: 'Thing', answer: 'THE MORNING PAPER' },
-  { category: 'Thing', answer: 'A ROLLING SUITCASE' },
-  { category: 'Thing', answer: 'GARDEN SHED' },
-  { category: 'Thing', answer: 'KITCHEN TABLE' },
-  { category: 'Thing', answer: 'A BOX OF CHOCOLATES' },
-  { category: 'Thing', answer: 'WINDOW SEAT' },
-  { category: 'Thing', answer: 'OLD PHOTOGRAPHS' },
-  { category: 'Thing', answer: 'A TATTY UMBRELLA' },
-  { category: 'Thing', answer: 'WELLINGTON BOOTS' },
-  { category: 'Thing', answer: 'A HOT WATER BOTTLE' },
-  { category: 'Thing', answer: 'THE TELLY REMOTE' },
-  { category: 'Thing', answer: 'A BUS TIMETABLE' },
-  { category: 'Thing', answer: 'TARTAN BLANKET' },
-  { category: 'Thing', answer: 'A LOYALTY CARD' },
-  { category: 'Thing', answer: 'JIGSAW PUZZLE' },
-  { category: 'Thing', answer: 'A PACK OF CARDS' },
-  { category: 'Thing', answer: 'RUSTY BICYCLE' },
-  { category: 'Thing', answer: 'THE SPARE KEY' },
-  { category: 'Thing', answer: 'A WOOLLY JUMPER' },
-  { category: 'Thing', answer: 'BIRTHDAY CANDLES' },
-  { category: 'Thing', answer: 'A TIN OF BISCUITS' },
-  { category: 'Thing', answer: 'THE GOOD SCISSORS' },
-  { category: 'Thing', answer: 'A PAPER ROUND' },
-  { category: 'Thing', answer: 'A CRACKLING FIRE' },
-  { category: 'Thing', answer: 'A RAINBOW FLAG' },
-  { category: 'Thing', answer: 'THE TRANS FLAG' },
-  { category: 'Thing', answer: 'MATCHING WEDDING RINGS' },
-  { category: 'Thing', answer: 'A CARABINER OF KEYS' },
-  { category: 'Thing', answer: 'A FOLDED KEFFIYEH' },
-  { category: 'Thing', answer: 'THE KEY TO THE OLD HOUSE' },
-  { category: 'Thing', answer: 'A BOWL OF OLIVES' },
+  { category: "Thing", answer: "A CUP OF TEA" },
+  { category: "Thing", answer: "THE MORNING PAPER" },
+  { category: "Thing", answer: "A ROLLING SUITCASE" },
+  { category: "Thing", answer: "GARDEN SHED" },
+  { category: "Thing", answer: "KITCHEN TABLE" },
+  { category: "Thing", answer: "A BOX OF CHOCOLATES" },
+  { category: "Thing", answer: "WINDOW SEAT" },
+  { category: "Thing", answer: "OLD PHOTOGRAPHS" },
+  { category: "Thing", answer: "A TATTY UMBRELLA" },
+  { category: "Thing", answer: "WELLINGTON BOOTS" },
+  { category: "Thing", answer: "A HOT WATER BOTTLE" },
+  { category: "Thing", answer: "THE TELLY REMOTE" },
+  { category: "Thing", answer: "A BUS TIMETABLE" },
+  { category: "Thing", answer: "TARTAN BLANKET" },
+  { category: "Thing", answer: "A LOYALTY CARD" },
+  { category: "Thing", answer: "JIGSAW PUZZLE" },
+  { category: "Thing", answer: "A PACK OF CARDS" },
+  { category: "Thing", answer: "RUSTY BICYCLE" },
+  { category: "Thing", answer: "THE SPARE KEY" },
+  { category: "Thing", answer: "A WOOLLY JUMPER" },
+  { category: "Thing", answer: "BIRTHDAY CANDLES" },
+  { category: "Thing", answer: "A TIN OF BISCUITS" },
+  { category: "Thing", answer: "THE GOOD SCISSORS" },
+  { category: "Thing", answer: "A PAPER ROUND" },
+  { category: "Thing", answer: "A CRACKLING FIRE" },
+  { category: "Thing", answer: "A RAINBOW FLAG" },
+  { category: "Thing", answer: "THE TRANS FLAG" },
+  { category: "Thing", answer: "MATCHING WEDDING RINGS" },
+  { category: "Thing", answer: "A CARABINER OF KEYS" },
+  { category: "Thing", answer: "A FOLDED KEFFIYEH" },
+  { category: "Thing", answer: "THE KEY TO THE OLD HOUSE" },
+  { category: "Thing", answer: "A BOWL OF OLIVES" },
 
-  { category: 'Place', answer: 'THE BOTTOM OF THE GARDEN' },
-  { category: 'Place', answer: 'A QUIET LIBRARY' },
-  { category: 'Place', answer: 'THE SOUTH COAST' },
-  { category: 'Place', answer: 'MOUNTAIN VILLAGE' },
-  { category: 'Place', answer: 'THE CORNER SHOP' },
-  { category: 'Place', answer: 'THE LOCAL PUB' },
-  { category: 'Place', answer: 'A SEASIDE PIER' },
-  { category: 'Place', answer: 'THE VILLAGE GREEN' },
-  { category: 'Place', answer: 'A COUNTRY LANE' },
-  { category: 'Place', answer: 'THE LAKE DISTRICT' },
-  { category: 'Place', answer: 'A CROWDED PLATFORM' },
-  { category: 'Place', answer: 'THE HIGH STREET' },
-  { category: 'Place', answer: 'A CASTLE ON A HILL' },
-  { category: 'Place', answer: 'THE ALLOTMENTS' },
-  { category: 'Place', answer: 'THE SCOTTISH BORDERS' },
-  { category: 'Place', answer: 'A MARKET TOWN' },
-  { category: 'Place', answer: 'THE BACK GARDEN' },
-  { category: 'Place', answer: 'A WINDSWEPT MOOR' },
-  { category: 'Place', answer: 'THE GARDEN CENTRE' },
-  { category: 'Place', answer: 'A CANAL TOWPATH' },
-  { category: 'Place', answer: 'A BUSY BUS STATION' },
-  { category: 'Place', answer: 'THE CHURCH HALL' },
-  { category: 'Place', answer: 'A DISUSED RAILWAY' },
-  { category: 'Place', answer: 'THE END OF THE PIER' },
-  { category: 'Place', answer: 'A CLIFFTOP PATH' },
-  { category: 'Place', answer: 'THE VILLAGE HALL' },
-  { category: 'Place', answer: 'A HARBOUR WALL' },
-  { category: 'Place', answer: 'THE PARK BANDSTAND' },
-  { category: 'Place', answer: 'A NARROW BRIDGE' },
-  { category: 'Place', answer: 'THE OLD BOOKSHOP' },
-  { category: 'Place', answer: 'A WALLED GARDEN' },
-  { category: 'Place', answer: 'THE FERRY TERMINAL' },
-  { category: 'Place', answer: 'A FARMERS MARKET' },
-  { category: 'Place', answer: 'THE TOP OF THE HILL' },
-  { category: 'Place', answer: 'A COBBLED SQUARE' },
-  { category: 'Place', answer: 'THE LOCAL GAY BAR' },
-  { category: 'Place', answer: 'A RAINBOW CROSSING' },
-  { category: 'Place', answer: 'SOHO ON A SATURDAY' },
-  { category: 'Place', answer: 'THE QUEER BOOKSHOP' },
-  { category: 'Place', answer: 'A VILLAGE IN GALILEE' },
-  { category: 'Place', answer: 'OLD STONE TERRACES' },
-  { category: 'Place', answer: 'BETHLEHEM AT CHRISTMAS' },
-  { category: 'Place', answer: 'THE DEAD SEA' },
-  { category: 'Place', answer: 'THE RIVER JORDAN' },
-  { category: 'Place', answer: 'THE OLD CITY WALLS' },
+  { category: "Place", answer: "THE BOTTOM OF THE GARDEN" },
+  { category: "Place", answer: "A QUIET LIBRARY" },
+  { category: "Place", answer: "THE SOUTH COAST" },
+  { category: "Place", answer: "MOUNTAIN VILLAGE" },
+  { category: "Place", answer: "THE CORNER SHOP" },
+  { category: "Place", answer: "THE LOCAL PUB" },
+  { category: "Place", answer: "A SEASIDE PIER" },
+  { category: "Place", answer: "THE VILLAGE GREEN" },
+  { category: "Place", answer: "A COUNTRY LANE" },
+  { category: "Place", answer: "THE LAKE DISTRICT" },
+  { category: "Place", answer: "A CROWDED PLATFORM" },
+  { category: "Place", answer: "THE HIGH STREET" },
+  { category: "Place", answer: "A CASTLE ON A HILL" },
+  { category: "Place", answer: "THE ALLOTMENTS" },
+  { category: "Place", answer: "THE SCOTTISH BORDERS" },
+  { category: "Place", answer: "A MARKET TOWN" },
+  { category: "Place", answer: "THE BACK GARDEN" },
+  { category: "Place", answer: "A WINDSWEPT MOOR" },
+  { category: "Place", answer: "THE GARDEN CENTRE" },
+  { category: "Place", answer: "A CANAL TOWPATH" },
+  { category: "Place", answer: "A BUSY BUS STATION" },
+  { category: "Place", answer: "THE CHURCH HALL" },
+  { category: "Place", answer: "A DISUSED RAILWAY" },
+  { category: "Place", answer: "THE END OF THE PIER" },
+  { category: "Place", answer: "A CLIFFTOP PATH" },
+  { category: "Place", answer: "THE VILLAGE HALL" },
+  { category: "Place", answer: "A HARBOUR WALL" },
+  { category: "Place", answer: "THE PARK BANDSTAND" },
+  { category: "Place", answer: "A NARROW BRIDGE" },
+  { category: "Place", answer: "THE OLD BOOKSHOP" },
+  { category: "Place", answer: "A WALLED GARDEN" },
+  { category: "Place", answer: "THE FERRY TERMINAL" },
+  { category: "Place", answer: "A FARMERS MARKET" },
+  { category: "Place", answer: "THE TOP OF THE HILL" },
+  { category: "Place", answer: "A COBBLED SQUARE" },
+  { category: "Place", answer: "THE LOCAL GAY BAR" },
+  { category: "Place", answer: "A RAINBOW CROSSING" },
+  { category: "Place", answer: "SOHO ON A SATURDAY" },
+  { category: "Place", answer: "THE QUEER BOOKSHOP" },
+  { category: "Place", answer: "A VILLAGE IN GALILEE" },
+  { category: "Place", answer: "OLD STONE TERRACES" },
+  { category: "Place", answer: "BETHLEHEM AT CHRISTMAS" },
+  { category: "Place", answer: "THE DEAD SEA" },
+  { category: "Place", answer: "THE RIVER JORDAN" },
+  { category: "Place", answer: "THE OLD CITY WALLS" },
 
-  { category: 'People', answer: 'MY OLDEST FRIEND' },
-  { category: 'People', answer: 'THE NEW NEIGHBOURS' },
-  { category: 'People', answer: 'A FAMILY OF FIVE' },
-  { category: 'People', answer: 'THE SUNDAY CROWD' },
-  { category: 'People', answer: 'A GOOD LISTENER' },
-  { category: 'People', answer: 'THE QUIZ TEAM' },
-  { category: 'People', answer: 'MY LITTLE BROTHER' },
-  { category: 'People', answer: 'THE EARLY RISERS' },
-  { category: 'People', answer: 'A HOUSE FULL OF COUSINS' },
-  { category: 'People', answer: 'THE VILLAGE CHOIR' },
-  { category: 'People', answer: 'A GOOD NEIGHBOUR' },
-  { category: 'People', answer: 'THE WHOLE STREET' },
-  { category: 'People', answer: 'MY GREAT AUNT' },
-  { category: 'People', answer: 'THE ALLOTMENT LOT' },
-  { category: 'People', answer: 'A CROWD OF STRANGERS' },
-  { category: 'People', answer: 'THE BOOK GROUP' },
-  { category: 'People', answer: 'MY BEST MAN' },
-  { category: 'People', answer: 'THE MORNING REGULARS' },
-  { category: 'People', answer: 'A PAIR OF TWINS' },
-  { category: 'People', answer: 'THE PARISH COUNCIL' },
-  { category: 'People', answer: 'MY GODMOTHER' },
-  { category: 'People', answer: 'THE FRONT ROW' },
-  { category: 'People', answer: 'A FRIEND OF A FRIEND' },
-  { category: 'People', answer: 'THE NIGHT SHIFT' },
-  { category: 'People', answer: 'MY OLD SCHOOL FRIENDS' },
-  { category: 'People', answer: 'MY TWO MUMS' },
-  { category: 'People', answer: 'MY CHOSEN FAMILY' },
-  { category: 'People', answer: 'THE QUEER BOOK CLUB' },
-  { category: 'People', answer: 'A PAIR OF GROOMS' },
-  { category: 'People', answer: 'TWO BRIDES' },
-  { category: 'People', answer: 'MY GAY UNCLE' },
-  { category: 'People', answer: 'A NONBINARY FRIEND' },
-  { category: 'People', answer: "MY GIRLFRIEND'S MUM" },
-  { category: 'People', answer: 'A FAMILY OF OLIVE FARMERS' },
-  { category: 'People', answer: 'SHEPHERDS ON THE HILLSIDE' },
+  { category: "People", answer: "MY OLDEST FRIEND" },
+  { category: "People", answer: "THE NEW NEIGHBOURS" },
+  { category: "People", answer: "A FAMILY OF FIVE" },
+  { category: "People", answer: "THE SUNDAY CROWD" },
+  { category: "People", answer: "A GOOD LISTENER" },
+  { category: "People", answer: "THE QUIZ TEAM" },
+  { category: "People", answer: "MY LITTLE BROTHER" },
+  { category: "People", answer: "THE EARLY RISERS" },
+  { category: "People", answer: "A HOUSE FULL OF COUSINS" },
+  { category: "People", answer: "THE VILLAGE CHOIR" },
+  { category: "People", answer: "A GOOD NEIGHBOUR" },
+  { category: "People", answer: "THE WHOLE STREET" },
+  { category: "People", answer: "MY GREAT AUNT" },
+  { category: "People", answer: "THE ALLOTMENT LOT" },
+  { category: "People", answer: "A CROWD OF STRANGERS" },
+  { category: "People", answer: "THE BOOK GROUP" },
+  { category: "People", answer: "MY BEST MAN" },
+  { category: "People", answer: "THE MORNING REGULARS" },
+  { category: "People", answer: "A PAIR OF TWINS" },
+  { category: "People", answer: "THE PARISH COUNCIL" },
+  { category: "People", answer: "MY GODMOTHER" },
+  { category: "People", answer: "THE FRONT ROW" },
+  { category: "People", answer: "A FRIEND OF A FRIEND" },
+  { category: "People", answer: "THE NIGHT SHIFT" },
+  { category: "People", answer: "MY OLD SCHOOL FRIENDS" },
+  { category: "People", answer: "MY TWO MUMS" },
+  { category: "People", answer: "MY CHOSEN FAMILY" },
+  { category: "People", answer: "THE QUEER BOOK CLUB" },
+  { category: "People", answer: "A PAIR OF GROOMS" },
+  { category: "People", answer: "TWO BRIDES" },
+  { category: "People", answer: "MY GAY UNCLE" },
+  { category: "People", answer: "A NONBINARY FRIEND" },
+  { category: "People", answer: "MY GIRLFRIEND'S MUM" },
+  { category: "People", answer: "A FAMILY OF OLIVE FARMERS" },
+  { category: "People", answer: "SHEPHERDS ON THE HILLSIDE" },
 
-  { category: 'Occupation', answer: 'LIGHTHOUSE KEEPER' },
-  { category: 'Occupation', answer: 'FLYING INSTRUCTOR' },
-  { category: 'Occupation', answer: 'BOOKBINDER' },
-  { category: 'Occupation', answer: 'PASTRY CHEF' },
-  { category: 'Occupation', answer: 'DRY STONE WALLER' },
-  { category: 'Occupation', answer: 'PIANO TUNER' },
-  { category: 'Occupation', answer: 'FISHMONGER' },
-  { category: 'Occupation', answer: 'BLACKSMITH' },
-  { category: 'Occupation', answer: 'PARK RANGER' },
-  { category: 'Occupation', answer: 'TRAIN DRIVER' },
-  { category: 'Occupation', answer: 'CLOCKMAKER' },
-  { category: 'Occupation', answer: 'BEEKEEPER' },
-  { category: 'Occupation', answer: 'SIGN WRITER' },
-  { category: 'Occupation', answer: 'MARKET TRADER' },
-  { category: 'Occupation', answer: 'RIVER PILOT' },
-  { category: 'Occupation', answer: 'WINDOW CLEANER' },
-  { category: 'Occupation', answer: 'POSTAL WORKER' },
-  { category: 'Occupation', answer: 'MIDWIFE' },
-  { category: 'Occupation', answer: 'STONEMASON' },
-  { category: 'Occupation', answer: 'THATCHER' },
-  { category: 'Occupation', answer: 'FARRIER' },
-  { category: 'Occupation', answer: 'LOLLIPOP LADY' },
-  { category: 'Occupation', answer: 'LIBRARIAN' },
-  { category: 'Occupation', answer: 'BOAT BUILDER' },
-  { category: 'Occupation', answer: 'TREE SURGEON' },
-  { category: 'Occupation', answer: 'CHIMNEY SWEEP' },
-  { category: 'Occupation', answer: 'SHEEP FARMER' },
-  { category: 'Occupation', answer: 'GLASSBLOWER' },
-  { category: 'Occupation', answer: 'COBBLER' },
-  { category: 'Occupation', answer: 'LOCK KEEPER' },
-  { category: 'Occupation', answer: 'DRAG PERFORMER' },
-  { category: 'Occupation', answer: 'PRIDE ORGANISER' },
+  { category: "Occupation", answer: "LIGHTHOUSE KEEPER" },
+  { category: "Occupation", answer: "FLYING INSTRUCTOR" },
+  { category: "Occupation", answer: "BOOKBINDER" },
+  { category: "Occupation", answer: "PASTRY CHEF" },
+  { category: "Occupation", answer: "DRY STONE WALLER" },
+  { category: "Occupation", answer: "PIANO TUNER" },
+  { category: "Occupation", answer: "FISHMONGER" },
+  { category: "Occupation", answer: "BLACKSMITH" },
+  { category: "Occupation", answer: "PARK RANGER" },
+  { category: "Occupation", answer: "TRAIN DRIVER" },
+  { category: "Occupation", answer: "CLOCKMAKER" },
+  { category: "Occupation", answer: "BEEKEEPER" },
+  { category: "Occupation", answer: "SIGN WRITER" },
+  { category: "Occupation", answer: "MARKET TRADER" },
+  { category: "Occupation", answer: "RIVER PILOT" },
+  { category: "Occupation", answer: "WINDOW CLEANER" },
+  { category: "Occupation", answer: "POSTAL WORKER" },
+  { category: "Occupation", answer: "MIDWIFE" },
+  { category: "Occupation", answer: "STONEMASON" },
+  { category: "Occupation", answer: "THATCHER" },
+  { category: "Occupation", answer: "FARRIER" },
+  { category: "Occupation", answer: "LOLLIPOP LADY" },
+  { category: "Occupation", answer: "LIBRARIAN" },
+  { category: "Occupation", answer: "BOAT BUILDER" },
+  { category: "Occupation", answer: "TREE SURGEON" },
+  { category: "Occupation", answer: "CHIMNEY SWEEP" },
+  { category: "Occupation", answer: "SHEEP FARMER" },
+  { category: "Occupation", answer: "GLASSBLOWER" },
+  { category: "Occupation", answer: "COBBLER" },
+  { category: "Occupation", answer: "LOCK KEEPER" },
+  { category: "Occupation", answer: "DRAG PERFORMER" },
+  { category: "Occupation", answer: "PRIDE ORGANISER" },
 
-  { category: 'Food & Drink', answer: 'STRAWBERRIES AND CREAM' },
-  { category: 'Food & Drink', answer: 'HOT BUTTERED TOAST' },
-  { category: 'Food & Drink', answer: 'A POT OF COFFEE' },
-  { category: 'Food & Drink', answer: 'SUNDAY ROAST' },
-  { category: 'Food & Drink', answer: 'LEMON MERINGUE PIE' },
-  { category: 'Food & Drink', answer: 'FISH AND CHIPS' },
-  { category: 'Food & Drink', answer: 'BEANS ON TOAST' },
-  { category: 'Food & Drink', answer: 'A BACON SANDWICH' },
-  { category: 'Food & Drink', answer: 'STICKY TOFFEE PUDDING' },
-  { category: 'Food & Drink', answer: "SHEPHERD'S PIE" },
-  { category: 'Food & Drink', answer: 'A CREAM TEA' },
-  { category: 'Food & Drink', answer: 'TOAD IN THE HOLE' },
-  { category: 'Food & Drink', answer: 'BANGERS AND MASH' },
-  { category: 'Food & Drink', answer: "A PLOUGHMAN'S LUNCH" },
-  { category: 'Food & Drink', answer: 'CRUMPETS AND JAM' },
-  { category: 'Food & Drink', answer: 'RHUBARB CRUMBLE' },
-  { category: 'Food & Drink', answer: 'A PINT OF BITTER' },
-  { category: 'Food & Drink', answer: 'ELDERFLOWER CORDIAL' },
-  { category: 'Food & Drink', answer: 'CHEESE AND PICKLE' },
-  { category: 'Food & Drink', answer: 'A CHIP BUTTY' },
-  { category: 'Food & Drink', answer: 'CUSTARD AND JELLY' },
-  { category: 'Food & Drink', answer: 'A SAUSAGE ROLL' },
-  { category: 'Food & Drink', answer: 'JAM ROLY POLY' },
-  { category: 'Food & Drink', answer: "ZA'ATAR ON WARM BREAD" },
-  { category: 'Food & Drink', answer: 'ORANGES FROM JAFFA' },
+  { category: "Food & Drink", answer: "STRAWBERRIES AND CREAM" },
+  { category: "Food & Drink", answer: "HOT BUTTERED TOAST" },
+  { category: "Food & Drink", answer: "A POT OF COFFEE" },
+  { category: "Food & Drink", answer: "SUNDAY ROAST" },
+  { category: "Food & Drink", answer: "LEMON MERINGUE PIE" },
+  { category: "Food & Drink", answer: "FISH AND CHIPS" },
+  { category: "Food & Drink", answer: "BEANS ON TOAST" },
+  { category: "Food & Drink", answer: "A BACON SANDWICH" },
+  { category: "Food & Drink", answer: "STICKY TOFFEE PUDDING" },
+  { category: "Food & Drink", answer: "SHEPHERD'S PIE" },
+  { category: "Food & Drink", answer: "A CREAM TEA" },
+  { category: "Food & Drink", answer: "TOAD IN THE HOLE" },
+  { category: "Food & Drink", answer: "BANGERS AND MASH" },
+  { category: "Food & Drink", answer: "A PLOUGHMAN'S LUNCH" },
+  { category: "Food & Drink", answer: "CRUMPETS AND JAM" },
+  { category: "Food & Drink", answer: "RHUBARB CRUMBLE" },
+  { category: "Food & Drink", answer: "A PINT OF BITTER" },
+  { category: "Food & Drink", answer: "ELDERFLOWER CORDIAL" },
+  { category: "Food & Drink", answer: "CHEESE AND PICKLE" },
+  { category: "Food & Drink", answer: "A CHIP BUTTY" },
+  { category: "Food & Drink", answer: "CUSTARD AND JELLY" },
+  { category: "Food & Drink", answer: "A SAUSAGE ROLL" },
+  { category: "Food & Drink", answer: "JAM ROLY POLY" },
+  { category: "Food & Drink", answer: "ZA'ATAR ON WARM BREAD" },
+  { category: "Food & Drink", answer: "ORANGES FROM JAFFA" },
 
-  { category: 'Around the House', answer: 'THE KITCHEN SINK' },
-  { category: 'Around the House', answer: 'A CREAKING FLOORBOARD' },
-  { category: 'Around the House', answer: 'THE SPARE ROOM' },
-  { category: 'Around the House', answer: 'THE LINEN CUPBOARD' },
-  { category: 'Around the House', answer: 'THE AIRING CUPBOARD' },
-  { category: 'Around the House', answer: 'A DRAUGHTY HALLWAY' },
-  { category: 'Around the House', answer: 'THE WASHING LINE' },
-  { category: 'Around the House', answer: 'UNDER THE STAIRS' },
-  { category: 'Around the House', answer: 'THE FRONT DOORSTEP' },
-  { category: 'Around the House', answer: 'A CLUTTERED LOFT' },
-  { category: 'Around the House', answer: 'THE BATHROOM MIRROR' },
-  { category: 'Around the House', answer: 'A LEAKY RADIATOR' },
-  { category: 'Around the House', answer: 'THE JUNK DRAWER' },
-  { category: 'Around the House', answer: 'NET CURTAINS' },
-  { category: 'Around the House', answer: 'A PRIDE FLAG IN THE WINDOW' },
+  { category: "Around the House", answer: "THE KITCHEN SINK" },
+  { category: "Around the House", answer: "A CREAKING FLOORBOARD" },
+  { category: "Around the House", answer: "THE SPARE ROOM" },
+  { category: "Around the House", answer: "THE LINEN CUPBOARD" },
+  { category: "Around the House", answer: "THE AIRING CUPBOARD" },
+  { category: "Around the House", answer: "A DRAUGHTY HALLWAY" },
+  { category: "Around the House", answer: "THE WASHING LINE" },
+  { category: "Around the House", answer: "UNDER THE STAIRS" },
+  { category: "Around the House", answer: "THE FRONT DOORSTEP" },
+  { category: "Around the House", answer: "A CLUTTERED LOFT" },
+  { category: "Around the House", answer: "THE BATHROOM MIRROR" },
+  { category: "Around the House", answer: "A LEAKY RADIATOR" },
+  { category: "Around the House", answer: "THE JUNK DRAWER" },
+  { category: "Around the House", answer: "NET CURTAINS" },
+  { category: "Around the House", answer: "A PRIDE FLAG IN THE WINDOW" },
 
-  { category: 'What Are You Doing?', answer: 'READING BY THE WINDOW' },
-  { category: 'What Are You Doing?', answer: 'WALKING THE LONG WAY HOME' },
-  { category: 'What Are You Doing?', answer: 'LEARNING TO SAIL' },
-  { category: 'What Are You Doing?', answer: 'WATCHING THE RAIN' },
-  { category: 'What Are You Doing?', answer: 'QUEUEING PATIENTLY' },
-  { category: 'What Are You Doing?', answer: 'MOWING THE LAWN' },
-  { category: 'What Are You Doing?', answer: 'MAKING A ROUND OF TEA' },
-  { category: 'What Are You Doing?', answer: 'HAVING A LIE IN' },
-  { category: 'What Are You Doing?', answer: 'DOING THE CROSSWORD' },
-  { category: 'What Are You Doing?', answer: 'FEEDING THE DUCKS' },
-  { category: 'What Are You Doing?', answer: 'PAINTING THE FENCE' },
-  { category: 'What Are You Doing?', answer: 'CATCHING THE LAST TRAIN' },
-  { category: 'What Are You Doing?', answer: 'PACKING A PICNIC' },
-  { category: 'What Are You Doing?', answer: 'PUTTING THE BINS OUT' },
-  { category: 'What Are You Doing?', answer: 'WAITING FOR THE BUS' },
+  { category: "What Are You Doing?", answer: "READING BY THE WINDOW" },
+  { category: "What Are You Doing?", answer: "WALKING THE LONG WAY HOME" },
+  { category: "What Are You Doing?", answer: "LEARNING TO SAIL" },
+  { category: "What Are You Doing?", answer: "WATCHING THE RAIN" },
+  { category: "What Are You Doing?", answer: "QUEUEING PATIENTLY" },
+  { category: "What Are You Doing?", answer: "MOWING THE LAWN" },
+  { category: "What Are You Doing?", answer: "MAKING A ROUND OF TEA" },
+  { category: "What Are You Doing?", answer: "HAVING A LIE IN" },
+  { category: "What Are You Doing?", answer: "DOING THE CROSSWORD" },
+  { category: "What Are You Doing?", answer: "FEEDING THE DUCKS" },
+  { category: "What Are You Doing?", answer: "PAINTING THE FENCE" },
+  { category: "What Are You Doing?", answer: "CATCHING THE LAST TRAIN" },
+  { category: "What Are You Doing?", answer: "PACKING A PICNIC" },
+  { category: "What Are You Doing?", answer: "PUTTING THE BINS OUT" },
+  { category: "What Are You Doing?", answer: "WAITING FOR THE BUS" },
 
-  { category: 'Nature', answer: 'A FIELD OF BLUEBELLS' },
-  { category: 'Nature', answer: 'FROST ON THE GRASS' },
-  { category: 'Nature', answer: 'AN ANCIENT OAK TREE' },
-  { category: 'Nature', answer: 'THE DAWN CHORUS' },
-  { category: 'Nature', answer: 'A HEDGEROW IN SPRING' },
-  { category: 'Nature', answer: 'CONKERS ON THE PATH' },
-  { category: 'Nature', answer: 'A ROBIN IN WINTER' },
-  { category: 'Nature', answer: 'MIST OVER THE FIELDS' },
-  { category: 'Nature', answer: 'FALLING LEAVES' },
-  { category: 'Nature', answer: 'A ROCK POOL' },
-  { category: 'Nature', answer: 'HEATHER ON THE HILLS' },
-  { category: 'Nature', answer: 'A MURMURATION' },
-  { category: 'Nature', answer: 'SNOWDROPS IN JANUARY' },
-  { category: 'Nature', answer: 'THE RISING TIDE' },
-  { category: 'Nature', answer: 'A FOX IN THE GARDEN' },
-  { category: 'Nature', answer: 'BRAMBLES AND NETTLES' },
-  { category: 'Nature', answer: 'THE FIRST SWALLOWS' },
-  { category: 'Nature', answer: 'A CARPET OF MOSS' },
-  { category: 'Nature', answer: 'WIND IN THE REEDS' },
-  { category: 'Nature', answer: 'DEER AT FIRST LIGHT' },
-  { category: 'Nature', answer: 'A CLEAR NIGHT SKY' },
-  { category: 'Nature', answer: 'TOADSTOOLS IN THE WOOD' },
-  { category: 'Nature', answer: 'ICICLES ON THE EAVES' },
-  { category: 'Nature', answer: 'A NEST OF SPARROWS' },
-  { category: 'Nature', answer: 'APPLE BLOSSOM' },
-  { category: 'Nature', answer: 'THE SMELL OF RAIN' },
-  { category: 'Nature', answer: 'SEALS ON THE SANDBANK' },
-  { category: 'Nature', answer: 'THE OLIVE HARVEST' },
-  { category: 'Nature', answer: 'OLIVE GROVES ON THE HILL' },
-  { category: 'Nature', answer: 'PRICKLY PEAR CACTUS' },
-  { category: 'Nature', answer: 'ALMOND TREES IN BLOSSOM' },
-  { category: 'Nature', answer: 'FIGS AND POMEGRANATES' },
-  { category: 'Nature', answer: 'A LEMON TREE IN THE YARD' },
+  { category: "Nature", answer: "A FIELD OF BLUEBELLS" },
+  { category: "Nature", answer: "FROST ON THE GRASS" },
+  { category: "Nature", answer: "AN ANCIENT OAK TREE" },
+  { category: "Nature", answer: "THE DAWN CHORUS" },
+  { category: "Nature", answer: "A HEDGEROW IN SPRING" },
+  { category: "Nature", answer: "CONKERS ON THE PATH" },
+  { category: "Nature", answer: "A ROBIN IN WINTER" },
+  { category: "Nature", answer: "MIST OVER THE FIELDS" },
+  { category: "Nature", answer: "FALLING LEAVES" },
+  { category: "Nature", answer: "A ROCK POOL" },
+  { category: "Nature", answer: "HEATHER ON THE HILLS" },
+  { category: "Nature", answer: "A MURMURATION" },
+  { category: "Nature", answer: "SNOWDROPS IN JANUARY" },
+  { category: "Nature", answer: "THE RISING TIDE" },
+  { category: "Nature", answer: "A FOX IN THE GARDEN" },
+  { category: "Nature", answer: "BRAMBLES AND NETTLES" },
+  { category: "Nature", answer: "THE FIRST SWALLOWS" },
+  { category: "Nature", answer: "A CARPET OF MOSS" },
+  { category: "Nature", answer: "WIND IN THE REEDS" },
+  { category: "Nature", answer: "DEER AT FIRST LIGHT" },
+  { category: "Nature", answer: "A CLEAR NIGHT SKY" },
+  { category: "Nature", answer: "TOADSTOOLS IN THE WOOD" },
+  { category: "Nature", answer: "ICICLES ON THE EAVES" },
+  { category: "Nature", answer: "A NEST OF SPARROWS" },
+  { category: "Nature", answer: "APPLE BLOSSOM" },
+  { category: "Nature", answer: "THE SMELL OF RAIN" },
+  { category: "Nature", answer: "SEALS ON THE SANDBANK" },
+  { category: "Nature", answer: "THE OLIVE HARVEST" },
+  { category: "Nature", answer: "OLIVE GROVES ON THE HILL" },
+  { category: "Nature", answer: "PRICKLY PEAR CACTUS" },
+  { category: "Nature", answer: "ALMOND TREES IN BLOSSOM" },
+  { category: "Nature", answer: "FIGS AND POMEGRANATES" },
+  { category: "Nature", answer: "A LEMON TREE IN THE YARD" },
 
-  { category: 'Weather', answer: 'A BRIGHT SPELL' },
-  { category: 'Weather', answer: 'SCATTERED SHOWERS' },
-  { category: 'Weather', answer: 'A HARD FROST' },
-  { category: 'Weather', answer: 'GALES ON THE COAST' },
-  { category: 'Weather', answer: 'MUGGY AND CLOSE' },
-  { category: 'Weather', answer: 'DRIZZLE ALL DAY' },
-  { category: 'Weather', answer: 'A BLUSTERY MORNING' },
-  { category: 'Weather', answer: 'SUNNY INTERVALS' },
+  { category: "Weather", answer: "A BRIGHT SPELL" },
+  { category: "Weather", answer: "SCATTERED SHOWERS" },
+  { category: "Weather", answer: "A HARD FROST" },
+  { category: "Weather", answer: "GALES ON THE COAST" },
+  { category: "Weather", answer: "MUGGY AND CLOSE" },
+  { category: "Weather", answer: "DRIZZLE ALL DAY" },
+  { category: "Weather", answer: "A BLUSTERY MORNING" },
+  { category: "Weather", answer: "SUNNY INTERVALS" },
 
-  { category: 'Pastime', answer: 'PUB QUIZ NIGHT' },
-  { category: 'Pastime', answer: 'A LONG COUNTRY WALK' },
-  { category: 'Pastime', answer: 'BIRD WATCHING' },
-  { category: 'Pastime', answer: 'SUNDAY LEAGUE FOOTBALL' },
-  { category: 'Pastime', answer: 'BAKING A SPONGE CAKE' },
-  { category: 'Pastime', answer: 'A CAR BOOT SALE' },
-  { category: 'Pastime', answer: 'A GAME OF DARTS' },
-  { category: 'Pastime', answer: 'KNITTING BY THE FIRE' },
-  { category: 'Pastime', answer: 'SEA SWIMMING' },
-  { category: 'Pastime', answer: 'A BRASS BAND CONCERT' },
-  { category: 'Pastime', answer: 'MARCHING AT PRIDE' },
-  { category: 'Pastime', answer: 'A DRAG BRUNCH' },
-  { category: 'Pastime', answer: 'QUEER FILM NIGHT' },
-  { category: 'Pastime', answer: 'ROLLER DERBY' },
-  { category: 'Pastime', answer: 'A GAME OF BACKGAMMON' },
+  { category: "Pastime", answer: "PUB QUIZ NIGHT" },
+  { category: "Pastime", answer: "A LONG COUNTRY WALK" },
+  { category: "Pastime", answer: "BIRD WATCHING" },
+  { category: "Pastime", answer: "SUNDAY LEAGUE FOOTBALL" },
+  { category: "Pastime", answer: "BAKING A SPONGE CAKE" },
+  { category: "Pastime", answer: "A CAR BOOT SALE" },
+  { category: "Pastime", answer: "A GAME OF DARTS" },
+  { category: "Pastime", answer: "KNITTING BY THE FIRE" },
+  { category: "Pastime", answer: "SEA SWIMMING" },
+  { category: "Pastime", answer: "A BRASS BAND CONCERT" },
+  { category: "Pastime", answer: "MARCHING AT PRIDE" },
+  { category: "Pastime", answer: "A DRAG BRUNCH" },
+  { category: "Pastime", answer: "QUEER FILM NIGHT" },
+  { category: "Pastime", answer: "ROLLER DERBY" },
+  { category: "Pastime", answer: "A GAME OF BACKGAMMON" },
 ];
 
 // ── Small pure helpers ─────────────────────────────────────────────────
-
 
 /** How many seats this game was set up for. Derived, so it cannot disagree. */
 export function seatCount(state: WofState): number {
@@ -547,7 +565,7 @@ export function mask(answer: string, called: readonly string[]): string {
   const known = new Set(called);
   return [...answer]
     .map((ch) => (ALPHABET.includes(ch) && !known.has(ch) ? BLANK : ch))
-    .join('');
+    .join("");
 }
 
 /**
@@ -555,7 +573,10 @@ export function mask(answer: string, called: readonly string[]): string {
  * punctuation and spacing: "A BAKER'S DOZEN" accepts "a bakers dozen".
  */
 export function normalize(text: string): string {
-  return text.slice(0, MAX_GUESS).toUpperCase().replace(/[^A-Z]/g, '');
+  return text
+    .slice(0, MAX_GUESS)
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
 }
 
 export function occurrences(answer: string, letter: string): number {
@@ -583,7 +604,17 @@ function isSolved(state: WofState): boolean {
   return true;
 }
 
-const NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+const NUMBERS = [
+  "no",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+];
 
 function count(n: number): string {
   return NUMBERS[n] ?? String(n);
@@ -618,7 +649,7 @@ function drawPuzzle(used: readonly string[], rng: Rng): Puzzle {
  * next player someone else's $900.
  */
 function passTurn(state: WofState): void {
-  state.phase = 'spin';
+  state.phase = "spin";
   state.wedge = null;
   // `wedgeAt` deliberately survives: it is where the wheel is standing, and
   // the next player watches it spin away from there.
@@ -658,7 +689,7 @@ function strike(state: WofState, seat: number, what: string): void {
 function credit(state: WofState, seat: number): void {
   state.finds += 1;
   if (state.finds < FINDS_PER_TURN) return;
-  const sentence = state.note === null ? '' : `${state.note.text} `;
+  const sentence = state.note === null ? "" : `${state.note.text} `;
   state.note = {
     seat,
     text: `${sentence}That is ${count(FINDS_PER_TURN)} — the turn moves on.`,
@@ -688,7 +719,7 @@ function awardRound(state: WofState, seat: number): void {
   state.bank[seat] += SOLVE_BONUS;
   state.score = state.score.map((banked, index) => banked + state.bank[index]);
   state.roundOver = true;
-  state.phase = 'spin';
+  state.phase = "spin";
   state.wedge = null;
   state.finds = 0;
 
@@ -709,7 +740,8 @@ function awardRound(state: WofState, seat: number): void {
  */
 function finishIfSolved(state: WofState, seat: number): void {
   if (!isSolved(state)) return;
-  if (state.note) state.note = { seat, text: `${state.note.text} That's the puzzle.` };
+  if (state.note)
+    state.note = { seat, text: `${state.note.text} That's the puzzle.` };
   awardRound(state, seat);
 }
 
@@ -724,9 +756,12 @@ function beginRound(state: WofState, rng: Rng): WofState {
     used,
     called: [],
     turn: state.starter,
-    phase: 'spin',
+    phase: "spin",
     wedge: null,
-    // A fresh puzzle gets a fresh wheel, standing where it was left.
+    // A fresh puzzle gets a fresh wheel, standing where it was left — which is
+    // why `rest` is not in this list. `wedgeAt` is nulled because no wedge is
+    // *owed* yet; the rim itself has not moved, and the next throw is measured
+    // from where the last one stopped, round boundary or not.
     wedgeAt: null,
     travel: 0,
     finds: 0,
@@ -759,44 +794,62 @@ function beginRound(state: WofState, rng: Rng): WofState {
  * it should: how far, and which way. The board draws the journey from wherever
  * the drag left the rim, so the seam never shows.
  */
-function spin(state: WofState, seat: number, rng: Rng, velocity?: number): MoveResult<WofState> {
-  if (state.phase !== 'spin') return { ok: false, error: 'Name your consonant first.' };
+function spin(
+  state: WofState,
+  seat: number,
+  rng: Rng,
+  velocity?: number,
+): MoveResult<WofState> {
+  if (state.phase !== "spin")
+    return { ok: false, error: "Name your consonant first." };
 
-  // Where the pointer is standing now. Null means the wheel has never been
-  // spun this round, and the board draws it at wedge zero.
-  const from = state.wedgeAt ?? 0;
-  let at: number;
+  // Where the flapper is standing now, fractionally. This is the anchor, and
+  // it carries the fraction the last throw left behind.
+  const from = state.rest;
+  let rest: number;
   let travel: number;
   if (velocity === undefined) {
-    at = pick(rng, WHEEL.length);
-    // Three whole turns clockwise and then round to the wedge. The board needs
-    // a distance either way, and a button press has none of its own.
-    travel = 3 * WHEEL.length + (((from - at) % WHEEL.length) + WHEEL.length) % WHEEL.length;
+    const at = pick(rng, WHEEL.length);
+    // A button press has no throw of its own, so one is made up for it: land
+    // somewhere inside the chosen wedge rather than on its midpoint, and work
+    // backwards to the distance that gets there. Held off the seam by a
+    // twentieth of a wedge each side so the flapper is unambiguously on one
+    // face — the *flick* is allowed to stop on a seam, because that is what
+    // physics does, but an invented throw has no business inventing one.
+    const inside = at + (pick(rng, 901) - 450) / 1000;
+    // Four whole turns clockwise, plus however much more reaches that spot.
+    travel =
+      4 * WHEEL.length +
+      ((((from - inside) % WHEEL.length) + WHEEL.length) % WHEEL.length);
+    rest = restAfter(from, travel);
   } else {
     travel = spinThrow(velocity).travel;
-    at = wedgeAfter(from, travel);
+    rest = restAfter(from, travel);
   }
+  const at = wedgeUnder(rest);
   const wedge = WHEEL[at];
   const next = clone(state);
   next.wedge = wedge;
   // Where the pointer now is, and the fact that it moved at all — the board
   // needs both to spin the wheel to the right place.
   next.wedgeAt = at;
+  next.rest = rest;
   next.travel = travel;
   next.spins += 1;
 
-  if (wedge.kind === 'bankrupt') {
+  if (wedge.kind === "bankrupt") {
     const lost = next.bank[seat];
     next.bank[seat] = 0;
     next.note = {
       seat,
-      text: lost > 0 ? `spun Bankrupt and lost ${money(lost)}.` : 'spun Bankrupt.',
+      text:
+        lost > 0 ? `spun Bankrupt and lost ${money(lost)}.` : "spun Bankrupt.",
     };
     passTurn(next);
     return { ok: true, state: next };
   }
 
-  if (wedge.kind === 'lose-turn') {
+  if (wedge.kind === "lose-turn") {
     next.note = { seat, text: `spun ${wedgeName(wedge)}.` };
     passTurn(next);
     return { ok: true, state: next };
@@ -805,21 +858,29 @@ function spin(state: WofState, seat: number, rng: Rng, velocity?: number): MoveR
   // Every consonant already called would otherwise strand the player in a
   // phase whose only legal move no longer exists.
   if (remaining(CONSONANTS, state.called).length === 0) {
-    next.note = { seat, text: `spun ${money(wedge.value)}, but every consonant is gone.` };
+    next.note = {
+      seat,
+      text: `spun ${money(wedge.value)}, but every consonant is gone.`,
+    };
     passTurn(next);
     return { ok: true, state: next };
   }
 
-  next.phase = 'call';
+  next.phase = "call";
   next.note = { seat, text: `spun ${money(wedge.value)}.` };
   return { ok: true, state: next };
 }
 
-function callConsonant(state: WofState, seat: number, letter: string): MoveResult<WofState> {
+function callConsonant(
+  state: WofState,
+  seat: number,
+  letter: string,
+): MoveResult<WofState> {
   const wedge = state.wedge;
   // Unreachable while `phase` and `wedge` agree — and checked anyway, because a
   // reducer that trusts its own invariants is one refactor from a crash.
-  if (!wedge || wedge.kind !== 'cash') return { ok: false, error: 'Spin the wheel first.' };
+  if (!wedge || wedge.kind !== "cash")
+    return { ok: false, error: "Spin the wheel first." };
 
   const hits = occurrences(state.answer, letter);
   const next = clone(state);
@@ -833,20 +894,27 @@ function callConsonant(state: WofState, seat: number, letter: string): MoveResul
   const won = hits * wedge.value;
   next.bank[seat] += won;
   // The spin is spent whether or not it paid; another consonant needs another spin.
-  next.phase = 'spin';
+  next.phase = "spin";
   next.wedge = null;
   next.note = {
     seat,
-    text: `found ${count(hits)} ${letter}${hits === 1 ? '' : "'s"} — ${money(won)}.`,
+    text: `found ${count(hits)} ${letter}${hits === 1 ? "" : "'s"} — ${money(won)}.`,
   };
   finishIfSolved(next, seat);
   if (!next.roundOver) credit(next, seat);
   return { ok: true, state: next };
 }
 
-function buyVowel(state: WofState, seat: number, letter: string): MoveResult<WofState> {
+function buyVowel(
+  state: WofState,
+  seat: number,
+  letter: string,
+): MoveResult<WofState> {
   if (state.bank[seat] < VOWEL_COST) {
-    return { ok: false, error: `A vowel costs ${money(VOWEL_COST)}. Spin for it first.` };
+    return {
+      ok: false,
+      error: `A vowel costs ${money(VOWEL_COST)}. Spin for it first.`,
+    };
   }
 
   const next = clone(state);
@@ -872,23 +940,30 @@ function buyVowel(state: WofState, seat: number, letter: string): MoveResult<Wof
   return { ok: true, state: next };
 }
 
-function solve(state: WofState, seat: number, guess: string): MoveResult<WofState> {
-  if (state.phase !== 'spin') return { ok: false, error: 'Name your consonant first.' };
+function solve(
+  state: WofState,
+  seat: number,
+  guess: string,
+): MoveResult<WofState> {
+  if (state.phase !== "spin")
+    return { ok: false, error: "Name your consonant first." };
 
   const attempt = normalize(guess);
-  if (!attempt) return { ok: false, error: 'Type an answer to solve with.' };
+  if (!attempt) return { ok: false, error: "Type an answer to solve with." };
 
   const next = clone(state);
   if (attempt !== normalize(state.answer)) {
-    strike(next, seat, 'guessed, and got it wrong.');
+    strike(next, seat, "guessed, and got it wrong.");
     return { ok: true, state: next };
   }
 
   // Fill the board in, so the round ends showing the whole phrase.
   next.called = [
-    ...new Set([...state.called, ...state.answer].filter((ch) => ALPHABET.includes(ch))),
+    ...new Set(
+      [...state.called, ...state.answer].filter((ch) => ALPHABET.includes(ch)),
+    ),
   ];
-  next.note = { seat, text: 'solved it.' };
+  next.note = { seat, text: "solved it." };
   awardRound(next, seat);
   return { ok: true, state: next };
 }
@@ -906,7 +981,10 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     // this is the one place the rest of the app's arithmetic gets baked in, and
     // a zero here would make `% seats` divide by nothing.
     const seats = Math.min(
-      Math.max(Math.trunc(playerCount) || GAME_MANIFEST.wheel.minPlayers, GAME_MANIFEST.wheel.minPlayers),
+      Math.max(
+        Math.trunc(playerCount) || GAME_MANIFEST.wheel.minPlayers,
+        GAME_MANIFEST.wheel.minPlayers,
+      ),
       GAME_MANIFEST.wheel.maxPlayers,
     );
     // Nobody has an opening advantage: who starts is decided by the wheel.
@@ -920,9 +998,10 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       called: [],
       starter,
       turn: starter,
-      phase: 'spin',
+      phase: "spin",
       wedge: null,
       wedgeAt: null,
+      rest: 0,
       spins: 0,
       travel: 0,
       finds: 0,
@@ -935,45 +1014,55 @@ export const wheel: GameDefinition<WofState, WofMove> = {
   },
 
   applyMove(state, move, seat, rng): MoveResult<WofState> {
-    if (state.over) return { ok: false, error: 'The game is already over.' };
+    if (state.over) return { ok: false, error: "The game is already over." };
     if (seat !== state.turn) return { ok: false, error: "It's not your turn." };
-    if (!move || typeof move !== 'object') return { ok: false, error: 'Unknown move.' };
+    if (!move || typeof move !== "object")
+      return { ok: false, error: "Unknown move." };
 
     if (state.roundOver) {
-      if (move.type !== 'next') return { ok: false, error: 'That round is finished.' };
+      if (move.type !== "next")
+        return { ok: false, error: "That round is finished." };
       return { ok: true, state: beginRound(state, rng) };
     }
-    if (move.type === 'next') return { ok: false, error: 'This round is still going.' };
+    if (move.type === "next")
+      return { ok: false, error: "This round is still going." };
 
-    if (move.type === 'spin') {
+    if (move.type === "spin") {
       // Anything but a number means "no flick" — the button, an old client, or
       // one making things up. `spinThrow` clamps the range; this is only
       // deciding which of the two spins happened.
-      const velocity = typeof move.velocity === 'number' ? move.velocity : undefined;
+      const velocity =
+        typeof move.velocity === "number" ? move.velocity : undefined;
       return spin(state, seat, rng, velocity);
     }
 
-    if (move.type === 'letter') {
-      const letter = String(move.letter ?? '').toUpperCase();
+    if (move.type === "letter") {
+      const letter = String(move.letter ?? "").toUpperCase();
       if (letter.length !== 1 || !ALPHABET.includes(letter)) {
-        return { ok: false, error: 'That is not a letter.' };
+        return { ok: false, error: `${named(move.letter)} is not a letter.` };
       }
       if (state.called.includes(letter)) {
         return { ok: false, error: `${letter} has already been called.` };
       }
 
       const vowel = VOWELS.includes(letter);
-      if (state.phase === 'call') {
-        if (vowel) return { ok: false, error: 'You spun for a consonant — name one.' };
+      if (state.phase === "call") {
+        if (vowel)
+          return { ok: false, error: "You spun for a consonant — name one." };
         return callConsonant(state, seat, letter);
       }
-      if (!vowel) return { ok: false, error: 'Spin the wheel before naming a consonant.' };
+      if (!vowel)
+        return {
+          ok: false,
+          error: "Spin the wheel before naming a consonant.",
+        };
       return buyVowel(state, seat, letter);
     }
 
-    if (move.type === 'solve') return solve(state, seat, String(move.answer ?? ''));
+    if (move.type === "solve")
+      return solve(state, seat, String(move.answer ?? ""));
 
-    return { ok: false, error: 'Unknown move.' };
+    return { ok: false, error: "Unknown move." };
   },
 
   /**
@@ -1013,18 +1102,20 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       const best = money(state.score[top[0]]);
       if (top.length > 1) {
         const tied = top.map(nameFor);
-        return `A tie at ${best} — ${tied.slice(0, -1).join(', ')} and ${tied[tied.length - 1]}`;
+        return `A tie at ${best} — ${tied.slice(0, -1).join(", ")} and ${tied[tied.length - 1]}`;
       }
       return `${nameFor(top[0])} wins with ${best}`;
     }
-    if (state.roundOver) return `${nameFor(state.turn)} to start round ${state.round + 1}`;
+    if (state.roundOver)
+      return `${nameFor(state.turn)} to start round ${state.round + 1}`;
 
     // Letters left in the streak is worth saying out loud once the player has
     // found any: it is the only part of the turn's shape that is not obvious
     // from the board, since the other way a turn ends takes exactly one guess.
     const left = FINDS_PER_TURN - state.finds;
-    const tail = left < FINDS_PER_TURN ? ` — ${count(left)} left` : '';
-    if (state.phase === 'call') return `${nameFor(state.turn)} to name a consonant${tail}`;
+    const tail = left < FINDS_PER_TURN ? ` — ${count(left)} left` : "";
+    if (state.phase === "call")
+      return `${nameFor(state.turn)} to name a consonant${tail}`;
     return `${nameFor(state.turn)} to spin or solve${tail}`;
   },
 };

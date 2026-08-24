@@ -1,0 +1,260 @@
+/* ── Liar's Dice ───────────────────────────────────────────────────────
+   The board is the hands: yours face up, everyone else's face down, and how
+   many each is holding — which is half of what any bid is reasoned from, so
+   they are drawn as dice to be counted rather than written out as a number.
+
+   A call turns every hand over in the rows they were already in. Nothing
+   moves; only the dice change, which is what makes the reveal readable as an
+   answer to the bid rather than as a new screen. */
+.ld {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ld-round {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Your own five, thrown, at the top of a round. Above the hands rather than
+   among them: it is a thing you do, and they are a thing you read. It is gone
+   the moment the dice land, because the hand below becomes the record and a
+   tray still sitting there would invite a roll the reducer refuses. */
+.ld-throw {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ld-hands {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A seat, laid out like the players strip above the board — the same object,
+   with its dice on the end. Full width rather than two to a row: five dice and
+   a name do not share 42% of a phone. */
+.ld-hand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 11px;
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+/* Whose turn it is gets weight, not a colour wash — as everywhere else. */
+.ld-hand.active {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+/* Out of dice, out of the game, still at the table. */
+.ld-hand.out {
+  opacity: 0.55;
+}
+
+.ld-hand .chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ld-hand .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ld-hand .note {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ld-dice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-left: auto;
+}
+/* Smaller than a thrown die: five of them sit on one line beside a name, and
+   they are there to be counted rather than read one at a time. These are not
+   in a tray — the showdown turns hands over, it does not throw them. */
+.ld-hand .die {
+  --die: 26px;
+}
+
+/* The bid and what became of it, in one block: they are the same thing at two
+   moments, and swapping between them in place keeps the board still. */
+.ld-table {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 78px;
+  padding: 12px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.ld-call {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ld-outcome {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* What the call cost, under what it turned up. Separate from the count above
+   it because they answer different questions -- "how many were there" and "so
+   who pays" -- and a spot-on call can answer the second with nobody. */
+.ld-consequence {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The round's bidding, in the order it was said. A run of chips rather than a
+   list: it is read as a shape -- who climbed, who was dragged -- long before
+   any single bid in it is read as words. Scrolls sideways in its own box on a
+   long round rather than pushing the actions off the screen. */
+.ld-history {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 2px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ld-history::-webkit-scrollbar {
+  display: none;
+}
+.ld-history li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 4px 9px;
+  background: var(--surface);
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The bid actually on the table. It is already spelled out above; this only
+   has to say which end of the run it is. */
+.ld-history li.last {
+  color: var(--ink);
+  font-weight: 600;
+}
+/* Smaller than a seat's own chip, and with a thinner ring: the two-pixel ring
+   the players strip uses would close over a chip this size. */
+.ld-history .chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.ld-history li.p1 .chip,
+.ld-history li.p3 .chip {
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+/* Your own count of the face on the spinner. The one part of the arithmetic a
+   player actually knows, and the one they would otherwise redo by eye off
+   their own row every time they moved the picker. */
+.ld-mine {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* How many, and of what. Two spinners rather than a text field: there are ten
+   legal quantities and six faces, and a number pad on a phone is a keyboard in
+   the way of a two-tap decision. */
+.ld-bid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ld-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ld-step {
+  width: 44px;
+  padding: 0;
+  font-size: 1.15rem;
+}
+
+.ld-quantity {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ld-faces {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* The face is the die itself. A row of numerals would be a row of numerals;
+   this is the thing you are about to claim there are four of. */
+.ld-face {
+  padding: 5px;
+  min-height: 44px;
+  line-height: 0;
+  background: var(--surface);
+}
+.ld-face.picked {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.ld-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* Two calls now sit beside each other, so the thing you do most -- bid -- takes
+   its own line above them rather than becoming one of three equal buttons. */
+.ld-actions button {
+  flex: 1 1 46%;
+}
+.ld-actions .ld-wide {
+  flex: 1 1 100%;
+}
+
+.ld-legend {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+

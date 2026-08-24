@@ -24,7 +24,8 @@
  * attachments), persistence, and waking up (a `setTimeout` against a Durable
  * Object alarm). Those are not two copies of one thing.
  */
-import { RoomEngine, isRoomCode } from './room.js';
+import { CODE_LENGTH, RoomEngine, isRoomCode } from './room.js';
+import { named } from './refusal.js';
 import { getGame } from './games/index.js';
 import { PROTOCOL_VERSION, type ClientMessage, type ErrorKind } from './protocol.js';
 import type { ActionResult } from './room.js';
@@ -94,9 +95,19 @@ export function readHello(
   const playerId = String(msg.playerId ?? '');
   const code = String(msg.code ?? '').toUpperCase();
   if (!playerId) return { ok: false, kind: 'protocol', error: 'Missing player id.' };
-  if (!isRoomCode(code)) return { ok: false, kind: 'protocol', error: 'Invalid room code.' };
+  if (!isRoomCode(code)) {
+    return {
+      ok: false,
+      kind: 'protocol',
+      error: `${named(msg.code)} is not a room code — they are ${CODE_LENGTH} letters.`,
+    };
+  }
   if (routingCode && code !== routingCode) {
-    return { ok: false, kind: 'protocol', error: 'That code does not match this room.' };
+    return {
+      ok: false,
+      kind: 'protocol',
+      error: `This is room ${routingCode}, and that hello asked for ${code}.`,
+    };
   }
 
   return {
@@ -142,27 +153,35 @@ export function admit(
       return {
         ok: false,
         kind: 'full',
-        error: 'That code is already in use. Try starting again.',
+        error: `Room ${hello.code} is already someone else's game. Try starting again.`,
       };
     }
     if (hello.gameId && hello.gameId !== existing.def.id) {
       return {
         ok: false,
         kind: 'rejected',
-        error: `That room is playing ${existing.def.name}.`,
+        error: `Room ${hello.code} is playing ${existing.def.name}.`,
       };
     }
     return { ok: true, engine: existing, created: false };
   }
 
-  if (!hello.create) return { ok: false, kind: 'no-room', error: 'No room with that code.' };
+  if (!hello.create) {
+    return { ok: false, kind: 'no-room', error: `No room with code ${hello.code}.` };
+  }
   if (!getGame(hello.gameId)) {
-    return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
+    return {
+      ok: false,
+      kind: 'rejected',
+      error: `There is no game called ${named(hello.gameId)}.`,
+    };
   }
   // No size to settle: the room opens empty and takes whoever arrives, up to
   // whatever the game itself seats.
   const engine = RoomEngine.create(hello.code, hello.gameId);
-  if (!engine) return { ok: false, kind: 'rejected', error: 'Could not create that game.' };
+  if (!engine) {
+    return { ok: false, kind: 'rejected', error: `Could not open a room of ${hello.gameId}.` };
+  }
   return { ok: true, engine, created: true };
 }
 

@@ -59,6 +59,29 @@ export function saveName(name: string): void {
 }
 
 /**
+ * The last game this browser actually sat down to, which is the one the lobby
+ * puts on top at twice the size.
+ *
+ * Written from the room rather than from the pick, so joining someone else's
+ * link counts: the game you played is the game you played, whoever chose it.
+ * Reading it returns null rather than a default — the caller decides what an
+ * empty shelf looks like, and here that is the first game in the manifest.
+ *
+ * Carries the `?as=` suffix for the same reason the name does. Two tabs
+ * driving both sides of a game are two players, and one of them finishing a
+ * round of Yahtzee should not rearrange the other one's lobby.
+ */
+export function loadLastGame(): string | null {
+  const suffix = new URLSearchParams(location.search).get('as') ?? '';
+  return localStorage.getItem(`ag.lastGame${suffix ? `.${suffix}` : ''}`);
+}
+
+export function saveLastGame(gameId: string): void {
+  const suffix = new URLSearchParams(location.search).get('as') ?? '';
+  localStorage.setItem(`ag.lastGame${suffix ? `.${suffix}` : ''}`, gameId);
+}
+
+/**
  * Where the game server lives. On the web that's wherever the page came from.
  * In the Android app the page comes from the APK itself, so the origin has to
  * be baked in at build time via VITE_SERVER_ORIGIN.
@@ -88,6 +111,14 @@ export interface UseRoom {
   error: string | null;
   /** Why the last error happened, so the UI can frame it. */
   errorKind: ErrorKind | null;
+  /**
+   * How many refusals this session has seen. The message alone cannot say
+   * whether one arrived: tapping the same illegal square twice produces the
+   * same string twice, and anything watching `error` for a change — the
+   * toasts, the deny sound — saw the second one as no event at all. A counter
+   * makes every refusal distinct without making the message carry an id.
+   */
+  errorSeq: number;
   sendMove(move: unknown): void;
   requestRematch(): void;
   /** Play a different game with the people already in this room. */
@@ -110,6 +141,7 @@ export function useRoom(opts: {
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
+  const [errorSeq, setErrorSeq] = useState(0);
 
   const socketRef = useRef<WebSocket | null>(null);
   /**
@@ -285,6 +317,7 @@ export function useRoom(opts: {
         } else if (msg.t === 'error') {
           setError(msg.message);
           setErrorKind(msg.kind);
+          setErrorSeq((n) => n + 1);
         }
       };
 
@@ -344,6 +377,7 @@ export function useRoom(opts: {
     } else {
       setError('Not connected — reconnecting…');
       setErrorKind('rejected');
+      setErrorSeq((n) => n + 1);
     }
   }, []);
 
@@ -353,6 +387,7 @@ export function useRoom(opts: {
     status,
     error,
     errorKind,
+    errorSeq,
     sendMove: useCallback((move: unknown) => post({ t: 'move', move }), [post]),
     requestRematch: useCallback(() => post({ t: 'rematch' }), [post]),
     // No optimistic swap: the room's game comes back on the next `room`

@@ -41,9 +41,11 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import type { Tray, Quat } from '../../shared/games/dice.js';
 import { faceUp, seeded } from '../../shared/games/dice.js';
 import type { Rest3 } from '../../shared/games/toss.js';
+import type { Beats } from './beats.js';
 
 export { faceUp };
 export type { Rest3 };
+export type { Beats };
 
 /** Half a die, in physics units. The number the whole scale is defined by. */
 export const DIE_HALF = 1;
@@ -321,8 +323,18 @@ export interface ThrowSpec {
   count: number;
   /** The client's, drawn fresh per throw. Drives everything random here. */
   seed: number;
-  /** How it was thrown, in tray widths a second. Zero for a tap. */
-  flick: { x: number; y: number };
+  /**
+   * How it was thrown, in tray widths a second. Zero for a tap.
+   *
+   * `ax`/`ay` are where on the tray the hand let go, and they are part of the
+   * throw rather than a note about it: `entryOf` walks backwards from them to
+   * find the edge the dice come in by. The type used to be `{ x, y }` alone,
+   * which was not merely incomplete — it silently accepted a fresh literal
+   * with the aim left out, and two of the three call sites built exactly that.
+   * The dice then flew in from the wrong edge on every replay and jumped to
+   * their reported places at the end.
+   */
+  flick: { x: number; y: number; ax?: number; ay?: number };
   /** Where the dice were standing, or null before anyone has rolled. */
   from: readonly Rest3[] | null;
   /** Dice being kept: they stay exactly where they were and are not thrown. */
@@ -682,6 +694,56 @@ export function settleThrow(live: ThrowWorld): { faces: number[]; rest: Rest3[] 
   let moving = 1;
   while (moving > 0) moving = stepThrow(live, bin);
   return { faces: facesOf(live), rest: restOf(live) };
+}
+
+/**
+ * How loud a contact has to be, against the loudest one in this throw, to count
+ * as the moment the throw was about.
+ *
+ * Relative rather than absolute, because a lobbed tap and a hard flick are two
+ * orders of magnitude apart in impulse and a fixed threshold would find every
+ * contact in one and none in the other. A quarter of the loudest is, in
+ * practice, the difference between a die falling over and a die nudging one.
+ */
+const DECISIVE = 0.25;
+
+/**
+ * Run the throw once *before* it is watched, to find out where its beats are.
+ *
+ * The animation needs to slow down for the contact that settles the last die,
+ * and it has to start slowing *before* that contact rather than after it —
+ * which is only knowable by having already run the throw. So it is run twice:
+ * once here, discarded except for two numbers, and once for real.
+ *
+ * That is about two milliseconds for five dice, on top of the two the throwing
+ * client already spends in `settleThrow`. It buys the one thing a live loop
+ * cannot have, which is foresight.
+ *
+ * The world is opened, settled and freed here rather than handed back, because
+ * a caller holding a finished Rapier world is a caller who can forget to free
+ * it — and the only two numbers worth keeping are these.
+ */
+export function scoutThrow(spec: ThrowSpec): Beats {
+  const live = openThrow(spec);
+  const bin: Hit[] = [];
+  const heard: Array<{ step: number; impulse: number }> = [];
+  let moving = 1;
+  let loudest = 0;
+  while (moving > 0) {
+    moving = stepThrow(live, bin);
+    for (const hit of bin) {
+      heard.push({ step: live.steps, impulse: hit.impulse });
+      if (hit.impulse > loudest) loudest = hit.impulse;
+    }
+  }
+  const steps = live.steps;
+  disposeThrow(live);
+
+  let decisive = -1;
+  for (const hit of heard) {
+    if (hit.impulse >= loudest * DECISIVE) decisive = hit.step;
+  }
+  return { steps, decisive };
 }
 
 /** Where every die is, in tray units. */

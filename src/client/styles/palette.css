@@ -1,0 +1,206 @@
+/* ── Palette ──────────────────────────────────────────────────────────
+   The two palettes and the channel each game takes, and nothing else. Every
+   other file in here reads colour through the tokens defined below and names
+   no hex of its own -- that is what makes `data-palette` a one-attribute
+   switch rather than a sweep through twenty files. The one deliberate
+   exception is the 3D dice, which are lit in WebGL and carry their literals in
+   `dice3d/scene.ts`; the comment there says so. */
+
+:root,
+:root[data-palette="stage"] {
+  --ground: #0c0c0f;
+  --surface: #16161b;
+  --board: #1e1e24;
+  --hole: #08080a;
+
+  --ink: #f5f1e8;
+  --muted: #8e8e99;
+  --rule: #2b2b33;
+  /* One step brighter than --rule, for the borders that have to be found by
+     eye rather than merely separating two panels: secondary buttons, and the
+     dashed frame around a room code. */
+  --rule-hi: #3d3d47;
+
+  --seat-0: #ff5a47; /* ember */
+  --seat-1: #21c7f0; /* ice */
+  --seat-2: #8fde4c; /* lime */
+  --seat-3: #ffc24b; /* amber */
+
+  /* Both points stay dark, so a bright checker reads on either one -- the
+     alternation is there to be counted, not to be the brightest thing on the
+     board. Pushed apart from the 1.4:1 they started at, which was invisible. */
+  --point-dark: #12161a;
+  --point-light: #3f4a52;
+  --tray: #08080a;
+
+  /* A ship's hull, on your own sea. It borrowed --point-light for a while,
+     which is a backgammon token and only ever coincidentally a hull: in
+     daylight the two landed on #f8f5ef against #fbfaf7 water, 1.04:1, so your
+     own fleet was invisible on the board you were placing it on. It needs its
+     own value because it is measured against different things -- the water it
+     sits in and the board showing through the 2px gaps -- and clears 3:1 on
+     both here and in daylight. Neutral on purpose: a hit is already red and a
+     placement ghost already green, so the hull is the one thing on this board
+     that is not carrying a hue. */
+  --hull: #5d6b78;
+
+  /* The unlit piece: an empty hole, an unplayed tile, a point with nothing on
+     it. The board-relative tokens above are all deliberately close to --board,
+     because on a real board something bright sits on top of them. Here nothing
+     does, so the shape has to carry itself -- this clears 3:1 on --board in
+     both palettes and is used as an edge, not a fill, so an empty square still
+     reads as empty.
+
+     Named for the card motifs, where it started, and since put to the same
+     work on a real board: the Morris board is line work drawn straight onto
+     --board with nothing over it either. Anything that has to be seen against
+     the board on its own takes this. */
+  --motif-off: #7a7a86;
+
+  /* Ultimate's nine small boards, as ground rather than as one more mark: a
+     board that has been won is tinted its winner's hue for the whole 3x3
+     block, and the board you are sent to has its empty squares lit. A ring
+     could not say all three -- two of them are already rings, for "in play"
+     and "won the game" -- and nine tiny marks in a 93px block are not a thing
+     anyone reads across a whole board at arm's length.
+
+     A wash rather than the seat colour itself, because the winning three sit
+     on top of it and have to stay the brightest thing in their board. Measured
+     against the marks they carry: 3.7:1 and 4.8:1 for a winning mark beside
+     its washed neighbours here, 2.8:1 in the light palette, where the wash is
+     weaker for exactly that reason. The two winners' grounds differ mostly in
+     hue, which is why the marks and not the ground are what say whose it is. */
+  --ut-won-0: #592e2d;
+  --ut-won-1: #1f4a59;
+  --ut-drawn: #36363d;
+  --ut-target: #2d553f;
+
+  --action: var(--accent);
+  --action-text: #0c0c0f;
+  --alert: #ff5a47;
+  --live: #4fd67f;
+  --pending: #ffc24b;
+
+  --mark-hit: #8fde4c;
+  --mark-near: #ffc24b;
+  --mark-miss: #2b2b33;
+  --mark-text: #0c0c0f;
+  /* A miss is the one mark that means "stop considering this", so unlike the
+     other two it reads as absence and keeps a muted ink -- but a *readable*
+     one: --muted itself only manages 4.3:1 on the miss ground, and the letter
+     on a spent tile is still the letter you have to read. */
+  --mark-miss-text: #9a9aa5;
+
+  /* Seat 1's pieces carry a ring as well as a hue, so the board still reads
+     for anyone who cannot separate the two colours. It has to sit *inside* a
+     bright disc here, and inside a dark one in daylight, so it is a token
+     rather than a literal. */
+  --ring: rgb(0 0 0 / 0.4);
+
+  color-scheme: dark;
+}
+
+:root[data-palette="daylight"] {
+  --ground: #f2f1ec;
+  --surface: #ffffff;
+  --board: #e4e2da;
+  --hole: #fbfaf7;
+
+  --ink: #14141a;
+  --muted: #62626d;
+  --rule: #d8d6cd;
+  --rule-hi: #b9b6ab;
+
+  /* The same four hues, not four different ones, so a player who learns "I'm
+     the red one" in one palette still is in the other. Darkened until each
+     clears 3:1 against both the ground and the board — these are counters and
+     chips, so they are coloured components rather than text, and the one place
+     an accent is set in type (the result heading, the wordmark tail) it is
+     large and bold enough for the same threshold. */
+  --seat-0: #cf3a24;
+  --seat-1: #0a7d9e;
+  --seat-2: #44861a;
+  --seat-3: #9a6a00;
+
+  /* The mirror of the stage's pair: both points stay light so the darker
+     checkers read on either one, pushed as far apart as that allows. */
+  --point-dark: #c6bfa7;
+  --point-light: #f8f5ef;
+  --tray: #d3cfc0;
+
+  /* Darker than the water rather than lighter, which is the whole reason this
+     is a token: the stage hull reads by being brighter than the sea, and there
+     is nothing brighter than #fbfaf7 to be. */
+  --hull: #6f757e;
+
+  --motif-off: #7d7a6b;
+
+  /* Weaker than the dark palette's, and not by taste. --seat-0 clears --board
+     by only 3.8:1 here, so every point of tint the ground takes comes off the
+     mark standing on it; 22% is where a winning mark still holds 2.8:1 against
+     its washed neighbours while the block itself clears the plain board by
+     1.3:1. Pushing it further made a settled board louder and its winner
+     harder to name, which is the wrong trade for the thing this is for. */
+  --ut-won-0: #dfbdb2;
+  --ut-won-1: #b4cccd;
+  --ut-drawn: #cdcbc2;
+  --ut-target: #b9cab9;
+
+  --action: var(--accent);
+  --action-text: #ffffff;
+  --alert: #cf3a24;
+  --live: #2f7f4f;
+  --pending: #9a6a00;
+
+  /* These carry white letters at tile size, so unlike the seats they are held
+     to the 4.5:1 that normal text needs. */
+  --mark-hit: #3f7a14;
+  --mark-near: #9a6a00;
+  --mark-miss: #d8d6cd;
+  --mark-text: #ffffff;
+  --mark-miss-text: #55555f;
+
+  --ring: rgb(255 255 255 / 0.72);
+
+  color-scheme: light;
+}
+
+/* ── Channels ──────────────────────────────────────────────────────────
+   The accent themes four things and no more: the game's card, the second
+   half of the wordmark, the emphasised word in the status line, and the
+   primary button. Let it onto borders and dividers and it stops meaning
+   anything. The default is plain ink, which is what an unrecognised game id
+   gets — unstyled rather than wrong. */
+:root {
+  --accent: var(--ink);
+}
+:root[data-game="connect4"] { --accent: var(--seat-0); }
+:root[data-game="backgammon"] { --accent: var(--seat-3); }
+:root[data-game="wheel"] { --accent: var(--seat-1); }
+:root[data-game="wordle"] { --accent: var(--seat-2); }
+/* Past the fourth game the channels double up by family rather than adding a
+   hue: you are never looking at two games at once. Amber is the dice, ice
+   blue is the sea. */
+:root[data-game="yahtzee"] { --accent: var(--seat-3); }
+:root[data-game="battleship"] { --accent: var(--seat-1); }
+:root[data-game="liarsdice"] { --accent: var(--seat-3); }
+/* Word Hunt is the other word game, so it takes Word Duel's hue: the family
+   is the point, and green already means letters here. */
+:root[data-game="wordhunt"] { --accent: var(--seat-2); }
+/* Morris joins Connect Four on ember. Underneath they are the same game --
+   three of yours in a row before three of theirs -- and ember was the one
+   channel still carrying a single game. */
+:root[data-game="morris"] { --accent: var(--seat-0); }
+/* Ultimate joins them, and for the same reason twice over: it is three in a
+   row about three in a row, and ember is the channel that already means it. */
+:root[data-game="ultimate"] { --accent: var(--seat-0); }
+/* Letterpress is the third word game, so it takes the word channel: green
+   already means letters here, and the board's own two colours are the seat
+   hues, which the accent must not be mistaken for. */
+:root[data-game="letterpress"] { --accent: var(--seat-2); }
+/* Word Chain is the fourth word game and takes the same channel for the third
+   time. Green means letters here, and a game whose whole board is a column of
+   words has no business being any other colour. */
+:root[data-game="wordchain"] { --accent: var(--seat-2); }
+:root[data-game="vocab"] { --accent: var(--seat-2); }
+

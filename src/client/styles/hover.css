@@ -1,0 +1,55 @@
+/* ── Hover ─────────────────────────────────────────────────────────────
+   Gated on a device that genuinely hovers. On a touchscreen :hover sticks
+   after a tap, which left the tapped column highlighted for the rest of
+   the turn. */
+@media (hover: hover) {
+  /* Moved in here with the rest of them. A bare :hover sticks on a touch
+     screen, and while tapping the wordmark navigates away on the same tap --
+     so nothing is left visibly underlined today -- that is a property of what
+     .home happens to do, not of the rule. */
+  .topbar h1 .home:hover .tail {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .code:hover {
+    color: var(--ink);
+    border-color: var(--ink);
+  }
+
+  .swap:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+
+  .mute:hover {
+    color: var(--ink);
+  }
+
+  .column:hover:not(:disabled) .ghost {
+    opacity: 0.07;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--ink);
+  }
+
+  button.primary:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+
+  /* Which square the guns are on. The cells carry no border, so the usual
+     hover rule above does nothing for them. */
+  .bs-cell:hover:not(:disabled) {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+
+  /* A picker card is a <label>, so the button rule above never reaches it and
+     the whole grid sat inert under a pointer while everything around it moved.
+     The card answers in its own channel colour, which is also what picking it
+     does -- so the hover is a preview of the commitment. */
+  .game:hover {
+    border-color: var(--accent);
+  }
+}
+

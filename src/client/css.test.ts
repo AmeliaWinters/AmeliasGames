@@ -22,7 +22,22 @@ import { describe, expect, it } from 'vitest';
  * board's buttons being written without an opinion either way.
  */
 
-const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+/**
+ * The whole stylesheet as one string, assembled in the order `index.css`
+ * imports it -- which is the order the browser sees, so a test that reasons
+ * about the cascade is reasoning about the real thing.
+ *
+ * Read through the @import list rather than by globbing the directory. A glob
+ * would come back alphabetised, and every test below that depends on one rule
+ * following another would then be answering a question the browser never
+ * asks. It also means a file nobody imported is a file these tests do not
+ * cover -- correctly, since the app would not load it either.
+ */
+const STYLES = new URL('./styles/', import.meta.url);
+const css = [...readFileSync(new URL('index.css', STYLES), 'utf8')
+  .matchAll(/@import\s+"\.\/([^"]+)"/g)]
+  .map((m) => readFileSync(new URL(m[1], STYLES), 'utf8'))
+  .join('');
 
 /**
  * Buttons in a board that are controls rather than surface: they carry a word,
@@ -43,6 +58,7 @@ const CONTROLS = new Set([
   'lp-clear',
   'wd-input',
   'wd-submit',
+  'vr-submit', // the answer button beside Vocab Race's entry field
   'yz-pick',
 ]);
 
@@ -287,5 +303,97 @@ describe('the client stylesheet', () => {
     const read = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
     const unused = [...declared].filter((name) => !read.has(name));
     expect(unused, `declared and never read: ${unused.join(', ')}`).toEqual([]);
+  });
+});
+
+/**
+ * The toast stack, which is the only thing in the app that floats.
+ *
+ * Every other panel here sits in the flow, and that is the whole reason the
+ * toasts exist: the refusal a player is being shown is about the tap they
+ * just made, and the banner it replaced pushed the board down the page at
+ * exactly that moment. Three declarations carry that, and all three are the
+ * kind a tidy-up removes without noticing, because the page still renders
+ * perfectly well with any of them gone -- just wrong.
+ */
+describe('the toast stack', () => {
+  /** One rule's body, by exact selector -- `.toast` must not answer `.toasts`. */
+  const rule = (selector: string) => {
+    // Found by text rather than by pattern: every rule here is written one
+    // declaration to a line with the brace on the selector, so looking for the
+    // exact opening line is both simpler to read and unable to answer
+    // `.toasts` when it was asked about `.toast`.
+    const at = css.indexOf(`\n.${selector} {`);
+    return at === -1 ? '' : css.slice(at, css.indexOf('}', at));
+  };
+
+  it('floats, so a refusal never reflows the board underneath it', () => {
+    expect(rule('toasts')).toMatch(/position:\s*fixed/);
+  });
+
+  it('does not sit inside anything that transforms', () => {
+    /*
+      `position: fixed` is relative to the viewport -- unless an ancestor has a
+      transform, filter or perspective, in which case it is relative to *that*,
+      and the stack would scroll away with whatever screen raised it. `.app`
+      wraps every screen the toasts float over, so a transform on it (a page
+      transition, a shake, a nudge) would break them from a file that never
+      mentions toasts. This test is the note that says so.
+    */
+    expect(rule('app')).not.toMatch(/^\s*(transform|filter|perspective):/m);
+  });
+
+  it('lets taps through the gaps between toasts', () => {
+    // The stack is a viewport-wide strip so its children can be centred. Left
+    // opaque to the pointer it would swallow every tap on the top of the board
+    // while a toast was up -- including the retry the toast is asking for.
+    expect(rule('toasts')).toMatch(/pointer-events:\s*none/);
+    expect(rule('toast')).toMatch(/pointer-events:\s*auto/);
+  });
+
+  it('gives the close button a finger-sized box around its cross', () => {
+    const close = rule('toast-close');
+    expect(close).toMatch(/min-height:\s*44px/);
+    expect(close).toMatch(/min-width:\s*44px/);
+  });
+
+  it('holds still for anyone who asked for less movement', () => {
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.toast \{\s*animation:\s*none/,
+    );
+  });
+});
+
+/**
+ * Every game has a picture on its card.
+ *
+ * Word Chain and Vocab Race shipped without one. Nothing broke and nothing
+ * complained: `motif()` ends in a `default` that returns null, which is the
+ * right answer for a game whose motif has not been drawn yet -- an empty well
+ * reads as a card with no picture, where a wrong one reads as a lie -- and so
+ * two games sat in the lobby with a blank frame where the other eleven had a
+ * board. It is the same shape of bug as the channel accents above: a
+ * registration in one more place than anyone counted.
+ *
+ * Both halves are checked because either alone is silent. A `case` with no
+ * `.art-` block draws bare elements on the board colour; an `.art-` block with
+ * no `case` styles an empty span.
+ */
+describe('the card motifs', () => {
+  it('cover every game in the manifest, and name none that is not one', async () => {
+    const { GAME_MANIFEST } = await import('../shared/games/manifest.js');
+    const games = Object.keys(GAME_MANIFEST).sort();
+
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    // The switch itself, not the whole file: `case "wordchain"` appears in
+    // other switches keyed by the same ids, and a motif is only a motif if it
+    // is in this one.
+    const motif = app.slice(app.indexOf('function motif('), app.indexOf('function roomUrl('));
+    expect(motif).toContain('switch (gameId)');
+    const drawn = [...motif.matchAll(/case "([a-z0-9]+)":/g)].map((m) => m[1]).sort();
+    expect(drawn).toEqual(games);
+
+    const styled = [...css.matchAll(/\.art-([a-z0-9]+)\b/g)].map((m) => m[1]);
+    expect([...new Set(styled)].sort()).toEqual(games);
   });
 });

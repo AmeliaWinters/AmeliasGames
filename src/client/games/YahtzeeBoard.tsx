@@ -13,6 +13,7 @@ import {
   UPPER_BONUS,
   UPPER_TARGET,
   YAHTZEE_TRAY,
+  isYahtzee,
   jokerApplies,
   legalCategories,
   scoreFor,
@@ -111,6 +112,21 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
       ? legalCategories(state.sheets[seat], state.dice)
       : [];
 
+  /*
+    Five alike, and the tray is told about it rather than told to do it.
+
+    Keyed by the throw's own counter, so two Yahtzees in one game are two
+    flourishes and a second look at the same one is not. The board is the only
+    thing here that knows what "a Yahtzee" is; what it looks like is the tray's,
+    which is how Backgammon gets the same gesture for a double without either
+    game knowing about the other.
+
+    Not gated on `flying` — the move arrives while the dice it describes are
+    still in the air, and the tray holds the flourish back until they land. Read
+    `beats.ts` for why that has to be its decision and not this one.
+  */
+  const cheer = state.toss && isYahtzee(state.dice) ? { n: state.toss.n, kind: "all" as const } : null;
+
   const trayRef = useRef<DiceTrayHandle>(null);
   const throwDice = (thrown: ThrownDice) => onMove({ type: "roll", throw: thrown });
 
@@ -148,6 +164,7 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
         flying={flying}
         mine={canAct}
         held={state.held}
+        cheer={cheer}
         keepable={canKeep}
         label={trayLabel(state, flying, rolled)}
         hint={canAct && !flying ? (rolled ? "Tap a die to keep it" : "Flick to throw") : undefined}

@@ -1,19 +1,11 @@
 /**
- * The parts of Liar's Dice the board is allowed to know.
- *
- * Like `wheelDisplay.ts` and `wordleDisplay.ts`, this module deliberately
- * imports nothing. The board has to say whose dice it may draw, whether a bid
- * would be legal before the player commits to it, and how a bid reads as
- * English — all real logic, and all of it needed on both sides. Routing it
- * through `liarsDice.ts` would pull the reducer into the client bundle, which
- * `bundle.test.ts` fails the build over.
- *
- * `liarsDice.ts` re-exports everything here, so the reducer and its tests carry
- * on importing from one place.
+ * The parts of Liar's Dice the board may know — see the boundary note in
+ * `types.ts`. The board decides whose dice it may draw, whether a bid is legal
+ * before the player commits, and how a bid reads as English: real logic, and
+ * needed on both sides.
  */
 
-// Type-only, so nothing is imported at runtime and the rule above holds:
-// this is erased at compile time and `bundle.test.ts` never sees it.
+// Type-only, so it is erased at compile time and never reaches the bundle.
 import type { Tray } from './dice.js';
 
 /** What everyone starts with. Lose one per call you get wrong. */

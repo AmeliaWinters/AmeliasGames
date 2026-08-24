@@ -214,7 +214,10 @@ describe('room lifecycle', () => {
   it('rejects a malformed room code', async () => {
     const client = await TestClient.connect();
     client.send(hello({ playerId: 'z', name: 'Z', code: 'nope!', create: true }));
-    expect((await client.nextOf('error')).message).toMatch(/invalid room code/i);
+    // Quoted back, so a code mangled by a chat app is recognisable as the
+    // player's own -- see `named` in `refusal.ts` for what that quoting is
+    // allowed to include.
+    expect((await client.nextOf('error')).message).toMatch(/"nope!" is not a room code/i);
     client.close();
   });
 });
@@ -261,7 +264,7 @@ describe('hostile input', () => {
     const collider = await TestClient.connect();
     collider.send(hello({ playerId: 'collider', code, create: true }));
     const msg = await collider.nextOf('error');
-    expect(msg.message).toMatch(/already in use/i);
+    expect(msg.message).toMatch(new RegExp(`Room ${code} is already someone else's game`, 'i'));
     collider.close();
     host.close();
     guest.close();
@@ -296,7 +299,7 @@ describe('hostile input', () => {
   it('refuses to create a game that does not exist', async () => {
     const client = await TestClient.connect();
     client.send(hello({ gameId: 'chess', create: true }));
-    expect((await client.nextOf('error')).message).toMatch(/could not create/i);
+    expect((await client.nextOf('error')).message).toMatch(/no game called "chess"/i);
     client.close();
   });
 
@@ -324,7 +327,9 @@ describe('server authority', () => {
     const { host, guest } = await seatTwoPlayers();
     host.send({ t: 'move', move: { type: 'drop', col: 99 } });
     const msg = await host.nextOf('error');
-    expect(msg.message).toMatch(/does not exist/i);
+    // The number comes back unquoted: a refusal that names what it refused is
+    // the point, and quoting a number implies it might not have been one.
+    expect(msg.message).toMatch(/There is no column 99/i);
     host.close();
     guest.close();
   });

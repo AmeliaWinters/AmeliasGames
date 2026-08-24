@@ -1,0 +1,177 @@
+/* ── Type ──────────────────────────────────────────────────────────────
+   A condensed signage face for every name, title, status line and button, and
+   a plain sans for anything read in sentences. All system stacks so nothing is
+   fetched over the network — the Android build has to work offline.
+
+   Roboto Condensed is present on Android, which is the build that matters
+   most here; Avenir Next Condensed covers iOS and macOS, Arial Narrow covers
+   Windows. Where none of them land the stack falls back to the body face and
+   the design loses its condensation but nothing else. */
+:root {
+  --display: "Roboto Condensed", "Avenir Next Condensed", "Arial Narrow",
+    "Helvetica Neue Condensed", ui-sans-serif, system-ui, sans-serif;
+  --body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --panel-radius: 8px;
+  /* Playing surfaces get a rounder corner than chrome, which is half of what
+     makes them read as objects sitting on the stage rather than more panels. */
+  --board-radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── The one layout primitive: a ruled panel, repeated ────────────────
+   Named by the things that use it, not by a `.panel` class -- there was one,
+   and nothing ever rendered it, so it described the primitive instead of
+   applying it. Backgrounds stay per-site (chrome sits on --surface, the playing
+   surfaces on --board); the rule and the radius are the shared part, and live
+   here once so a change to either lands everywhere. */
+.code,
+.banner,
+.player,
+.game,
+.wof-puzzle,
+.wof-purse,
+.wof-wheel,
+.wof-tile,
+.ld-hand,
+.ld-table,
+.wd-panel,
+.wd-tile,
+.wd-key,
+.wc-link,
+.wc-lang,
+.wh-cell,
+.wh-list,
+button,
+input {
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+
+/* Playing surfaces are the exception, and the only things that rise off the
+   stage: a rounder corner, and a border that can actually be seen. Chrome
+   stays flat. That one rule is where the hierarchy comes from. */
+.board,
+.bg-board,
+.wd-board,
+.wc-board,
+.wh-board {
+  border: 1px solid var(--rule);
+  border-radius: var(--board-radius);
+}
+/* Wide enough that the board grows on a desktop instead of the margins, and
+   still narrow enough that a two-row puzzle stays readable. The setup screen
+   keeps the old column width — a name field 640px wide is not a better name
+   field. */
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 18px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.app.setup {
+  max-width: 480px;
+}
+
+/* Read by a screen reader, drawn nowhere. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Wider than a phone ────────────────────────────────────────────────
+   The setup screen used to stay one 480px column at every width, and the
+   reasoning was sound as far as it went: letting the game grid *alone* break
+   out to spend the extra room made the cards the widest thing on the page, so
+   they hung out past the field above and the button below and the column
+   stopped reading as a column at all.
+
+   That is an argument against one part of the page escaping. It is not an
+   argument for the page staying phone-shaped, which is what it had become: at
+   1280 the screen was a 480px column with 400px of empty stage either side and
+   1,746px of scroll, on a viewport with room for all of it at once.
+
+   So the column becomes two columns, and nothing inside either one changes.
+   The eye still follows one left edge down each -- that was the real content
+   of the old rule, and two columns keep it where one wide column would not.
+   The form holds still on the left; the shelf is the part with thirteen things
+   in it, so it gets the width.
+
+   Everything else keeps the old cap. `.app.setup` is also worn by the two
+   recovery screens -- a wordmark, a line and a button -- and a two-column grid
+   would strand that button in a column of its own; they have no `.setup-intro`
+   in them, so the grid below cannot reach them. */
+@media (min-width: 760px) {
+  .app.setup {
+    gap: 18px;
+  }
+}
+
+@media (min-width: 900px) {
+  .app.setup:has(.setup-tables) {
+    max-width: 1120px;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    /* The form takes the height it needs and the shelf takes the rest. Without
+       the explicit rows the two of them share the shelf's height between them,
+       which left the preferences row pinned 800px below the form it belongs
+       to, alone at the bottom of an otherwise empty column. */
+    grid-template-rows: auto 1fr;
+    gap: 40px 40px;
+    align-items: start;
+  }
+  .setup-intro {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  /* Under the form rather than under the shelf: it is a preference belonging
+     to the person, not to the games, and it sits at the foot of the form on a
+     phone for the same reason. */
+  .app.setup:has(.setup-tables) .preferences {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: start;
+    margin-top: 0;
+  }
+  .setup-tables {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+  /* Three across at this width, so a card stays about the size it is on a
+     phone instead of stretching to a third of 740px. */
+  .setup-tables .games {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .setup .wordmark {
+    font-size: 3.4rem;
+  }
+}
+
+/* The APK's older WebView has no `:has()`, and would take none of the block
+   above -- which is correct rather than broken: it falls back to the single
+   column every phone gets, which is the layout it was already showing. The
+   two recovery screens are the reason the guard is a `:has()` at all; see the
+   note above. */

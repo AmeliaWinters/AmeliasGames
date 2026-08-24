@@ -47,6 +47,11 @@ export function restAngle(at: number | null): number {
   // The pointer is at twelve o'clock, and wedge `at` runs clockwise from
   // `at * WEDGE_ARC` — so its middle has to come back by that much plus half
   // a wedge.
+  //
+  // `at` is fractional — it is `WofState.rest`, not `WofState.wedgeAt`. Whole
+  // values are midpoints and the halves are the seams, which is the same
+  // convention `restAfter` and `wedgeUnder` use, and it only works because
+  // this expression was linear in `at` to begin with.
   return -(at * WEDGE_ARC + WEDGE_ARC / 2);
 }
 
@@ -80,6 +85,6 @@ export const FLAP_MAX = 14;
  * wedge, not on a peg — which is the property the test pins.
  */
 export function flapAngle(wheel: number): number {
-  const within = ((((wheel % WEDGE_ARC) + WEDGE_ARC) % WEDGE_ARC) / WEDGE_ARC);
+  const within = (((wheel % WEDGE_ARC) + WEDGE_ARC) % WEDGE_ARC) / WEDGE_ARC;
   return FLAP_MAX * Math.max(0, (within - 0.5) * 2);
 }

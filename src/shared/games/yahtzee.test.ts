@@ -187,7 +187,9 @@ describe('the turn', () => {
     expect(err(apply(fresh, { type: 'hold', die: 0 }, 0))).toMatch(/Roll the dice first/);
     const spent = position({ rollsLeft: 0 });
     expect(err(apply(spent, { type: 'hold', die: 0 }, 0))).toMatch(/Nothing left to roll/);
-    expect(err(apply(position(), { type: 'hold', die: DICE }, 0))).toMatch(/does not exist/);
+    expect(err(apply(position(), { type: 'hold', die: DICE }, 0))).toMatch(
+      /Die 5 is not on the table/,
+    );
   });
 
   it('toggles a die rather than only setting it', () => {

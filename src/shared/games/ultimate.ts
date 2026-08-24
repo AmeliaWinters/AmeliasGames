@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { named } from '../refusal.js';
 import {
   CELLS,
   SPOTS,
@@ -121,7 +122,7 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
       return { ok: false, error: 'Unknown move.' };
     }
     if (!isCell(move.cell)) {
-      return { ok: false, error: 'That square does not exist.' };
+      return { ok: false, error: `There is no square ${named(move.cell)}.` };
     }
 
     const small = boardOf(move.cell);
@@ -130,11 +131,14 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
       // where they were sent has missed the only rule this game has.
       return { ok: false, error: `You were sent to the ${boardName(state.sent)}.` };
     }
+    // Named for the same reason the "sent" refusal above is: on a board of
+    // boards, "that board" and "that square" are ambiguous in a way they are
+    // not in any other game here -- there are nine of each.
     if (!isOpen(state, small)) {
-      return { ok: false, error: 'That board is already settled.' };
+      return { ok: false, error: `The ${boardName(small)} is already settled.` };
     }
     if (state.board[move.cell] !== null) {
-      return { ok: false, error: 'That square is taken.' };
+      return { ok: false, error: `That square in the ${boardName(small)} is taken.` };
     }
 
     const mover = seat as 0 | 1;

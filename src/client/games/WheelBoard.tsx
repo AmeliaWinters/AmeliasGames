@@ -29,7 +29,7 @@ import {
 /** Where a wedge's label sits. The rim itself is RADIUS, from
     `wheelGeometry.ts`; this is far enough in that a number clears the pointer
     and near enough out that it has the wedge's full width to sit across. */
-const LABEL_RADIUS = 78;
+const LABEL_RADIUS = 80;
 
 /**
  * The window onto the wheel: how wide a slice of it the table shows, and how
@@ -41,18 +41,36 @@ const LABEL_RADIUS = 78;
  * far sides of the rim running off both edges, which is what keeps a wedge
  * wide enough to letter.
  *
- * The depth is the whole radius and a little under the hub. That is the
- * change: the window used to be a band of rim 64 units deep with the hub 46
- * units below the frame, and a wheel with no middle in it is a doughnut —
- * nothing converges, nothing reads as a disc, and there is visibly nothing to
- * throw it about. Height is what that costs, and it is worth it.
+ * The depth is a fraction of the wheel rather than the whole radius: SHOW is
+ * how much of the 200-unit diameter the window keeps, measured down from the
+ * top of the rim, and CROP is that plus the sliver of clearance the pointer
+ * needs above it. The hub therefore sits well below the frame again, and the
+ * numbers cannot be read off the box — see HUB_Y.
+ *
+ * A word of warning, because this has bitten once: `aspect-ratio` on
+ * `.wof-wheel-frame` is VIEW_W / CROP written out, and an SVG whose viewBox
+ * disagrees with its box does not crop, it letterboxes. Change either number
+ * here and change that one too.
  */
-const VIEW_W = 150;
-const CROP = 116;
+const VIEW_W = 90;
+
+/** Clearance above the rim, in box units — the pointer is drawn from y=1 to
+    y=17, so the wheel starts below its tip. */
+const RIM_TOP = 8;
+
+/** How much of the wheel's diameter the window keeps, from the top of the rim
+    down. Small on purpose: the wedges that matter are the ones at the pointer,
+    and the rest of the disc is scenery that costs height a phone has not got. */
+const SHOW = 0.3;
+
+const CROP = Math.round(RIM_TOP + 2 * RADIUS * SHOW);
 
 /**
- * The wheel's hub, in the box's own coordinates — now in the frame, a dozen
- * units up from the bottom edge, so the wedges are seen to meet.
+ * The wheel's hub, in the box's own coordinates — one radius below the top of
+ * the rim, which now puts it below the bottom edge of the frame. That is why
+ * it is derived from RIM_TOP and not from CROP: tying it to the bottom edge
+ * (`CROP - 8`) meant cropping the window slid the whole wheel up with it, and
+ * the top of the rim went out of the frame along with the middle of it.
  *
  * The wheel is drawn about its own origin and then moved here by a translate,
  * rather than the box being given a viewBox centred on zero. That reads like
@@ -65,7 +83,7 @@ const CROP = 116;
  * point, whichever way an engine reads it.
  */
 const HUB_X = VIEW_W / 2;
-const HUB_Y = CROP - 12;
+const HUB_Y = RIM_TOP + RADIUS;
 
 /** How long a release looks back for its speed. Long enough to average out a
     jittery finger, short enough that a drag that stopped dead reads as one. */
@@ -86,11 +104,11 @@ const FLICK_WINDOW_MS = 120;
  */
 function wedgeGlyph(wedge: Wedge): string {
   // Bankrupt: the "none of it" sign — a ring with a stroke through it.
-  if (wedge.kind === 'bankrupt') {
-    return 'M 3.6 0 A 3.6 3.6 0 1 1 -3.6 0 A 3.6 3.6 0 1 1 3.6 0 M -2.5 -2.5 L 2.5 2.5';
+  if (wedge.kind === "bankrupt") {
+    return "M 3.6 0 A 3.6 3.6 0 1 1 -3.6 0 A 3.6 3.6 0 1 1 3.6 0 M -2.5 -2.5 L 2.5 2.5";
   }
   // Lose a Turn: two chevrons, pointing the way the turn is about to go.
-  return 'M -3.2 -2.7 L -0.2 0 L -3.2 2.7 M 0.6 -2.7 L 3.6 0 L 0.6 2.7';
+  return "M -3.2 -2.7 L -0.2 0 L -3.2 2.7 M 0.6 -2.7 L 3.6 0 L 0.6 2.7";
 }
 
 function wedgeClass(index: number): string {
@@ -141,7 +159,10 @@ function Wheel({
     worked out in the same breath as the angle. A drag sets `ms` to zero; the
     stylesheet takes it from here.
   */
-  const [turn, setTurn] = useState(() => ({ angle: restAngle(state.wedgeAt), ms: 0 }));
+  const [turn, setTurn] = useState(() => ({
+    angle: restAngle(state.wedgeAt === null ? null : state.rest),
+    ms: 0,
+  }));
   const angle = turn.angle;
   const [dragging, setDragging] = useState(false);
   const seen = useRef(state.spins);
@@ -153,15 +174,18 @@ function Wheel({
 
   /** Lay the flapper against the wheel standing at `wheel` degrees. */
   function setFlap(wheel: number) {
-    if (flapper.current) flapper.current.style.transform = `rotate(${flapAngle(wheel)}deg)`;
+    if (flapper.current)
+      flapper.current.style.transform = `rotate(${flapAngle(wheel)}deg)`;
   }
   /* The live drag: where the finger started, what the wheel read then, and the
      last few positions with their timestamps — the tail is what a release is
      measured over. Held in a ref rather than in state because it changes on
      every pointermove and none of it is drawn. */
-  const drag = useRef<{ from: number; base: number; trail: { at: number; t: number }[] } | null>(
-    null,
-  );
+  const drag = useRef<{
+    from: number;
+    base: number;
+    trail: { at: number; t: number }[];
+  } | null>(null);
 
   useEffect(() => {
     if (state.spins === seen.current) return;
@@ -171,20 +195,24 @@ function Wheel({
       // The distance the throw actually covered, signed — a flick left turns
       // the wheel left, and a hard one visibly goes further than a gentle one.
       const swept = current.angle + state.travel * WEDGE_ARC;
-      const target = restAngle(state.wedgeAt);
-      // ...landed exactly on a wedge. `swept` is a whole number of wedges from
+      const target = restAngle(state.rest);
+      // ...landed where the throw left it. `swept` is the exact distance from
       // where the wheel *rested*, but a drag may have left it up to half a
       // turn either side of that, so the last step is the nearest angle to the
-      // physical distance that still puts the wedge under the pointer. Half a
-      // wedge to eight of them, on a throw of forty at the very least.
+      // physical distance that stands the wheel at `state.rest`. Nothing here
+      // rounds to a wedge any more: `rest` is fractional, so the correction is
+      // only ever the whole turn the drag added or took off.
       const landed = swept + (((((target - swept) % 360) + 540) % 360) - 180);
       // Timed from the distance actually drawn rather than from `travel`, so
       // the wheel decelerates at the wheel's own rate whatever the drag added
       // or took off. The two agree to within a few per cent; the transition and
       // the freeze upstairs would both be lying about the other few.
-      return { angle: landed, ms: spinMs(Math.abs(landed - current.angle) / WEDGE_ARC) };
+      return {
+        angle: landed,
+        ms: spinMs(Math.abs(landed - current.angle) / WEDGE_ARC),
+      };
     });
-  }, [state.spins, state.wedgeAt, state.travel]);
+  }, [state.spins, state.wedgeAt, state.rest, state.travel]);
 
   /**
    * The flapper, through a spin.
@@ -254,14 +282,19 @@ function Wheel({
       /* no capture; the drag still works while the finger stays on the wheel */
     }
     const at = angleAt(svg, event.clientX, event.clientY);
-    drag.current = { from: at, base: angle, trail: [{ at: 0, t: event.timeStamp }] };
+    drag.current = {
+      from: at,
+      base: angle,
+      trail: [{ at: 0, t: event.timeStamp }],
+    };
     setDragging(true);
   }
 
   function move(event: React.PointerEvent<SVGSVGElement>) {
     const live = drag.current;
     if (!live) return;
-    const raw = angleAt(event.currentTarget, event.clientX, event.clientY) - live.from;
+    const raw =
+      angleAt(event.currentTarget, event.clientX, event.clientY) - live.from;
     // atan2 wraps at the bottom of the circle; the trail must not, or a drag
     // that crossed the wrap would read as a full turn the other way.
     const last = live.trail[live.trail.length - 1].at;
@@ -290,7 +323,8 @@ function Wheel({
     // hard, and the seconds before the snap are no part of the throw.
     const trail = live.trail;
     const last = trail[trail.length - 1];
-    const first = trail.find((sample) => last.t - sample.t <= FLICK_WINDOW_MS) ?? trail[0];
+    const first =
+      trail.find((sample) => last.t - sample.t <= FLICK_WINDOW_MS) ?? trail[0];
     const ms = last.t - first.t;
     // Signed, and in the same units the reducer thinks in: degrees of the
     // wheel's own rotation per millisecond, positive clockwise. `spinThrow`
@@ -353,14 +387,21 @@ function Wheel({
                and ending it early is the board showing the answer over a wheel
                that is still going round. */
             onTransitionEnd={(event) => {
-              if (event.target === turning.current && event.propertyName === "transform") {
+              if (
+                event.target === turning.current &&
+                event.propertyName === "transform"
+              ) {
                 onSettled();
               }
             }}
           >
             <g transform={`translate(${HUB_X} ${HUB_Y})`}>
               {WHEEL.map((wedge, index) => (
-                <path key={index} className={wedgeClass(index)} d={sectorPath(index)} />
+                <path
+                  key={index}
+                  className={wedgeClass(index)}
+                  d={sectorPath(index)}
+                />
               ))}
               {WHEEL.map((wedge, index) => (
                 <g
@@ -398,7 +439,12 @@ function Wheel({
             meeting at a point is thirty-six slivers of mush, and a wheel needs
             something at the middle holding it anyway. */}
         <circle className="wof-hub" cx={HUB_X} cy={HUB_Y} r={HUB_RADIUS} />
-        <circle className="wof-hub pin" cx={HUB_X} cy={HUB_Y} r={HUB_RADIUS / 3} />
+        <circle
+          className="wof-hub pin"
+          cx={HUB_X}
+          cy={HUB_Y}
+          r={HUB_RADIUS / 3}
+        />
         {/* The flapper. Drawn inside the wheel's own box rather than floated
             over it, so it sits on the rim at every width without a percentage
             anybody has to keep in step with the crop. One wedge wide, so what
@@ -437,7 +483,9 @@ function tileClass(ch: string, justCalled: string | null): string {
 function spoken(answer: string): string {
   return answer
     .split(" ")
-    .map((word) => [...word].map((ch) => (ch === BLANK ? "blank" : ch)).join(" "))
+    .map((word) =>
+      [...word].map((ch) => (ch === BLANK ? "blank" : ch)).join(" "),
+    )
     .join(", ");
 }
 
@@ -493,10 +541,13 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     // backgrounded mid-spin, or a wheel that was already where it had to be,
     // would otherwise freeze the board for good. Generous on purpose; it
     // should never be the thing that fires.
-    const id = setTimeout(() => {
-      setSpinning(false);
-      setFrozen(null);
-    }, spinMs(state.travel) + 600);
+    const id = setTimeout(
+      () => {
+        setSpinning(false);
+        setFrozen(null);
+      },
+      spinMs(state.travel) + 600,
+    );
     return () => clearTimeout(id);
     // Layout rather than plain effect: a passive one runs after paint, so the
     // spun value got one frame on screen before the freeze caught it — a
@@ -524,7 +575,8 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
 
   const bank = seat === null ? 0 : (shown.bank[seat] ?? 0);
-  const canBuyVowel = canAct && !spinning && shown.phase === "spin" && bank >= VOWEL_COST;
+  const canBuyVowel =
+    canAct && !spinning && shown.phase === "spin" && bank >= VOWEL_COST;
   // The one gate the wheel and the Spin button share. They are two ways of
   // making the same move and must never be offered on different terms.
   const canSpin = canAct && !spinning && shown.phase === "spin";
@@ -600,7 +652,9 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               <span className="wof-prompt">{wedgeName(landed)}</span>
             ) : (
               <span className="wof-prompt">
-                {canAct ? "Flick the wheel, buy a vowel, or solve" : "Waiting on the wheel"}
+                {canAct
+                  ? "Flick the wheel, buy a vowel, or solve"
+                  : "Waiting on the wheel"}
               </span>
             )}
           </p>
@@ -611,7 +665,9 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               it is the only one shown. */}
           {canAct && (
             <div className="wof-meters">
-              <p className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}>
+              <p
+                className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}
+              >
                 <span className="wof-pips" aria-hidden="true">
                   {Array.from({ length: FINDS_PER_TURN }, (_, i) => (
                     <i key={i} className={i < findsLeft ? "" : "spent"} />
@@ -652,7 +708,11 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
         <div className="wof-actions">
           {shown.roundOver ? (
             !shown.over && (
-              <button className="primary" disabled={!canAct} onClick={() => onMove({ type: "next" })}>
+              <button
+                className="primary"
+                disabled={!canAct}
+                onClick={() => onMove({ type: "next" })}
+              >
                 Start round {shown.round + 1}
               </button>
             )
@@ -668,10 +728,7 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               >
                 Spin
               </button>
-              <button
-                disabled={!canSpin}
-                onClick={() => setSolving(true)}
-              >
+              <button disabled={!canSpin} onClick={() => setSolving(true)}>
                 Solve
               </button>
             </>
@@ -693,7 +750,9 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               return (
                 <button
                   key={letter}
-                  className={spent ? "wof-key surface spent" : "wof-key surface"}
+                  className={
+                    spent ? "wof-key surface spent" : "wof-key surface"
+                  }
                   disabled={!usable}
                   onClick={() => onMove({ type: "letter", letter })}
                   aria-label={
@@ -724,14 +783,20 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
         {shown.bank.map((amount, index) => (
           <div
             key={index}
-            className={["wof-purse", `p${index}`, shown.turn === index && !shown.over ? "active" : ""]
+            className={[
+              "wof-purse",
+              `p${index}`,
+              shown.turn === index && !shown.over ? "active" : "",
+            ]
               .filter(Boolean)
               .join(" ")}
           >
             <span className="chip" aria-hidden="true" />
             <span className="who">{nameFor(index)}</span>
             <span className="round">{money(amount)}</span>
-            <span className="banked">{money(shown.score[index] ?? 0)} banked</span>
+            <span className="banked">
+              {money(shown.score[index] ?? 0)} banked
+            </span>
           </div>
         ))}
       </div>

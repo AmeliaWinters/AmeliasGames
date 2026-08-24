@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 // The manifest, not the registry: the lobby needs ids and names, and importing
 // the registry here would pull every reducer into the client bundle.
 import {
@@ -20,7 +20,7 @@ import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
 import { boardFor } from "./games/boards.js";
 import { Die } from "./games/Die.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
-import { inviteUrl, loadName, saveName, useRoom } from "./net.js";
+import { inviteUrl, loadLastGame, loadName, saveLastGame, saveName, useRoom } from "./net.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
   applyChannel,
@@ -33,6 +33,7 @@ import {
 } from "./palette.js";
 import { applySound, loadSound } from "./feel.js";
 import { play, primeSfx, useTableSounds } from "./sfx.js";
+import { Toaster, useToasts, type Toasts } from "./toast.js";
 
 /**
  * A name in two parts, so the channel colour can land on the second half.
@@ -123,6 +124,32 @@ const LETTERPRESS_TILES = [
   "T", "N", "I", "S", "H",
   "W", "E", "D", "L", "U",
 ];
+
+/**
+ * Three links of an English chain: MILK, KIWI, ICEBERG.
+ *
+ * Checked against the game's own list rather than chosen for their shapes --
+ * `chainLookup('en', …)` finds all three -- and each one starts on the letter
+ * the one above it ended with, which is the whole rule. The stagger in the
+ * `.art-wordchain` block is what draws that: every word begins in the column
+ * its parent's last letter is standing in, so the joint is one column of two
+ * letters rather than a claim in a caption.
+ *
+ * Letters are separate elements because the joint has to line up to the
+ * column. They are bare glyphs on the board -- no cell, no outline -- which is
+ * also what keeps this from being a third lettered grid; see the register.
+ */
+const CHAIN_LINKS = ["MILK", "KIWI", "ICEBERG"];
+
+/**
+ * A Vocab Race reveal: the clue it asked, and the word that answers it.
+ *
+ * Real data, from `vocabQuestion('pl', 20)` -- the twentieth commonest Polish
+ * word, which is what a game a few rounds deep is actually showing. Written
+ * out rather than imported because the dictionary is a reducer-side module and
+ * `bundle.test.ts` keeps the lobby out of it.
+ */
+const VOCAB_REVEAL = { clue: "only, just", word: "tylko" };
 
 /**
  * The middle band of an Ultimate board, mid-game: boards 3, 4 and 5.
@@ -256,14 +283,15 @@ function MorrisCorner() {
  * of a game being played.
  *
  * Most of these are a count and nothing more, laid out and coloured by
- * nth-child in the stylesheet. Four are not: the Wheel needs arcs, which CSS
+ * nth-child in the stylesheet. Six are not: the Wheel needs arcs, which CSS
  * cannot cut without a gradient; Morris needs its points at coordinates the
- * rules already hold; the two lettered grids need their letters; and the two
- * dice games use the real `Die`, so their faces are the six the rest of the
- * app draws rather than a dot standing in for a pip.
+ * rules already hold; the two lettered grids need their letters, as do Word
+ * Chain's three words and Vocab Race's clue and answer; and the two dice
+ * games use the real `Die`, so their faces are the six the rest of the app
+ * draws rather than a dot standing in for a pip.
  *
- * The rules all eleven follow, and the register of which game owns which
- * shape, are in `docs/card-motifs.md`. Read it before adding a twelfth.
+ * The rules all thirteen follow, and the register of which game owns which
+ * shape, are in `docs/card-motifs.md`. Read it before adding a fourteenth.
  */
 function CardArt({ gameId }: { gameId: string }) {
   return (
@@ -363,6 +391,36 @@ function motif(gameId: string) {
           ))}
         </span>
       ));
+    // Three links of a chain, each starting in the column its parent's last
+    // letter is standing in -- so the shared letter is one column of two
+    // glyphs, and the rule is drawn rather than described. Bare letters, no
+    // cells: the lobby already has two lettered grids and this is not a third.
+    case "wordchain":
+      return CHAIN_LINKS.map((word, link) => (
+        <span key={link}>
+          {[...word].map((letter, i) => (
+            <i key={i}>{letter}</i>
+          ))}
+        </span>
+      ));
+    // The six seconds after a round: the clue, and the word that answers it,
+    // inside the only full border the app draws around anything. Scores are
+    // cut off above it -- there is a race going on over this card, and the
+    // reveal is what everyone in it is looking at while it runs.
+    case "vocab":
+      return (
+        <>
+          <span>
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>
+            <b>{VOCAB_REVEAL.clue}</b>
+            <strong lang="pl">{VOCAB_REVEAL.word}</strong>
+          </span>
+        </>
+      );
     // A game the manifest knows and this file does not. An empty well reads as
     // a card with no picture, which is better than a card with a wrong one.
     default:
@@ -379,7 +437,7 @@ function motif(gameId: string) {
  * with a tracking parameter, which is most links — got a fragment reading
  * `ABCD?as=b`. Nothing broke on the spot, because the code had already been
  * set in state. It broke on the next reload, where `codeFromHash` no longer
- * recognised four letters, `hashIsBroken` did, and somebody sitting in a
+ * recognised four letters, `brokenHashCode` did, and somebody sitting in a
  * game was shown "that link doesn't look complete" and dropped at the setup
  * screen.
  */
@@ -397,25 +455,66 @@ function codeFromHash(): string | null {
  * mangled in the paste. Silently dropping it leaves someone staring at the
  * setup screen wondering why their friend's link did nothing.
  */
-function hashIsBroken(): boolean {
+function brokenHashCode(): string | null {
   const raw = location.hash.slice(1);
-  return raw.length > 0 && !isRoomCode(raw.toUpperCase());
+  if (raw.length === 0 || isRoomCode(raw.toUpperCase())) return null;
+  // Whatever is in the fragment is somebody else's typing, and it can be any
+  // length at all. A toast that quotes it has to quote a readable amount of
+  // it: past a couple of codes' worth the quotation is no longer helping the
+  // player recognise their own broken link, it is just filling the toast.
+  return raw.length > 12 ? `${raw.slice(0, 12)}…` : raw;
 }
 
-/** "Gone" is only right for one of these. */
-function joinFailureHeading(kind: ErrorKind | null): string {
-  if (kind === "no-room") return "That game has gone";
-  if (kind === "full") return "That game is full";
-  if (kind === "started") return "They have already started";
-  if (kind === "protocol") return "Time for a refresh";
-  return "Couldn't join that game";
+/** The toast a broken invite link raises, quoting the part that went wrong. */
+function brokenLinkMessage(fragment: string): string {
+  return (
+    `"${fragment}" is not a room code — they are ${CODE_LENGTH} letters. ` +
+    "Ask for the link again, or type the code below."
+  );
 }
 
-/** The card's second line: how many can play, in as few words as it takes. */
+/**
+ * Whether a failed join deserves the whole screen.
+ *
+ * Only one kind does. A wrong code, a full table and a game already dealt are
+ * all *moments*: the player is one keystroke from trying again, and taking
+ * over the screen to say so put a heading and a "Back to the start" button in
+ * front of a typo. Those come back as toasts over the setup screen now.
+ *
+ * A protocol mismatch is not a moment. This bundle cannot talk to that server
+ * until it is reloaded, so every retry fails the same way, and a notice that
+ * fades after five seconds would leave the player looking at a form that
+ * cannot work. That one keeps its screen, and its reload button.
+ */
+function needsWholeScreen(kind: ErrorKind | null): boolean {
+  return kind === "protocol";
+}
+
+/**
+ * How many can play, as a figure rather than a sentence.
+ *
+ * It used to read "2 players", which nine of the thirteen cards said — so the
+ * smallest type in the lobby was spending itself thirteen times on the least
+ * interesting fact available, and the card's own line now carries what the
+ * game actually is. A bare figure at the end of the name is what is left, and
+ * it is the better shape for the question it answers: somebody looking for a
+ * game four people can play is comparing thirteen numbers down a column, not
+ * reading thirteen sentences to find the digit in each one.
+ *
+ * The word is gone from the card, so it is put back for anyone listening to
+ * it rather than looking — see `seatLabel`.
+ */
 function seatSummary(table: GameEntry): string {
   return table.minPlayers === table.maxPlayers
+    ? `${table.minPlayers}`
+    : `${table.minPlayers}–${table.maxPlayers}`;
+}
+
+/** The same range, said out loud, for the card's accessible name. */
+function seatLabel(table: GameEntry): string {
+  return table.minPlayers === table.maxPlayers
     ? `${table.minPlayers} players`
-    : `${table.minPlayers}–${table.maxPlayers} players`;
+    : `${table.minPlayers} to ${table.maxPlayers} players`;
 }
 
 /**
@@ -476,32 +575,68 @@ function useChannel(gameId: string): void {
   }, [gameId]);
 }
 
+/**
+ * The toasts outlive the screen they were raised on -- a failed join drops
+ * the player back to the setup screen, and the toast saying why has to
+ * survive that swap -- so the stack is owned out here, above every screen,
+ * and rendered once beside whichever one is showing.
+ */
 export function App() {
+  const toasts = useToasts();
+  return (
+    <>
+      <AppScreens toasts={toasts} />
+      <Toaster toasts={toasts.toasts} onDismiss={toasts.dismiss} />
+    </>
+  );
+}
+
+function AppScreens({ toasts }: { toasts: Toasts }) {
   const [name, setName] = useState(loadName);
   const [code, setCode] = useState<string | null>(codeFromHash);
   const [intent, setIntent] = useState<"idle" | "play">(codeFromHash() ? "play" : "idle");
   const [create, setCreate] = useState(false);
-  const [gameId, setGameId] = useState(DEFAULT_GAME_ID);
+  /*
+    The game the lobby opens on, and the one it draws at twice the size.
+
+    Checked against the manifest rather than trusted, because this is a string
+    a browser has been holding since the last visit: a game that has since been
+    removed would otherwise put an unknown id into `useRoom`, which is a room
+    the server will refuse to build. An id nobody recognises is the same
+    situation as a first visit, and gets the same answer.
+  */
+  const [gameId, setGameId] = useState(() => {
+    const last = loadLastGame();
+    return last && gameEntry(last) ? last : DEFAULT_GAME_ID;
+  });
   const [copied, setCopied] = useState(false);
-  const [linkProblem, setLinkProblem] = useState(hashIsBroken);
   const [palette, swapPalette] = usePalette();
   const [sound, toggleSound] = useSound();
+  const { push } = toasts;
 
-  const table = gameEntry(gameId);
+  // Arriving on a broken link. It reads as an event and not as a state of the
+  // form, which is why it is a toast: the remedy -- type the code -- is the
+  // screen underneath, and a notice pinned above it was competing with the
+  // field it was pointing at.
+  useEffect(() => {
+    const broken = brokenHashCode();
+    if (broken) push(brokenLinkMessage(broken));
+  }, [push]);
 
   useEffect(() => {
     const onHash = () => {
       const next = codeFromHash();
       setCode(next);
       setCreate(false);
-      setLinkProblem(hashIsBroken());
+      const broken = brokenHashCode();
+      if (broken) push(brokenLinkMessage(broken));
       // Without the else, a hash edited to something unusable leaves us with
       // no code, no socket, and no route back to the setup screen.
       setIntent(next ? "play" : "idle");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [push]);
 
   const {
     room,
@@ -509,6 +644,7 @@ export function App() {
     status,
     error,
     errorKind,
+    errorSeq,
     sendMove,
     requestRematch,
     switchGame,
@@ -523,7 +659,15 @@ export function App() {
     });
 
   useChannel(room?.gameId ?? gameId);
-  useTableSounds(room, seat, error);
+  useTableSounds(room, seat, errorSeq);
+
+  // What the lobby will open on next time. Written from the room rather than
+  // from the pick, so a game somebody else chose still counts as the game you
+  // played — arriving on a link is how half the games here start.
+  const playing = room?.gameId;
+  useEffect(() => {
+    if (playing) saveLastGame(playing);
+  }, [playing]);
 
   // The tab, which is the other place the two names are read together — and
   // the one `index.html` cannot write, because it can only ever say what was
@@ -542,6 +686,29 @@ export function App() {
     setCreate(false);
     setIntent("idle");
   };
+
+  /*
+    Every refusal the server sends becomes one toast, exactly once.
+
+    Keyed on `errorSeq` and not on the message, because two identical
+    refusals are two events -- see `useRoom`. `push` and `dismissError` are
+    stable, so the effect runs when, and only when, a refusal arrives.
+
+    The second half is the part that used to be a whole screen. A join that
+    failed left us retrying a room that was never going to accept us, behind
+    a card whose only control was a way back; now the toast carries the
+    reason and we take the way back ourselves, which also stops the retry
+    loop. `!room` is what distinguishes a *join* failing from a move being
+    refused inside a room we are already sitting in.
+  */
+  useEffect(() => {
+    if (errorSeq === 0 || !error) return;
+    push(error, errorKind);
+    if (!room && !needsWholeScreen(errorKind)) goHome();
+    // `error`, `errorKind` and `room` are read at the moment a refusal lands,
+    // not watched -- `errorSeq` is the event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorSeq, push]);
 
   // Copying the invite is one behaviour with two faces: the code in the
   // topbar, and -- while the room is still filling -- the big code that
@@ -573,23 +740,22 @@ export function App() {
       <Setup
         initialName={name}
         pendingCode={code}
-        linkProblem={linkProblem}
         swapLabel={swapLabel}
         onSwapPalette={swapPalette}
         sound={sound}
         onToggleSound={toggleSound}
-        gameId={gameId}
-        onPickGame={setGameId}
-        table={table}
-        onStart={(chosenName, joinCode) => {
+        lastGameId={gameId}
+        onStart={(chosenName, joinCode, chosenGame) => {
           saveName(chosenName);
           setName(chosenName);
+          // Null when joining: that room already knows what it is playing, and
+          // guessing here would only be a guess the server then corrects.
+          if (chosenGame) setGameId(chosenGame);
           // The client picks the code for a new game so the room is
           // addressable from the very first request.
           const target = joinCode ?? makeRoomCode();
           setCreate(joinCode === null);
           setCode(target);
-          setLinkProblem(false);
           history.replaceState(null, "", roomUrl(target));
           setIntent("play");
         }}
@@ -614,30 +780,20 @@ export function App() {
     );
   }
 
-  // A code that no longer exists (server restart, expired room) would
-  // otherwise leave us retrying a dead room forever.
-  if (!room && error) {
+  // The one refusal that is a state rather than a moment. Everything else that
+  // can go wrong with a join is a toast over the setup screen, which the
+  // effect above sends us back to; this bundle cannot talk to this server at
+  // all, so there is nothing behind a toast worth looking at, and "back to the
+  // start" would only re-send the same stale hello and fail the same way. The
+  // screen asks for a refresh, and the button has to actually be one.
+  if (!room && error && needsWholeScreen(errorKind)) {
     return (
       <main className="app setup">
-        <h1 className="wordmark">{joinFailureHeading(errorKind)}</h1>
+        <h1 className="wordmark">Time for a refresh</h1>
         <p className="tagline">{error}</p>
-        {/*
-          A protocol error means this bundle is out of date, so going "back to
-          the start" would only re-send the same stale hello and fail the same
-          way. The screen asks for a refresh; the button has to actually be one.
-        */}
-        {errorKind === "protocol" ? (
-          <button className="primary" onClick={() => location.reload()}>
-            Refresh the page
-          </button>
-        ) : (
-          <button
-            className="primary"
-            onClick={goHome}
-          >
-            Back to the start
-          </button>
-        )}
+        <button className="primary" onClick={() => location.reload()}>
+          Refresh the page
+        </button>
       </main>
     );
   }
@@ -692,15 +848,6 @@ export function App() {
           />
         </div>
       </header>
-
-      {error && (
-        <div className="banner error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="dismiss" onClick={dismissError}>
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {connectionNote && <div className="banner">{connectionNote}</div>}
 
@@ -915,115 +1062,186 @@ function SoundButton({ on, onToggle }: { on: boolean; onToggle(): void }) {
   );
 }
 
+/**
+ * One game on the shelf: its table, mid-play, with a way to sit down at it.
+ *
+ * A button rather than a radio, and that is the whole change to this screen.
+ * The card used to pick a game which a button 957px further down then started
+ * — so the label that named your choice ("Start Connect Four") was read at the
+ * one moment your choice had scrolled off the top. Pressing the table you want
+ * is one act instead of two, and it removes the only control on the screen
+ * that had to be hunted for.
+ *
+ * What that costs is the confirmation step, and the answer to a mis-tap is
+ * that a room is free: nothing is spent, nobody is told, and the wordmark is
+ * the way back. What it saves is the `.picked` state, the Start button, and
+ * the two of them having to agree about which game they meant.
+ *
+ * Every card is its own tab stop, which is what a list of buttons is. No
+ * roving tabindex and no `aria-checked`: there is nothing selected here any
+ * more, so there is no selection to model.
+ */
+function TableCard({
+  table,
+  featured,
+  onStart,
+}: {
+  table: GameEntry;
+  featured?: boolean;
+  onStart(gameId: string): void;
+}) {
+  return (
+    <button
+      className={featured ? "game featured" : "game"}
+      data-game={table.id}
+      onClick={() => onStart(table.id)}
+    >
+      <CardArt gameId={table.id} />
+      {/* The figure is for the eye, which is comparing it down a column of
+          thirteen. The words are for anyone listening, who is not. */}
+      <span className="count" aria-hidden="true">
+        {seatSummary(table)}
+      </span>
+      <span className="name">{table.name}</span>
+      <span className="sr-only">{seatLabel(table)}</span>
+      <span className="blurb">{table.blurb}</span>
+      {featured && <span className="resume">Last played</span>}
+    </button>
+  );
+}
+
 function Setup({
   initialName,
   pendingCode,
-  linkProblem,
   swapLabel,
   onSwapPalette,
   sound,
   onToggleSound,
-  gameId,
-  onPickGame,
-  table,
+  lastGameId,
   onStart,
 }: {
   initialName: string;
   pendingCode: string | null;
-  linkProblem: boolean;
   swapLabel: string;
   onSwapPalette(): void;
   sound: boolean;
   onToggleSound(): void;
-  gameId: string;
-  onPickGame(id: string): void;
-  table: GameEntry | undefined;
-  onStart(name: string, code: string | null): void;
+  lastGameId: string;
+  onStart(name: string, code: string | null, gameId: string | null): void;
 }) {
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState(pendingCode ?? "");
+  const nameField = useRef<HTMLInputElement>(null);
   const trimmed = name.trim();
+
+  /*
+    The shelf, with the game you last sat down to on top of it.
+
+    Thirteen cards in manifest order gave the art nothing to be bigger than:
+    two columns, seven rows, every card the size of every other, and Connect
+    Four preselected forever however long it had been since anyone played it.
+    One card at twice the size is the whole of the hierarchy this screen needs,
+    and "the one you played last" is the only ranking the app can honestly
+    claim to know.
+
+    Falling back to the head of the list covers a first visit and a stored id
+    from a game that has since been removed — both of which are "no game on
+    top", and neither of which is worth an empty frame.
+  */
+  const tables = gameList();
+  const featured = tables.find((game) => game.id === lastGameId) ?? tables[0];
+  const rest = tables.filter((game) => game.id !== featured.id);
+
+  // A table cannot be sat down at anonymously, and the field that fixes that
+  // is one screen up. Sending the cursor there says so faster than a message
+  // would, and it is the same remedy either way.
+  const start = (gameId: string) => {
+    if (!trimmed) {
+      nameField.current?.focus();
+      return;
+    }
+    play("tap");
+    onStart(trimmed, null, gameId);
+  };
 
   return (
     <main className="app setup">
-      <h1 className="wordmark">
-        <Wordmark name="Rebellia Games" />
-      </h1>
-      <p className="tagline">Two to eight players, one link. No ads, no accounts.</p>
+      {/* Two wrappers that do nothing at phone width but stack, and become the
+          two columns of the desktop layout — see the `@media` block in
+          `base.css`. Real flex columns rather than `display: contents`, so the
+          spacing inside them does not depend on a property the oldest WebView
+          this ships to may not have. */}
+      <div className="setup-intro">
+        <h1 className="wordmark">
+          <Wordmark name="Rebellia Games" />
+        </h1>
+        <p className="tagline">Two to eight players, one link. No ads, no accounts.</p>
 
-      {linkProblem && (
-        <p className="banner error" role="alert">
-          That link doesn't look complete — ask for it again, or type the room code below.
-        </p>
-      )}
+        <label>
+          Your name
+          <input
+            ref={nameField}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Amelia"
+            maxLength={20}
+            autoFocus
+          />
+        </label>
 
-      <label>
-        Your name
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Amelia"
-          maxLength={20}
-          autoFocus
-        />
-      </label>
+        {/* The code, immediately under the name, and above the thirteen cards
+          rather than below them.
 
-      <fieldset className="games">
-        <legend>Game</legend>
-        {gameList().map((game) => (
-          <label
-            key={game.id}
-            className={game.id === gameId ? "game picked" : "game"}
-            data-game={game.id}
-          >
+          Everyone who arrives here with a code in their hand is the second
+          player: someone read it out, or sent a link that did not open. They
+          are not choosing a game -- their game was chosen for them -- so every
+          card between the name field and this row was a card they had to
+          scroll past to answer a question they had already answered. Measured
+          at 375px it was 1395px down a 1636px page: a full screen and most of
+          another, to reach the one control they came for.
+
+          Starting a game keeps the whole run below, in the order it was in.
+          The two are one field apart, so nobody hunting the other one has far
+          to look. */}
+        <div className="joinbar">
+          <label>
+            Room code
             <input
-              type="radio"
-              name="game"
-              value={game.id}
-              checked={game.id === gameId}
-              onChange={() => {
-                play("tap");
-                onPickGame(game.id);
-              }}
+              value={code}
+              onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
+              placeholder="ABCD"
+              className="code-input"
+              maxLength={CODE_LENGTH}
+              aria-describedby="code-hint"
             />
-            <CardArt gameId={game.id} />
-            <span className="name">{game.name}</span>
-            <span className="meta">{seatSummary(game)}</span>
           </label>
-        ))}
-      </fieldset>
-
-      {/* Names the game you are about to start, so the card you picked and the
-          button you press say the same thing. */}
-      <button className="primary" disabled={!trimmed} onClick={() => onStart(trimmed, null)}>
-        {table ? `Start ${table.name}` : "Start a new game"}
-      </button>
-
-      <div className="divider">
-        <span>or join one</span>
+          <button
+            disabled={!trimmed || code.length !== CODE_LENGTH}
+            onClick={() => onStart(trimmed, code, null)}
+          >
+            Join
+          </button>
+        </div>
+        <p className="hint" id="code-hint">
+          {CODE_LENGTH} letters, from the link or read out to you.
+        </p>
       </div>
 
-      <label>
-        Room code
-        <input
-          value={code}
-          onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
-          placeholder="ABCD"
-          className="code-input"
-          maxLength={CODE_LENGTH}
-          aria-describedby="code-hint"
-        />
-      </label>
-      <p className="hint" id="code-hint">
-        {CODE_LENGTH} letters, from the link or read out to you.
-      </p>
+      {/* The divider is the shelf's heading rather than a rule with words in
+          it, so the label the eye reads and the label a screen reader
+          announces are the same string. */}
+      <section className="setup-tables" aria-labelledby="tables-heading">
+        <h2 className="divider" id="tables-heading">
+          <span>or pick a table</span>
+        </h2>
 
-      <button
-        disabled={!trimmed || code.length !== CODE_LENGTH}
-        onClick={() => onStart(trimmed, code)}
-      >
-        Join game
-      </button>
+        <div className="games">
+          <TableCard table={featured} featured onStart={start} />
+          {rest.map((game) => (
+            <TableCard key={game.id} table={game} onStart={start} />
+          ))}
+        </div>
+      </section>
 
       <div className="preferences">
         <button className="swap" onClick={onSwapPalette}>

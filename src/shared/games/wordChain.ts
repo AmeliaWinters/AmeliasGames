@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { named } from '../refusal.js';
 import {
   chainKey,
   chainLookup,
@@ -299,7 +300,9 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     if (!canAct(state, seat, now)) return { ok: false, error: 'Not your move.' };
 
     if (move.type === 'lang') {
-      if (!isLang(move.lang)) return { ok: false, error: 'No such language.' };
+      if (!isLang(move.lang)) {
+        return { ok: false, error: `${named(move.lang)} is not one of the languages.` };
+      }
       const langs = state.langs.slice();
       langs[seat] = move.lang;
       if (langs.some((l) => l === null)) return { ok: true, state: { ...state, langs } };
@@ -321,14 +324,22 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
 
     const typed = move.word.trim();
     if (typed.length < MIN_LENGTH) {
-      return { ok: false, error: `Words have to be at least ${MIN_LENGTH} letters.` };
+      return {
+        ok: false,
+        error: `${named(typed)} is too short — words have to be at least ${MIN_LENGTH} letters.`,
+      };
     }
 
     const entry = chainLookup(lang, typed);
     // The lists hold common words only, so this is the refusal a player is
     // most likely to think is wrong. Naming the language it looked in is what
     // makes it arguable rather than baffling.
-    if (!entry) return { ok: false, error: `Not in the ${LANG_NAME[lang]} list.` };
+    // The word is quoted rather than interpolated bare, the way Word Duel and
+    // Word Hunt do it: those have already reduced theirs to letters by this
+    // point, and this one has not -- `typed` is whatever was in the box.
+    if (!entry) {
+      return { ok: false, error: `${named(typed)} is not in the ${LANG_NAME[lang]} list.` };
+    }
 
     // Repeats are checked before the letter, and the order is the message. A
     // word that is both already said and starts wrongly is most usefully
@@ -343,7 +354,10 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     // ever asked to type a letter their keyboard does not have.
     const mode = modeOf(state);
     if (state.required && !chainKey(entry, mode).startsWith(foldLetter(state.required, mode))) {
-      return { ok: false, error: `Has to start with ${state.required.toUpperCase()}.` };
+      return {
+        ok: false,
+        error: `${entry.word} has to start with ${state.required.toUpperCase()}.`,
+      };
     }
 
     const next = opponentOf(seat);

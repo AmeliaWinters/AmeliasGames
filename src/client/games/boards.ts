@@ -15,6 +15,7 @@ import type { MmState, MmMove } from "../../shared/games/morrisDisplay.js";
 import type { UtState, UtMove } from "../../shared/games/ultimateDisplay.js";
 import type { LpState, LpMove } from "../../shared/games/letterpressDisplay.js";
 import type { WcState, WcMove } from "../../shared/games/wordChainDisplay.js";
+import type { VocabState, VocabMove } from "../../shared/games/vocabDisplay.js";
 import { Connect4Board } from "./Connect4Board.js";
 import { BackgammonGame } from "./BackgammonBoard.js";
 import { WheelBoard } from "./WheelBoard.js";
@@ -27,6 +28,7 @@ import { MorrisBoard } from "./MorrisBoard.js";
 import { UltimateBoard } from "./UltimateBoard.js";
 import { LetterpressBoard } from "./LetterpressBoard.js";
 import { WordChainBoard } from "./WordChainBoard.js";
+import { VocabBoard } from "./VocabBoard.js";
 
 /** Every id the manifest offers. */
 export type GameId = keyof typeof GAME_MANIFEST;
@@ -69,6 +71,7 @@ export interface GameStates {
   ultimate: UtState;
   letterpress: LpState;
   wordchain: WcState;
+  vocab: VocabState;
 }
 
 /** The other half of the pair — see `GameStates`. */
@@ -85,6 +88,7 @@ export interface GameMoves {
   ultimate: UtMove;
   letterpress: LpMove;
   wordchain: WcMove;
+  vocab: VocabMove;
 }
 
 /**
@@ -138,6 +142,7 @@ const BOARDS: { [K in GameId]: Board<K> } = {
   ultimate: UltimateBoard,
   letterpress: LetterpressBoard,
   wordchain: WordChainBoard,
+  vocab: VocabBoard,
 };
 
 /**

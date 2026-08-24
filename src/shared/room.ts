@@ -1,4 +1,5 @@
 import { canSeat, getGame } from './games/index.js';
+import { named } from './refusal.js';
 // Re-exported so the adapters still import room helpers from one place, while
 // the client can import roomCode.js directly and never pull in a reducer.
 export { CODE_LENGTH, makeRoomCode, isRoomCode, normalizeRoomCode } from './roomCode.js';
@@ -21,6 +22,32 @@ export interface SeatRecord {
  * game restored across that change would draw dice that disagree with the
  * score beside them. That is the same failure as a misread field and takes the
  * same cure.
+ *
+ * 15: Backgammon keeps an account of itself. `last` is the move just played,
+ * `stats` is what each seat did with the dice, and `race` is the pip lead
+ * after every turn — none of which can be recovered from a position, because
+ * a hit leaves no trace once the checker comes back in and an unplayable die
+ * leaves none at all. A restored game would come back with no `stats` and end
+ * on a summary reading `undefined` in every box, and `race` would draw a chart
+ * of a game that began at the point it was restored.
+ *
+ * 14: the Polish word list more than doubled. A frequency list counts strings
+ * and Polish spreads a word over strings, so `arbuz` — which only ever appears
+ * as `arbuza` — was not in the game at all; the counts are now rolled up onto
+ * the lemma and the dictionary's own headwords are admitted below everything
+ * anybody actually says. That is meaning, not shape: a `ChainLink` carries the
+ * rank it had when it was played and the stats divide it by `LIST_SIZE`, which
+ * went from 28,848 to 62,669, so a chain resumed across this deploy would
+ * report a common word as a rare one and every letter's answers-left count
+ * beside it would be measured against a different list.
+ *
+ * 13: the wheel stops where it stopped. `travel` was rounded to whole wedges
+ * and the board stood the wheel on the wedge's midpoint, so every landing in
+ * the game's history was dead-centre; travel is now fractional and the new
+ * `rest` field carries the exact resting position the next throw is anchored
+ * to. `SPIN_DRAG` and the travel clamps moved with it. A stored spin has no
+ * `rest`, and re-run under the new drag it would take half as long to go three
+ * times as far — the throw is the record, so this is the `Toss` case again.
  *
  * 12: Word Chain words carry how long they took. A chain restored from before
  * this deploy has links with no `ms` on them, and every average the end-of-game
@@ -49,7 +76,7 @@ export interface SeatRecord {
  * the browser rather than a 2.5D solver on the server. Every one of those on
  * its own would need this bump.
  */
-export const SNAPSHOT_VERSION = 12;
+export const SNAPSHOT_VERSION = 15;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {
@@ -211,13 +238,17 @@ export class RoomEngine {
     // the reducer a seat index its arrays were never sized for, and every
     // move in the room fails from then on.
     if (this.started()) {
-      return { ok: false, kind: 'started', error: 'That game has already started.' };
+      return {
+        ok: false,
+        kind: 'started',
+        error: `${this.def.name} in room ${this.code} has already started.`,
+      };
     }
     if (this.seats.length >= this.capacity) {
       return {
         ok: false,
         kind: 'full',
-        error: `${this.def.name} seats ${this.capacity}, and it is full.`,
+        error: `Room ${this.code} is full — ${this.def.name} seats ${this.capacity}.`,
       };
     }
     this.seats.push({ playerId, name });
@@ -237,8 +268,18 @@ export class RoomEngine {
    * view goes out rather than a message later.
    */
   start(seat: number, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
-    if (this.started()) return { ok: false, error: 'The game has already started.' };
-    if (seat !== 0) return { ok: false, error: 'Only the player who opened the room can start.' };
+    if (this.started()) {
+      return { ok: false, error: `${this.def.name} is already under way in room ${this.code}.` };
+    }
+    if (seat !== 0) {
+      const host = this.seats[0]?.name;
+      return {
+        ok: false,
+        error: host
+          ? `Only ${host}, who opened the room, can start.`
+          : 'Only the player who opened the room can start.',
+      };
+    }
     if (this.short() > 0) {
       const more = this.short();
       return {
@@ -261,7 +302,9 @@ export class RoomEngine {
    * happens in an ordinary dealt game like everything else.
    */
   move(seat: number, move: unknown, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
-    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
+    if (!this.started()) {
+      return { ok: false, error: `${this.def.name} has not been dealt yet.` };
+    }
     // A move that arrives after the whistle meets a game that is already over,
     // rather than one that is still open because no timer happened to have
     // fired yet. The clock decides, not the scheduler.
@@ -309,9 +352,11 @@ export class RoomEngine {
   }
 
   rematch(rng: Rng = Math.random, now: number = Date.now()): ActionResult {
-    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
+    if (!this.started()) {
+      return { ok: false, error: `${this.def.name} has not been dealt yet.` };
+    }
     if (!this.def.isOver(this.state)) {
-      return { ok: false, error: 'That game is still in progress.' };
+      return { ok: false, error: `This game of ${this.def.name} is still in progress.` };
     }
     // Whoever is actually here, which may not be who was here last time: a
     // rematch is dealt for the table as it stands.
@@ -331,17 +376,22 @@ export class RoomEngine {
    * many is refused rather than silently dropping somebody.
    */
   switchGame(gameId: string, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
-    if (!this.started()) return { ok: false, error: 'The game has not started yet.' };
+    if (!this.started()) {
+      return { ok: false, error: `${this.def.name} has not been dealt yet.` };
+    }
     if (!this.def.isOver(this.state)) {
-      return { ok: false, error: 'That game is still in progress.' };
+      return { ok: false, error: `This game of ${this.def.name} is still in progress.` };
     }
     const next = getGame(gameId);
-    if (!next) return { ok: false, error: 'No such game.' };
+    if (!next) return { ok: false, error: `There is no game called ${named(gameId)}.` };
     if (next.id === this.def.id) return this.rematch(rng, now);
     if (!canSeat(next, this.seats.length)) {
       return {
         ok: false,
-        error: `${next.name} doesn't play with ${this.seats.length}.`,
+        error:
+          `${next.name} doesn't play with ${this.seats.length} — ` +
+          `it seats ${next.minPlayers}` +
+          `${next.maxPlayers === next.minPlayers ? '' : ` to ${next.maxPlayers}`}.`,
       };
     }
     this.def = next;

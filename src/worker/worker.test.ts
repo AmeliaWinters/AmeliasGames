@@ -244,7 +244,7 @@ describe('hostile and malformed input', () => {
     await expect(
       ctx.room.webSocketMessage(ws as unknown as WebSocket, hello({ gameId: 'chess', create: true })),
     ).resolves.toBeUndefined();
-    expect(ws.last('error').message).toMatch(/could not create/i);
+    expect(ws.last('error').message).toMatch(/no game called "chess"/i);
   });
 
   it('turns away a client from an older deploy', async () => {
@@ -258,20 +258,22 @@ describe('hostile and malformed input', () => {
     const ctx = newRoom();
     const ws = ctx.socket();
     await ctx.room.webSocketMessage(ws as unknown as WebSocket, hello({ code: 'ZZZZ', create: true }));
-    expect(ws.last('error').message).toMatch(/does not match/i);
+    // Both codes, because the useful fact is *which* room this socket is in
+    // as much as which one the hello asked for.
+    expect(ws.last('error').message).toMatch(/This is room TEST, and that hello asked for ZZZZ/i);
   });
 
   it('refuses to create over a room that is already being played', async () => {
     const { ctx } = await seatTwo();
     const collider = ctx.socket();
     await ctx.room.webSocketMessage(collider as unknown as WebSocket, hello({ playerId: 'x', create: true }));
-    expect(collider.last('error').message).toMatch(/already in use/i);
+    expect(collider.last('error').message).toMatch(/already someone else's game/i);
   });
 
   it('lets the host re-send a create-flagged hello for their own room', async () => {
     // A create hello arriving twice is ordinary — a retry, or a remount in
     // development. Treating it as a collision locked the host out of the room
-    // they had just made, with "that code is already in use".
+    // they had just made, with "that room is already someone else's game".
     const ctx = newRoom();
     const first = ctx.socket();
     await ctx.room.webSocketMessage(first as unknown as WebSocket, hello({ playerId: 'host', create: true }));

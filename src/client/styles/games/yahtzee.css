@@ -1,0 +1,167 @@
+/* ── Yahtzee ───────────────────────────────────────────────────────────
+   Five dice you tap, and a card with a column per player. The card is a real
+   `<table>` because it is one: thirteen labelled rows read down and up to
+   four columns read across, which is what row and column headers are for and
+   what a screen reader needs to say "Full house, Bo, 25".
+
+   Your own open boxes are buttons showing what the live hand is worth in
+   them. That preview is the interface -- Yahtzee's whole decision is which
+   box this hand goes in, and thirteen sums in your head on a phone is a
+   worse game. */
+.yz {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--board);
+}
+
+.yz-round {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The dice live in a tray now — see `.dice-tray`. Yahtzee's own die block
+   used to sit here, drawing the same six faces by a different mechanism; it
+   is folded into `.die`, because one die is the precondition for one throw. */
+
+.yz-note {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.yz-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.yz-actions .primary {
+  flex: none;
+}
+.yz-legend {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.yz-sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.yz-sheet th,
+.yz-sheet td {
+  padding: 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.yz-sheet tbody th {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  font-family: var(--body);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.yz-sheet td {
+  width: 3.4em;
+  height: 34px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+/* The player column headings, carrying the same seat colour as everywhere
+   else, with the seat to move marked the way the Wheel's purses are. */
+.yz-who {
+  padding: 0 0 6px;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: 2px solid var(--rule);
+}
+/* The seat colour marks the column's rule, not its name.
+
+   It used to be the name: `.yz-who.p0 { color: var(--seat-0) }` and so on,
+   0.8rem of it. Measured against `--board` in daylight the four came out at
+   3.78, 3.65, 3.47 and 3.65 — every one of them clear of the 3:1 a piece or a
+   chip needs, and every one short of the 4.5:1 this is, because it is a
+   genuine text label. Stage was never the problem; it clears with 20-30% to
+   spare on the same four colours.
+
+   So the colour moved to the 2px rule underneath, where 3:1 is the right bar
+   and all four pass, and the name took `--ink`. Nothing is lost by it: the
+   column is headed by the player's name, which identifies it better than a
+   hue ever did, and the seat colour still says whose turn it is. */
+.yz-who.p0 { --seat: var(--seat-0); }
+.yz-who.p1 { --seat: var(--seat-1); }
+.yz-who.p2 { --seat: var(--seat-2); }
+.yz-who.p3 { --seat: var(--seat-3); }
+.yz-who.active {
+  border-bottom-color: var(--seat);
+}
+
+/* A box you may fill. The cell is the target rather than the number in it, and
+   the full width of the column is part of what makes it hittable -- but width
+   alone was doing too much of the work, and the column narrows every time
+   another player sits down. This is the button pressed once a turn, every
+   turn, so it gets most of the way to the 44px floor; the sheet grows about a
+   hundred pixels for it, on a screen that already scrolls. */
+.yz-pick {
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font-family: var(--body);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  cursor: pointer;
+}
+/* A box worth nothing is still a legal, sometimes correct, move -- so it is
+   offered rather than hidden, and only quieter. */
+.yz-pick.zero {
+  border-color: var(--rule-hi);
+  color: var(--muted);
+}
+
+/* A box crossed off for nothing. The zero is the information; it should not
+   shout as loudly as a score. */
+.yz-box.spent {
+  color: var(--muted);
+}
+
+.yz-sum th,
+.yz-sum td {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.yz-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.yz-total th,
+.yz-total td {
+  padding-top: 6px;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: none;
+}

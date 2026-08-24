@@ -1,0 +1,211 @@
+/* ── Controls ──────────────────────────────────────────────────────── */
+/* Button labels are names, not sentences, so they take the condensed face in
+   caps like every other name in the app. The ones that are really surfaces
+   rather than labels -- board columns, points, keys -- override this below. */
+button {
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border-color: var(--rule-hi);
+  /* The floor the rest of the app already holds itself to. Padding alone left
+     these at 42px once the condensed face shortened the line box. */
+  min-height: 44px;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+/* Board columns are buttons too, but a column being unplayable says nothing
+   about whether its counters should be legible — fading them washes out the
+   whole board on the opponent's turn and after the game ends. The same goes
+   for a square of sea: half of Battleships' grid is deliberately inert, and
+   `.bs-cell:disabled { opacity: 1 }` further down lost to this rule on
+   specificity, so it never took effect.
+
+   This used to be said as a list of exclusions -- `:not(.column):not(.point)`
+   and so on, one clause per board, added by hand as each game arrived. Every
+   game that forgot to add itself shipped a washed-out board: Morris faded all
+   twenty-four points on the opponent's turn, Ultimate faded every square
+   outside the board in play, Word Hunt's own `opacity: 0.55` lost to those
+   seven clauses on specificity and never once applied, and Word Duel's
+   keyboard dimmed twice over -- 0.55 on the row and 0.45 on each key -- for
+   an effective quarter opacity.
+
+   So the list is inverted. A playing surface says what it is, once, on the
+   element: `.surface` marks anything whose job is to stay readable when you
+   cannot press it. Nothing has to remember to add game eleven, because game
+   eleven cannot draw a board without saying which parts of it are the board.
+   `css.test.ts` holds the two halves together. */
+button:disabled {
+  cursor: default;
+}
+button:disabled:not(.surface) {
+  opacity: 0.45;
+}
+
+button.primary {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-text);
+  font-weight: 700;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* Reads on the stage and on a filled primary button alike, where a cream
+   outline on cream would vanish. */
+button.primary:focus-visible {
+  outline-color: var(--ink);
+  outline-offset: 3px;
+}
+
+/* ── Opening screen ────────────────────────────────────────────────── */
+.setup {
+  padding-top: 9vh;
+  gap: 11px;
+}
+
+.setup .wordmark {
+  font-family: var(--display);
+  font-size: clamp(2.8rem, 13vw, 4rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 0.9;
+  text-transform: uppercase;
+  margin: 0;
+}
+.setup .wordmark .tail {
+  color: var(--accent);
+}
+
+.tagline {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+/* The two halves of the opening screen: the form, and the shelf of games.
+   Nothing but two stacks at phone width, where they simply follow each other
+   down the one column — they exist so the desktop `@media` in `base.css` has
+   two things to put side by side.
+
+   Real flex columns rather than `display: contents`, which would have been
+   tidier and is the wrong bet here: the APK ships its own WebView, the same
+   one that has no `:has()`, and a browser that ignores `display: contents`
+   would collapse every gap inside both halves. Two nested columns cost one
+   element each and cannot fail that way. */
+.setup-intro,
+.setup-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-width: 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+input {
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface);
+  padding: 11px 12px;
+}
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -1px;
+}
+
+.code-input {
+  font-family: var(--mono);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* The code and the button that uses it, on one line.
+
+   A row rather than the full-width field-then-button the rest of this screen
+   is built from, and that is what buys the placement: joining costs four
+   letters, so it fits beside its own button and takes one line out of a screen
+   whose whole problem was length. Baseline-aligned at the bottom, because the
+   label sits above the field and the button has no label to sit under. */
+.joinbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.joinbar label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The field takes the row and the button takes what it needs, rather than the
+   two splitting it evenly: a four-letter code is typed with a thumb, and the
+   target it is typed into should be the big half. 44px is the floor every
+   touch target here is held to -- the padding alone comes out at 43. */
+.joinbar input {
+  width: 100%;
+  min-height: 44px;
+}
+.joinbar button {
+  flex: 0 0 auto;
+  /* The floor every touch target here is held to, and matching what the field
+     beside it comes out at so the row has one bottom edge. */
+  min-height: 44px;
+}
+/* The hint belongs to the field above it, not to the divider under it. */
+.joinbar + .hint {
+  margin-top: calc(-11px + 4px);
+}
+
+/* The shelf's heading, drawn as a rule with words in it. It is an `h2` rather
+   than a `div` so that the label the eye reads and the label a screen reader
+   announces for the section below are the same string -- which means the
+   heading defaults have to be undone here, since none of them are wanted. */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  margin: 5px 0;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.setup .swap {
+  padding-left: 0;
+}
+
+/* The two things you can set, side by side. Both are `.swap`: they are the
+   same kind of thing — a preference remembered between visits — and giving
+   the second one its own treatment would say it was not. */
+.preferences {
+  display: flex;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin-top: 6px;
+}
+

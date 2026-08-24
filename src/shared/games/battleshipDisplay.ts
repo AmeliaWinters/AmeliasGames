@@ -1,16 +1,10 @@
 /**
- * The parts of Battleships the board is allowed to know.
+ * The parts of Battleships the board may know — see the boundary note in
+ * `types.ts`. Everything here is shape, geometry or a pure predicate over
+ * state the client already holds, so none of it reveals anything new.
  *
- * Like `wordleDisplay.ts` and `wheelDisplay.ts`, this module deliberately
- * imports nothing. Everything here is shape, geometry or a pure predicate over
- * state the client already holds — where a ship *is*, whether it fits, whether
- * it has gone down — none of which reveals anything the server has not already
- * sent. The reducer re-exports the lot, so the rules and their tests carry on
- * importing from one place, and the client's runtime import graph stops here.
- *
- * The one thing this file must never grow is knowledge of a hidden fleet:
- * redaction lives in `view()`, and every helper below is written to cope with
- * a ship whose position it cannot see.
+ * What this file must never grow is knowledge of a hidden fleet: redaction
+ * lives in `view()`, and every helper copes with a ship it cannot see.
  */
 
 /** Ten by ten, lettered A–J down and numbered 1–10 across. */

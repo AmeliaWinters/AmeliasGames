@@ -85,8 +85,15 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 /**
  * One die landing. `strength` is 0 to 1, from the impulse; `wall` says it hit
  * the tray rather than another die, which is the duller of the two sounds.
+ *
+ * `pitch` multiplies the whole voice — the noise burst and the band it is
+ * filtered through together, so it transposes rather than just brightening.
+ * Left at 1 for a real contact, whose character should come from the impulse
+ * the solver resolved and from nothing else. It is turned up only by the
+ * celebration in `beats.ts`, where five dice land in sequence and a rising
+ * pitch is what turns five identical knocks into a flourish.
  */
-export function clatter(strength: number, wall: boolean): void {
+export function clatter(strength: number, wall: boolean, pitch = 1): void {
   const ac = sharedAudio();
   if (!ac || !noise) return;
   const stamp = ac.currentTime * 1000;
@@ -98,11 +105,14 @@ export function clatter(strength: number, wall: boolean): void {
 
   const source = ac.createBufferSource();
   source.buffer = noise;
-  source.playbackRate.value = 0.75 + Math.random() * 0.55;
+  source.playbackRate.value = (0.75 + Math.random() * 0.55) * pitch;
   const band = ac.createBiquadFilter();
   band.type = "bandpass";
   // Die on die is brighter and harder than die on tray.
-  band.frequency.value = (wall ? 900 : 1600) + Math.random() * 900;
+  // Capped: the bandpass is happy above the audible range but the noise burst
+  // driven through it is not, and an uncapped pitch turns the top of a long
+  // flourish into silence rather than into a high note.
+  band.frequency.value = Math.min(((wall ? 900 : 1600) + Math.random() * 900) * pitch, 9000);
   band.Q.value = wall ? 0.9 : 1.4;
   const shape = ac.createGain();
   shape.gain.setValueAtTime(0.0001, now);

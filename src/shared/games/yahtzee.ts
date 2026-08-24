@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { named } from '../refusal.js';
 import { nextToss } from './toss.js';
 import {
   CATEGORIES,
@@ -177,7 +178,13 @@ function hold(state: YState, index: unknown): MoveResult<YState> {
     return { ok: false, error: 'Nothing left to roll, so nothing left to keep.' };
   }
   if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= DICE) {
-    return { ok: false, error: 'That die does not exist.' };
+    // Zero-based, like the array it indexes: nothing on screen is numbered,
+    // so this message is only ever read by whoever is writing the client that
+    // sent it, and a helpful off-by-one would not help them.
+    return {
+      ok: false,
+      error: `Die ${named(index)} is not on the table — they are 0 to ${DICE - 1}.`,
+    };
   }
   const held = state.held.slice();
   held[index as number] = !held[index as number];
@@ -191,7 +198,9 @@ function hold(state: YState, index: unknown): MoveResult<YState> {
  */
 function refusal(state: YState, seat: number, category: Category): string {
   const sheet = state.sheets[seat];
-  if (sheet[category] !== null) return 'You have already filled that box.';
+  if (sheet[category] !== null) {
+    return `You have already filled ${CATEGORY_NAME[category]}.`;
+  }
 
   const box = upperFor(state.dice[0]);
   if (sheet[box] === null) {
@@ -203,7 +212,7 @@ function refusal(state: YState, seat: number, category: Category): string {
 function score(state: YState, seat: number, category: unknown): MoveResult<YState> {
   if (!hasRolled(state)) return { ok: false, error: 'Roll the dice first.' };
   if (typeof category !== 'string' || !(CATEGORIES as readonly string[]).includes(category)) {
-    return { ok: false, error: 'That is not a box on the sheet.' };
+    return { ok: false, error: `${named(category)} is not a box on the sheet.` };
   }
 
   const box = category as Category;

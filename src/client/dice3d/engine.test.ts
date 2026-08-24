@@ -25,10 +25,12 @@ import {
   stepThrow,
   restOf,
   facesOf,
+  scoutThrow,
   disposeThrow,
   type Hit,
   type Rest3,
 } from './engine.js';
+import { paceOf } from './beats.js';
 import { YAHTZEE_TRAY } from '../../shared/games/yahtzeeDisplay.js';
 import { BACKGAMMON_TRAY } from '../../shared/games/backgammon.js';
 import type { Quat } from '../../shared/games/dice.js';
@@ -298,5 +300,91 @@ describe('the odds', () => {
     const want = total / 6;
     const chi = counts.slice(1).reduce((a, c) => a + (c - want) ** 2 / want, 0);
     expect(chi).toBeLessThan(15.09);
+  });
+});
+
+/**
+ * The beats the animation is paced against.
+ *
+ * `beats.ts` decides the shape of the slow moment and this decides whether
+ * there is one to shape: both facts are properties of the *physics*, they moved
+ * once already when the friction was retuned, and neither can be seen from the
+ * Browser pane. So they are pinned here rather than left to somebody
+ * re-rendering a contact sheet — the rule `dice.test.ts` set with "a throw uses
+ * the tray it is thrown into".
+ */
+describe('the beats of a throw', () => {
+  /** Taps and flicks mixed, which is what a real table produces. */
+  function scouted(seed: number, tray: typeof TRAY, count: number) {
+    const hard = (seed % 4) / 3;
+    return scoutThrow({
+      tray,
+      count,
+      seed: seed * 7919 + 13,
+      flick: hard === 0 ? { x: 0, y: 0 } : { x: hard * 2.4, y: hard * 1.1, ax: 0.2, ay: 0.8 },
+      from: null,
+    });
+  }
+
+  it('finds a moment worth slowing down for in very nearly every throw', () => {
+    // If this fails the feature is silently gone: the throw still plays, at one
+    // speed, and nothing says so.
+    let missing = 0;
+    for (let s = 0; s < 90; s++) if (scouted(s, TRAY, 5).decisive < 18) missing++;
+    expect(missing / 90).toBeLessThan(0.1);
+  });
+
+  it('puts that moment inside the throw rather than at either end', () => {
+    // Measured at a median of 67 steps into a 134-step throw. A decisive
+    // contact in the first few steps is a throw that slows down before it has
+    // done anything; one in the last few leaves no tail to snap through.
+    const where: number[] = [];
+    for (let s = 0; s < 90; s++) {
+      const beats = scouted(s, TRAY, 5);
+      if (beats.decisive >= 0) where.push(beats.decisive / beats.steps);
+    }
+    const median = where.sort((a, b) => a - b)[Math.floor(where.length / 2)];
+    expect(median).toBeGreaterThan(0.25);
+    expect(median).toBeLessThan(0.75);
+  });
+
+  it('costs the player no waiting for it', () => {
+    /*
+      The whole trade. A slow-motion beat is worth having only if it is paid for
+      out of the tail nobody watches rather than out of the player's evening —
+      a Yahtzee turn is three of these, a game is thirteen rounds.
+
+      An earlier cut ran 270ms a throw longer and read as lag with a reason.
+    */
+    for (const [tray, count] of [
+      [TRAY, 5],
+      [BACKGAMMON_TRAY, 2],
+    ] as const) {
+      let plain = 0;
+      let paced = 0;
+      for (let s = 0; s < 60; s++) {
+        const beats = scouted(s, tray, count);
+        plain += beats.steps * PHYS.STEP;
+        for (let step = 0; step < beats.steps; step++) paced += PHYS.STEP / paceOf(step, beats);
+      }
+      expect(paced).toBeLessThanOrEqual(plain * 1.02);
+    }
+  });
+
+  it('never asks for more substeps than a frame is allowed', () => {
+    // The fast tail is capped by `MAX_SUBSTEPS`: ask for more steps per frame
+    // than a frame may take and the snap silently becomes a stutter.
+    const beats = scouted(3, TRAY, 5);
+    for (let step = 0; step < beats.steps; step++) {
+      const perFrame = paceOf(step, beats) / 60 / PHYS.STEP;
+      expect(perFrame).toBeLessThanOrEqual(PHYS.MAX_SUBSTEPS);
+    }
+  });
+
+  it('agrees with the throw it scouted', () => {
+    // Two runs of one seed, so the step count the pacing is built on is the
+    // step count the animation will actually take.
+    const beats = scoutThrow({ tray: TRAY, count: 5, seed: 4242, flick: { x: 0, y: 0 }, from: null });
+    expect(beats.steps).toBe(thrown(4242).steps);
   });
 });

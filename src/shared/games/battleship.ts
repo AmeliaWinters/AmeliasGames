@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { named } from '../refusal.js';
 import { pick } from './random.js';
 import {
   BOARD_SIZE,
@@ -168,10 +169,12 @@ function fire(state: BsState, row: number, col: number, seat: number): MoveResul
   if (state.phase === 'over') return { ok: false, error: 'The game is already over.' };
   if (state.turn !== seat) return { ok: false, error: 'It is not your turn.' };
   if (!Number.isInteger(row) || !Number.isInteger(col)) {
-    return { ok: false, error: 'That is not a square.' };
+    return { ok: false, error: `${named(row)}, ${named(col)} is not a square.` };
   }
   if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) {
-    return { ok: false, error: 'That square is off the board.' };
+    // Deliberately *not* `squareName`, which assumes a square on the board and
+    // would answer an off-board pair with a letter past J.
+    return { ok: false, error: `Row ${row}, column ${col} is off the board.` };
   }
   if (shotAt(state.shots[seat], row, col) !== null) {
     return { ok: false, error: `You have already fired at ${squareName(row, col)}.` };

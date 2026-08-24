@@ -17,21 +17,80 @@ export interface GameEntry {
   name: string;
   minPlayers: number;
   maxPlayers: number;
+  /**
+   * The card's second line: what this game is, in a sentence only it could
+   * carry.
+   *
+   * It replaced "2 players", which nine of the thirteen cards said — the
+   * smallest type on the lobby, spent thirteen times on the least interesting
+   * fact available. The seat range is still on the card, as a figure at the
+   * end of the name, where thirteen of them line up as a column you can read
+   * down instead of thirteen sentences you have to parse.
+   *
+   * Two constraints, and both are load-bearing. It has to name a rule this
+   * game has and its neighbours do not — "two players take turns" is true of
+   * most of the shelf and tells nobody anything. And it has to fit two lines
+   * at card width, which is about 42 characters: `picker.css` reserves exactly
+   * two, so a longer one does not wrap onto a third and push its own row
+   * taller than the row beside it. That evenness is the point of reserving
+   * them; a fourteenth game that overruns undoes it for the whole grid.
+   */
+  blurb: string;
 }
 
 export const GAME_MANIFEST = {
-  connect4: { id: 'connect4', name: 'Connect Four', minPlayers: 2, maxPlayers: 2 },
-  backgammon: { id: 'backgammon', name: 'Backgammon', minPlayers: 2, maxPlayers: 2 },
-  wheel: { id: 'wheel', name: 'Wheel of Fortune', minPlayers: 2, maxPlayers: 4 },
-  wordle: { id: 'wordle', name: 'Word Duel', minPlayers: 2, maxPlayers: 8 },
-  liarsdice: { id: 'liarsdice', name: "Liar's Dice", minPlayers: 2, maxPlayers: 4 },
-  battleship: { id: 'battleship', name: 'Battleships', minPlayers: 2, maxPlayers: 2 },
-  yahtzee: { id: 'yahtzee', name: 'Yahtzee', minPlayers: 2, maxPlayers: 4 },
-  wordhunt: { id: 'wordhunt', name: 'Word Hunt', minPlayers: 2, maxPlayers: 4 },
-  morris: { id: 'morris', name: "Nine Men's Morris", minPlayers: 2, maxPlayers: 2 },
-  ultimate: { id: 'ultimate', name: 'Ultimate Tic-Tac-Toe', minPlayers: 2, maxPlayers: 2 },
-  letterpress: { id: 'letterpress', name: 'Letterpress', minPlayers: 2, maxPlayers: 2 },
-  wordchain: { id: 'wordchain', name: 'Word Chain', minPlayers: 2, maxPlayers: 2 },
+  connect4: {
+    id: 'connect4', name: 'Connect Four', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Drop a disc. The stack decides the rest.',
+  },
+  backgammon: {
+    id: 'backgammon', name: 'Backgammon', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Race your checkers home, hitting theirs.',
+  },
+  wheel: {
+    id: 'wheel', name: 'Wheel of Fortune', minPlayers: 2, maxPlayers: 4,
+    blurb: 'Spin, buy a vowel, dodge Bankrupt.',
+  },
+  wordle: {
+    id: 'wordle', name: 'Word Duel', minPlayers: 2, maxPlayers: 8,
+    blurb: 'Five letters. Everyone guesses at once.',
+  },
+  liarsdice: {
+    id: 'liarsdice', name: "Liar's Dice", minPlayers: 2, maxPlayers: 4,
+    blurb: 'Raise the bid, or call them a liar.',
+  },
+  battleship: {
+    id: 'battleship', name: 'Battleships', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Hide five ships. Find theirs first.',
+  },
+  yahtzee: {
+    id: 'yahtzee', name: 'Yahtzee', minPlayers: 2, maxPlayers: 4,
+    blurb: 'Three rolls a turn, thirteen boxes.',
+  },
+  wordhunt: {
+    id: 'wordhunt', name: 'Word Hunt', minPlayers: 2, maxPlayers: 4,
+    blurb: 'Trace words before the clock runs out.',
+  },
+  morris: {
+    id: 'morris', name: "Nine Men's Morris", minPlayers: 2, maxPlayers: 2,
+    blurb: 'Three in a row takes one of theirs.',
+  },
+  ultimate: {
+    id: 'ultimate', name: 'Ultimate Tic-Tac-Toe', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Your move picks their next board.',
+  },
+  letterpress: {
+    id: 'letterpress', name: 'Letterpress', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Take their tiles by spelling words.',
+  },
+  wordchain: {
+    id: 'wordchain', name: 'Word Chain', minPlayers: 2, maxPlayers: 2,
+    blurb: 'Each word starts where the last ended.',
+  },
+  vocab: {
+    id: 'vocab', name: 'Vocab Race', minPlayers: 2, maxPlayers: 8,
+    blurb: 'See the clue, race them to the word.',
+  },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;
@@ -43,6 +102,7 @@ export function gameList(): GameEntry[] {
     name: game.name,
     minPlayers: game.minPlayers,
     maxPlayers: game.maxPlayers,
+    blurb: game.blurb,
   }));
 }
 

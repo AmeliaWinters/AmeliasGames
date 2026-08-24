@@ -1,18 +1,8 @@
 /**
- * The parts of Word Hunt the board is allowed to know.
- *
- * Same boundary as `wordleDisplay.ts`, and for the same reason: the board has
- * to know whether the letters under a dragging finger form a legal path, and
- * that is real logic — but routing it through `wordHunt.ts` would pull the
- * reducer and the whole dictionary onto the phone of everyone who opens the
- * lobby. `bundle.test.ts` holds that line.
- *
- * Like `wordleDisplay.ts`, the only thing it imports is another leaf that
- * imports nothing itself. The rule is not "no imports" but "nothing that
- * reaches a reducer".
- *
- * `wordHunt.ts` re-exports everything here, so the reducer and its tests carry
- * on importing from one place.
+ * The parts of Word Hunt the board may know — see the boundary note in
+ * `types.ts`. The board decides whether the letters under a dragging finger
+ * form a legal path; taking that from the reducer would put the whole
+ * dictionary on the phone of everyone who opens the lobby.
  */
 
 export { clockCall, formatClock } from '../clock.js';

@@ -1,0 +1,346 @@
+/* ── Backgammon ────────────────────────────────────────────────────────
+   Twelve points to a side with the bar down the middle. The bar is placed
+   absolutely over a fixed-width gap left in each row, so both rows and the
+   bar stay in register at any screen width. */
+.bg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bg-board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--board);
+  padding: 4px;
+}
+
+.bg-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr) 26px repeat(6, 1fr);
+}
+
+.bg-bar-slot {
+  /* Reserves the channel the bar sits in. */
+}
+
+.bg-bar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(50% - 13px);
+  width: 26px;
+  padding: 0;
+  background: var(--tray);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+}
+.bar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 2px 0;
+}
+.bar-stack.bottom {
+  flex-direction: column-reverse;
+}
+
+/* Each point is one column wide and five checkers tall. */
+.point {
+  position: relative;
+  aspect-ratio: 1 / 5;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.point:disabled {
+  cursor: default;
+}
+
+.triangle {
+  position: absolute;
+  inset: 0;
+}
+.point.dark .triangle {
+  background: var(--point-dark);
+}
+.point.light .triangle {
+  background: var(--point-light);
+}
+.bg-row.top .triangle {
+  clip-path: polygon(0 0, 100% 0, 50% 92%);
+}
+.bg-row.bottom .triangle {
+  clip-path: polygon(0 100%, 100% 100%, 50% 8%);
+}
+
+/* Where a selected checker may land. The outline traces the triangle rather
+   than the column it is drawn in, so the shape that lights up is the shape
+   being looked at; its polygon is the clip-path above in viewBox units and
+   changes with it. Overflow stays visible so the stroke sits centred on the
+   edge instead of being shaved in half by the SVG viewport. */
+.point-edge {
+  position: absolute;
+  inset: 0;
+  /* An SVG is a replaced element, so `inset: 0` positions it but leaves it at
+     its intrinsic size -- it needs to be told to fill the point. */
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: var(--live);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.bg-row.bottom .point-edge {
+  transform: scaleY(-1);
+}
+
+.stack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.bg-row.bottom .stack {
+  flex-direction: column-reverse;
+}
+
+.checker {
+  width: 88%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 0.18);
+}
+.checker.s0 {
+  background: var(--seat-0);
+  color: var(--action-text);
+}
+.checker.s1 {
+  background: var(--seat-1);
+  color: var(--action-text);
+  /* Matches the Connect Four ring: seat 1's pieces are ringed in both games. */
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    inset 0 0 0 2px var(--ring);
+}
+.bar-stack .checker {
+  width: 82%;
+}
+
+/* A checker you can pick up, and the one you have. The ring goes round the
+   piece rather than round the point, so what lights up is the thing that
+   moves. It sits outside the disc rather than inside because green on an
+   ice-blue checker is a contrast of 1.07 and may as well not be drawn; on the
+   points behind it that is 4.9, or 2.7 at the worst of daylight -- the pairing
+   the landing outline has always been drawn in. Stacked checkers touch at a
+   single tangent, so a ring barely crosses its neighbour, but it is lifted all
+   the same or the next point along paints over the side of it. */
+.checker.live,
+.checker.chosen {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--live);
+  outline-offset: 1px;
+}
+.checker.chosen {
+  outline-color: var(--ink);
+}
+
+.bg-tray,
+.bg-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.borne,
+.race {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bg-tray .bear {
+  margin-left: auto;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+
+/* Your own six points, marked along the rail you bear off over. Bearing off
+   is the one rule here that depends on where the *rest* of your checkers are,
+   and the board used to leave you counting triangles from the corner to find
+   out which six they were. A line on the rail rather than a tint on the
+   triangle: the triangles already carry a light/dark alternation that means
+   something else, and a second colour laid over that reads as a third state
+   of the first.
+
+   Drawn out in the board's own 4px padding rather than on the point, which is
+   where it would seem to belong: a triangle's base spans the whole column at
+   the rail, so anything drawn inside the point there is painted over by the
+   triangle -- and anything drawn on top of the triangle is painted over by the
+   first checker standing on it. The rail outside is clear of both. */
+.point.home::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.bg-row.top .point.home::after {
+  top: -3px;
+}
+.bg-row.bottom .point.home::after {
+  bottom: -3px;
+}
+
+/* ── Motion ────────────────────────────────────────────────────────────
+   Two animations, and both carry the same piece of news: something happened
+   somewhere you were not looking. A checker crossing the board is where it
+   went (that flight is measured in the board component, since the distance
+   between two points is not a number CSS knows); the other two are the events
+   that happen off it -- a checker knocked onto the bar and a checker coming
+   off -- and both used to be a number quietly changing by one. */
+@keyframes bg-struck {
+  from {
+    transform: translateX(-3px);
+  }
+  30% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes bg-borne {
+  from {
+    color: var(--accent);
+  }
+  60% {
+    color: var(--accent);
+  }
+}
+
+.bar-stack.struck {
+  animation: bg-struck 260ms ease-out;
+}
+.borne.landed {
+  animation: bg-borne 700ms ease-out;
+}
+
+/* ── The summary ───────────────────────────────────────────────────────
+   What the two of you did with the dice, in the place the tray was. It stands
+   where the controls stood rather than below them, so the end of a game does
+   not push the board up the screen on the one screen where the board is worth
+   a last look. */
+.bg-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bg-stats h2 {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bg-race {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Stretched rather than square: the chart is a shape over time, and holding
+   its aspect ratio on a phone would make a long game a flat grey smear. */
+.bg-race svg {
+  width: 100%;
+  height: 72px;
+  overflow: visible;
+  fill: none;
+}
+.bg-race path {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.bg-race .level {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.bg-race .caption {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bg-stats table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.bg-stats th,
+.bg-stats td {
+  padding: 6px 4px;
+  text-align: right;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.bg-stats tbody th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+}
+.bg-stats thead th {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Yours first and in the channel colour: the two columns are the same six
+   numbers twice, and the heading alone is a weak way to say which is which. */
+.bg-stats tbody td:first-of-type {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar-stack.struck,
+  .borne.landed {
+    animation: none;
+  }
+}

@@ -1,5 +1,6 @@
 import type { GameDefinition, MoveResult } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
+import { named } from '../refusal.js';
 
 export const ROWS = 6;
 export const COLS = 7;
@@ -102,7 +103,10 @@ export const connect4: GameDefinition<C4State, C4Move> = {
       return { ok: false, error: 'Unknown move.' };
     }
     if (!Number.isInteger(move.col) || move.col < 0 || move.col >= COLS) {
-      return { ok: false, error: 'That column does not exist.' };
+      // A player cannot reach this -- they tapped a column that is on screen.
+      // Only a client sending its own numbers can, so the number it sent is
+      // the only useful thing this message can say.
+      return { ok: false, error: `There is no column ${named(move.col)}.` };
     }
 
     const row = landingRow(state.board, move.col);

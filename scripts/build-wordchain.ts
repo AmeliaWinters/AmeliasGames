@@ -62,16 +62,28 @@ const MIN_LENGTH = 3;
  *
  * These are a *size* budget, not a linguistic one. The worker was 1389 KiB
  * gzipped before this game existed and is meant to stay comfortably under
- * 2.2MB, which leaves about 860 KiB; these caps spend roughly 600 of it and
- * leave the rest for the next game. Truncation is safe precisely because the
+ * 2.2MB, which leaves about 860 KiB. Truncation is safe precisely because the
  * lists are frequency-ordered — it removes the rarest words, and the reveal
  * reads from the top.
  *
  * Japanese is capped hardest for a reason that is not linguistic either: kana
  * and kanji are three bytes each in UTF-8 and compress far worse than Latin
  * text, so its 18,850 entries cost 368 KiB against Polish's 45,189 for 351.
+ *
+ * Polish's cap is a rail rather than a budget. Its list runs to about 64,600
+ * and most of that is the zero-weight dictionary block, which is alphabetical
+ * and therefore nearly free — taking all of it costs 161 KiB gzipped and
+ * leaves the worker at 2153 of the 2253 available. The cap cannot usefully be
+ * set *inside* that block anyway, because alphabetical order means cutting it
+ * short cuts by letter: 55,000 would be a list that has stopped at S.
+ *
+ * `PL_GLOSS_DEPTH` is where the real Polish budget went, and it is why the cap
+ * can be so loose. Glosses are what cost: at 20,000 the worker is 2153 KiB, at
+ * 40,000 it is 2299 and at no limit at all it is 2479, so glossing the whole
+ * list is roughly 330 KiB the ceiling does not have. Words below the depth are
+ * still playable, and the reveal only ever reads from above it.
  */
-const LIMIT = { pl: 30_000, ja: 12_000, en: 25_000 } as const;
+const LIMIT = { pl: 70_000, ja: 12_000, en: 25_000 } as const;
 const PL_GLOSS_DEPTH = 20_000;
 
 const SOURCES: Record<string, { url: string; note?: string }> = {
@@ -112,6 +124,23 @@ function frequency(text: string): Map<string, number> {
     const w = line.split(' ')[0]?.trim();
     if (w && !out.has(w)) out.set(w, i);
   });
+  return out;
+}
+
+/**
+ * The same file read for its counts rather than its order.
+ *
+ * Rank is enough for English, where a word is mostly one string. It is not
+ * enough for Polish, where a noun's occurrences are split between seven cases
+ * and two numbers, so each of its forms ranks far below where the word itself
+ * belongs — see `weighPolish`.
+ */
+function counts(text: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of text.split('\n')) {
+    const [w, n] = line.trim().split(' ');
+    if (w && n && !out.has(w)) out.set(w, Number(n));
+  }
   return out;
 }
 
@@ -240,6 +269,14 @@ function buildJapanese(edict: string, freq: Map<string, number>): JaWord[] {
  *
  * Two-letter entries are absent on purpose — `to`, `na`, `za`, `go` and the
  * rest are unplayable under MIN_LENGTH, so glossing them would be dead weight.
+ *
+ * The second block is perfective verbs, and it is here because of `weighPolish`
+ * rather than because of Wiktionary. Rolling a verb's forms up onto its lemma
+ * put thirty-odd infinitives into the commonest five hundred words, where they
+ * belong and where they had never been before — and WikDict has an entry for
+ * almost none of them, because a Polish dictionary lists the imperfective and
+ * leaves the reader to derive its pair. `wracać` is in there; `wrócić`, which
+ * is the form people say, is not.
  */
 const PL_OVERRIDE = `
 nie=not, no          się=-self (reflexive)   tak=yes; so           jak=how; as, like
@@ -290,6 +327,17 @@ miejsce=place        iść=to go, to walk      kilka=a few           pomóc=to h
 dużo=a lot, much     ile=how much            jasne=clear, sure     byłem=I was
 swoje=one's own      myśli=thoughts; thinks  cały=whole, entire    skąd=from where
 przestań=stop it     żebyś=so that you       może=maybe; can       kocham=I love
+
+zostać=to stay; become   znaleźć=to find       wrócić=to come back   wziąć=to take
+dostać=to get, receive   zacząć=to begin       przyjść=to come       pozwolić=to allow
+przestać=to stop         zabrać=to take away   zostawić=to leave     skończyć=to finish
+zadzwonić=to phone       spotkać=to meet       zmienić=to change     dawać=to give
+sprawdzić=to check       posłuchać=to listen   zająć=to occupy       pokazać=to show
+spróbować=to try         stracić=to lose       zrozumieć=to understand
+wybaczyć=to forgive      zatrzymać=to stop     uwierzyć=to believe   wysłać=to send
+zapomnieć=to forget      dowiedzieć=to find out (się)
+zrobił=he did, he made   został=he stayed      posłuchaj=listen!     zrobię=I will do
+nami=us (inst.)          gdyby=if, were it that
 `;
 
 function parseOverrides(text: string): Map<string, string> {
@@ -314,7 +362,11 @@ function polishGloss(body: string): string {
   const out: string[] = [];
   for (const line of body.split('\n').slice(1).map((l) => l.trim()).filter(Boolean)) {
     const m = /^\d+\.\s*(.+)$/.exec(line);
-    const g = m ? m[1]!.replace(/\s*\d+\.\s*$/, '').trim() : out.length === 0 ? line : '';
+    // WikDict leaves the *next* sense's number stuck on the end of the line it
+    // finished: `arbuz` reads "watermelon, water melon 2.", and the first sense
+    // is usually unnumbered, so this has to come off both branches or half the
+    // dictionary is glossed with a dangling ordinal.
+    const g = (m ? m[1]! : out.length === 0 ? line : '').replace(/\s*\d+\.\s*$/, '').trim();
     // `dobry` yields "B" — the school-grade sense, scraped out of a table. A
     // gloss of one or two characters is never a translation.
     if (!g || g.length < 3 || !/[a-z]{2}/.test(g) || /[ąćęłńóśźż]/i.test(g)) continue;
@@ -362,18 +414,87 @@ async function lemmaBridge(path: string, wanted: Set<string>): Promise<Map<strin
   return out;
 }
 
+/** Shape alone: lower-case Polish letters, long enough to play. */
+const PL_SHAPE = /^[a-ząćęłńóśźż]+$/;
+const plausible = (w: string) => PL_SHAPE.test(w) && w.length >= MIN_LENGTH;
+
+/**
+ * How common a Polish *word* is, as against how common one of its forms is.
+ *
+ * The frequency list counts strings, and Polish spreads a word over strings:
+ * `awantura` is a row people have in films constantly, and it arrives here as
+ * `awantury` 369, `awanturę` 337 and `awantura` 302 — three entries in the
+ * thirty-five-to-forty-thousands, none of which looks like a word worth
+ * keeping, and a 30,000-word cut takes all three. Summed through the lemma
+ * bridge it is one word with 1,008 occurrences, which puts it where a player
+ * would expect to find it.
+ *
+ * The sum lands on the lemma *and* the form, because both are playable and the
+ * player decides which they type.
+ *
+ * A form only speaks for its lemma when it has exactly one, and that rule is
+ * doing more work than it looks like. Splitting an ambiguous form's count
+ * between its lemmas was tried first and is not nearly strict enough, because
+ * the disparities are thousandfold: PoliMorf lists `w` — the preposition "in",
+ * 3,988,120 occurrences and the commonest string in the language — as an
+ * abbreviation of both `wat` and `wiek`, so even half of it put "watt" and
+ * "century" in the fifteen commonest Polish words. `mnie` did the same for
+ * `miąć` (to crumple), and `tak` for `taka`.
+ *
+ * The words this protects are not the words it costs. An oblique case of a
+ * noun is usually unambiguous — `arbuza`, `awantury` — so the nouns that
+ * needed rescuing keep their credit; what loses it is the function words,
+ * which are all in `PL_OVERRIDE` at the top of the list already.
+ */
+function weighPolish(count: Map<string, number>, lemmas: Map<string, string[]>): Map<string, number> {
+  const weight = new Map<string, number>();
+  const add = (w: string, n: number) => weight.set(w, (weight.get(w) ?? 0) + n);
+  for (const [form, n] of count) {
+    const known = lemmas.get(form);
+    if (!known) continue;
+    add(form, n);
+    // The lemma is credited even when no subtitle ever used it: `arbuz` is not
+    // anywhere in fifty thousand words of film dialogue, `arbuza` is, and the
+    // nominative is the form a player types.
+    if (known.length === 1 && known[0] !== form) add(known[0]!, n);
+  }
+  return weight;
+}
+
 interface PlWord { w: string; lemma: string; gloss: string }
 
 function buildPolish(
-  freq: Map<string, number>,
+  weight: Map<string, number>,
   lemmas: Map<string, string[]>,
   dict: Map<string, string>,
   english: ReadonlySet<string>,
 ): PlWord[] {
   const override = parseOverrides(PL_OVERRIDE);
   const out: PlWord[] = [];
-  for (const [w, rank] of freq) {
-    if (!/^[a-ząćęłńóśźż]+$/.test(w) || w.length < MIN_LENGTH) continue;
+  // Three sources of candidate, one order.
+  //
+  // The weights are the frequency list, rolled up; the overrides are there
+  // because a word PoliMorf has never heard of gets no weight and the hundred
+  // words the game shows most often are not losing their hand-checked glosses
+  // to that. The third is the answer to "why can this game not play `żyrafa`":
+  // films talk about love and death and money, so a frequency list is a fair
+  // account of what a Polish speaker *says* and a poor one of what they know.
+  // A dictionary headword that PoliMorf confirms is a lemma of its own is a
+  // Polish word whether or not anyone filmed it.
+  //
+  // Sorting the three together by weight is what makes mixing them safe. A
+  // word no subtitle ever used weighs zero and lands at the very end, below
+  // everything anybody actually says, and the reveal and the "commonest word
+  // starting with A" scan both read from the top — so a word that got in on a
+  // dictionary's say-so is never *offered*, only accepted when someone types
+  // it. The alphabetical tiebreak is for the humans reading the file, and it
+  // happens to compress well, which at twenty thousand zero-weight words is
+  // not nothing.
+  const citation = [...dict.keys()].filter((w) => lemmas.get(w)?.includes(w));
+  const ordered = [...new Set([...weight.keys(), ...override.keys(), ...citation])]
+    .filter(plausible)
+    .sort((a, b) => (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || a.localeCompare(b, 'pl'));
+  for (const w of ordered) {
     // A form PoliMorf has never heard of is OpenSubtitles noise — a typo, a
     // transcription, half a name — not a Polish word, whatever its rank.
     const known = lemmas.get(w);
@@ -383,7 +504,7 @@ function buildPolish(
     // frequency order — this is what stops "I have" being glossed "mother".
     const cands = [w, ...(known ?? [])]
       .filter((c, i, a) => a.indexOf(c) === i)
-      .sort((a, b) => (a === w ? -1 : b === w ? 1 : (freq.get(a) ?? 1e9) - (freq.get(b) ?? 1e9)));
+      .sort((a, b) => (a === w ? -1 : b === w ? 1 : (weight.get(b) ?? 0) - (weight.get(a) ?? 0)));
     let lemma = '';
     let gloss = override.get(w) ?? '';
     for (const c of cands) {
@@ -400,7 +521,11 @@ function buildPolish(
     // it was the commonest thing the game could think of starting with Y,
     // which made the reveal teach the wrong language.
     if (!gloss && english.has(w)) continue;
-    out.push({ w, lemma, gloss: rank < PL_GLOSS_DEPTH ? gloss : '' });
+    // Depth counts the list as emitted, not the candidates walked to build it:
+    // a fifth of them are dropped on the way past and a rank that counted those
+    // would cut the glosses short of where the constant says.
+    out.push({ w, lemma, gloss: out.length < PL_GLOSS_DEPTH ? gloss : '' });
+    if (out.length >= LIMIT.pl) break;
   }
   return out;
 }
@@ -480,7 +605,7 @@ ${wrap(en)}
 }
 
 async function main() {
-  const plFreq = frequency(readFileSync(await ensure('pl_50k.txt'), 'utf8'));
+  const plCount = counts(readFileSync(await ensure('pl_50k.txt'), 'utf8'));
   const enFreq = frequency(readFileSync(await ensure('en_50k.txt'), 'utf8'));
   const jaFreq = frequency(readFileSync(await ensure('ja_50k.txt'), 'utf8'));
 
@@ -488,11 +613,16 @@ async function main() {
 
   await ensure('pol-eng/pol-eng.index');
   const dict = readDictd(join(CACHE, 'pol-eng'));
-  const lemmas = await lemmaBridge(await ensure('polimorfologik-2.1.txt'), new Set(plFreq.keys()));
+  // Both halves of the Polish list want the bridge: the frequency half asks it
+  // what a form's lemma is, and the dictionary tail asks it whether a headword
+  // is a word at all. One 333MB pass answers both.
+  const wanted = new Set([...plCount.keys(), ...[...dict.keys()].map((h) => h.toLowerCase())]);
+  const lemmas = await lemmaBridge(await ensure('polimorfologik-2.1.txt'), wanted);
+  const weight = weighPolish(plCount, lemmas);
 
   const { allWords } = await import('../src/shared/games/words.js');
   const en = buildEnglish(enFreq, allWords()).slice(0, LIMIT.en);
-  const pl = buildPolish(plFreq, lemmas, dict, new Set(en)).slice(0, LIMIT.pl);
+  const pl = buildPolish(weight, lemmas, dict, new Set(en));
 
   const glossed = pl.filter((r) => r.gloss).length;
   process.stderr.write(

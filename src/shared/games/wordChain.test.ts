@@ -293,6 +293,14 @@ describe('running out of time', () => {
  * *common* words, so both ends are worth pinning: too small and a player's
  * ordinary vocabulary is refused, too large and the game is paying for words
  * nobody will ever type.
+ *
+ * Polish gets its own ceiling because it is built differently. English and
+ * Japanese are a frequency list cut off at a round number; Polish is that plus
+ * every dictionary headword PoliMorf agrees is a word, sorted to the bottom,
+ * because film subtitles are a poor account of what a speaker knows and the
+ * game was refusing `arbuz`. Those words cost almost nothing — they are
+ * alphabetical, so they compress — and the reveal never offers them, so the
+ * ceiling that matters for them is the worker's, not this one.
  */
 describe('the word lists', () => {
   const sizes = chainListSizes();
@@ -301,7 +309,51 @@ describe('the word lists', () => {
     expect(sizes.en).toBeGreaterThan(20_000);
     expect(sizes.pl).toBeGreaterThan(20_000);
     expect(sizes.ja).toBeGreaterThan(10_000);
-    for (const n of Object.values(sizes)) expect(n).toBeLessThan(35_000);
+    expect(sizes.en).toBeLessThan(35_000);
+    expect(sizes.ja).toBeLessThan(35_000);
+    expect(sizes.pl).toBeLessThan(70_000);
+  });
+
+  /**
+   * The bug this pins: the Polish list was built from film subtitles, and
+   * films do not talk about watermelons. `arbuz` appears in fifty thousand
+   * words of dialogue exactly never — only `arbuza`, the genitive, at rank
+   * 43,067 — so the game refused the word every Polish learner knows, along
+   * with the electrician, the giraffe and the raspberry. Two things fixed it:
+   * a word's forms now pool their counts onto its lemma, and a dictionary
+   * headword PoliMorf agrees is a word gets in on that alone.
+   *
+   * A sample rather than a rule, because there is no rule — the list is only
+   * as good as the sources, and this is how anyone would notice it got worse.
+   */
+  it('knows the everyday words that films never mention', () => {
+    const everyday = [
+      'arbuz', 'elektryk', 'awantura', 'zyrafa', 'malina', 'ogorek',
+      'truskawka', 'cebula', 'sliwka', 'ananas', 'hydraulik', 'listonosz',
+      'marchewka', 'wiewiorka', 'pomidor', 'papuga', 'kanapka', 'dentysta',
+    ];
+    expect(everyday.filter((w) => chainLookup('pl', w) === null)).toEqual([]);
+  });
+
+  /**
+   * The other half of the same change, and the half that can rot quietly.
+   * Rolling counts onto lemmas is what pulls a verb's infinitive up to where
+   * it belongs, and WikDict has an entry for almost no Polish perfective — so
+   * the words the game shows most often arrived at the top *unglossed* until
+   * `PL_OVERRIDE` was extended to cover them. A reveal without a meaning is a
+   * teaching moment spent on nothing.
+   */
+  it('can say what it means, for the words it shows most', () => {
+    const top = [];
+    const used = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const entry = commonestStarting('pl', '', used);
+      if (!entry) break;
+      used.add(entry.key);
+      top.push(entry);
+    }
+    expect(top).toHaveLength(200);
+    expect(top.filter((e) => !e.gloss)).toEqual([]);
   });
 
   it('has no word shorter than the limit, in any language', () => {

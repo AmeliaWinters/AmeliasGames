@@ -77,6 +77,51 @@ export function diceOnTable(state: BgState): {
   return { thrown, double, left, spent };
 }
 
+/**
+ * The one move just played, kept so a board can show it happening.
+ *
+ * `n` counts every move of the game and is what a board should watch. The
+ * object cannot be watched by identity: state arrives over the wire and is
+ * parsed fresh each push, so `last` is a new object on every message and an
+ * effect keyed on it would replay the flight when the *opponent* reconnected.
+ * The same trap `toss` documents, from the other direction.
+ */
+export interface BgLast {
+  seat: 0 | 1;
+  from: Source;
+  /** Where it landed, or "off" when it ran past the edge and was borne off. */
+  to: number | "off";
+  die: number;
+  /** True when it sent an enemy blot to the bar. */
+  hit: boolean;
+  n: number;
+}
+
+/**
+ * What a seat did with the dice, totted up as the game goes.
+ *
+ * Kept in state rather than derived at the end because none of it survives in
+ * the position: a hit leaves no trace once the checker comes back in, and a
+ * die you could not play leaves none at all. `off` and `pipCount` already say
+ * where the game got to, so nothing here repeats them — this is the story of
+ * how it got there.
+ */
+export interface BgStats {
+  /** Turns this seat rolled the dice. */
+  rolls: number;
+  doubles: number;
+  /** Pips the dice offered. A double is worth four of its face, not two. */
+  pips: number;
+  /** Pips that went unplayed because nothing legal could use them. */
+  wasted: number;
+  /** Enemy blots sent to the bar. */
+  hits: number;
+}
+
+function emptyStats(): BgStats {
+  return { rolls: 0, doubles: 0, pips: 0, wasted: 0, hits: 0 };
+}
+
 export interface BgState {
   points: number[];
   /** Checkers sitting on the bar, waiting to re-enter. */
@@ -99,6 +144,17 @@ export interface BgState {
   winner: 0 | 1 | null;
   /** 1 single, 2 gammon, 3 backgammon. */
   result: 1 | 2 | 3 | null;
+  last: BgLast | null;
+  stats: [BgStats, BgStats];
+  /**
+   * Seat 0's pip lead after each completed turn, starting at 0.
+   *
+   * One number rather than two because the lead is the thing worth drawing:
+   * both pip counts fall all game, so a chart of them is two lines sloping the
+   * same way, and who was actually ahead — the only question a race asks — is
+   * the gap between them that neither line shows.
+   */
+  race: number[];
 }
 
 export type Source = number | "bar";
@@ -133,6 +189,20 @@ export function barEntry(seat: number, die: number): number {
   return seat === 0 ? POINTS - die : die - 1;
 }
 
+/**
+ * Where a checker ends up, or "off" if the die runs it past the edge.
+ *
+ * Geometry only — it says nothing about whether the move is legal, which is
+ * `applyOne`'s business. Both the reducer (recording what just happened) and
+ * the board (marking where a picked-up checker may land) need the same answer,
+ * and they had two copies of it.
+ */
+export function landingOf(seat: number, from: Source, die: number): number | "off" {
+  if (from === "bar") return barEntry(seat, die);
+  const landed = from + direction(seat) * die;
+  return landed >= 0 && landed < POINTS ? landed : "off";
+}
+
 export function countAt(state: BgState, point: number, seat: number): number {
   const value = state.points[point];
   return seat === 0 ? Math.max(0, value) : Math.max(0, -value);
@@ -157,6 +227,11 @@ function clone(state: BgState): BgState {
     bar: [...state.bar] as [number, number],
     off: [...state.off] as [number, number],
     dice: state.dice.slice(),
+    // Both are written through by the bookkeeping below, so both are copied
+    // for the reason `roll` is: a derived state that shares them with the one
+    // it came from can rewrite a stored snapshot's history.
+    stats: [{ ...state.stats[0] }, { ...state.stats[1] }],
+    race: state.race.slice(),
     // `roll` is a tuple too. Leaving it aliased means a derived state shares it
     // with the state it came from, which is one careless write away from
     // corrupting a stored snapshot.
@@ -341,6 +416,11 @@ function scoreFor(state: BgState, winner: number): 1 | 2 | 3 {
 }
 
 function endTurn(state: BgState): void {
+  // Whatever is still in `dice` is what the position refused to let them
+  // play. Counted here because this is the only place a turn ends — and it
+  // ends here whether they gave up on it or the board did it for them.
+  for (const die of state.dice) state.stats[state.turn].wasted += die;
+  state.race.push(pipCount(state, 1) - pipCount(state, 0));
   state.dice = [];
   // `roll` means "the pair the player to move rolled". Once the turn flips it
   // would otherwise still hold the *previous* player's dice.
@@ -382,6 +462,11 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
       phase: "roll",
       winner: null,
       result: null,
+      last: null,
+      stats: [emptyStats(), emptyStats()],
+      // Both sides start on 167 pips, so the race opens dead level and the
+      // chart has a left-hand end to be drawn from.
+      race: [0],
     };
   },
 
@@ -403,14 +488,21 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
         count: 2,
       });
       const [a, b] = thrown.faces;
+      const rolled = clone(state);
+      const double = a === b;
+      rolled.stats[seat].rolls += 1;
+      if (double) rolled.stats[seat].doubles += 1;
+      // What the dice were worth, which is what `wasted` is subtracted from.
+      // A double is four moves, so it offers four times its face.
+      rolled.stats[seat].pips += double ? a * 4 : a + b;
       return {
         ok: true,
         state: {
-          ...clone(state),
+          ...rolled,
           roll: [a, b] as [number, number],
           toss: thrown.toss,
           // Doubles are played four times over.
-          dice: a === b ? [a, a, a, a] : [a, b],
+          dice: double ? [a, a, a, a] : [a, b],
           phase: "move",
         },
       };
@@ -446,9 +538,25 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
     const next = applyOne(state, seat, move.from, move.die);
     if (!next) return { ok: false, error: "That move isn't legal." };
 
+    // A hit is read off the bar rather than reported by `applyOne`, which
+    // returns a position and no account of how it got there.
+    const hit = next.bar[1 - seat] > state.bar[1 - seat];
+    if (hit) next.stats[seat].hits += 1;
+    next.last = {
+      seat: seat as 0 | 1,
+      from: move.from,
+      to: landingOf(seat, move.from, move.die),
+      die: move.die,
+      hit,
+      n: (state.last?.n ?? 0) + 1,
+    };
+
     if (next.off[seat] === CHECKERS) {
       next.winner = seat as 0 | 1;
       next.result = scoreFor(next, seat);
+      // The last turn never ends through `endTurn`, so the race would stop one
+      // entry short — at the position before the checker that won it came off.
+      next.race.push(pipCount(next, 1) - pipCount(next, 0));
       next.dice = [];
       return { ok: true, state: next };
     }

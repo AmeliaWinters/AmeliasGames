@@ -171,7 +171,7 @@ function moveCue(gameId: string): Cue | null {
 export function useTableSounds(
   room: RoomView | null,
   seat: number | null,
-  error: string | null,
+  errorSeq: number,
 ): void {
   const previous = useRef<{
     code: string;
@@ -230,11 +230,14 @@ export function useTableSounds(
     if (now.state !== was.state) play(cue);
   }, [room, seat]);
 
-  const lastError = useRef<string | null>(null);
+  const heardRefusals = useRef(0);
   useEffect(() => {
-    // Only a new refusal. Re-rendering with the banner still up is not a
-    // second thing going wrong.
-    if (error && error !== lastError.current) play("deny");
-    lastError.current = error;
-  }, [error]);
+    // Only a new refusal. Re-rendering with a toast still up is not a second
+    // thing going wrong -- but a *second refusal with the same wording* is,
+    // and this used to compare messages, so tapping the same illegal square
+    // twice was silent the second time. The counter comes from `useRoom` and
+    // moves once per refusal whatever the refusal says.
+    if (errorSeq > heardRefusals.current) play("deny");
+    heardRefusals.current = errorSeq;
+  }, [errorSeq]);
 }

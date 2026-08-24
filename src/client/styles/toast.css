@@ -1,0 +1,106 @@
+/* ── Toasts ────────────────────────────────────────────────────────────
+   The one thing in the app that floats. Everything else on this stage is a
+   ruled panel sitting in the flow, and a toast is deliberately not: the
+   refusal it carries is about the tap you just made, so it must not move the
+   board out from under the next one. `position: fixed` is doing that work and
+   nothing above it may grow a `transform`, which would make it fixed to that
+   ancestor instead. `.app` has none, and this is the reason not to give it
+   one.
+
+   Bottom-anchored on purpose. A phone is held low and read from the bottom
+   up, the topbar already carries the connection dot and the room code, and a
+   stack that grew downwards from the top would cover the status line — which
+   is the sentence a player checks *after* being told a move was refused. */
+.toasts {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  /* Clear of the home indicator and of Android's gesture bar; without the
+     inset the close button of the last toast sits in the swipe strip and is
+     as good as unpressable. */
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px;
+  /* The stack is a viewport-width strip so that its children can be centred,
+     but the strip itself must not swallow taps on the board behind the gaps
+     between toasts. Each toast turns pointer events back on. */
+  pointer-events: none;
+  align-items: center;
+}
+
+.toast {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 30rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  /* The left edge is the whole of the colour coding. A toast tinted all over
+     in --alert competes with the board for the eye at exactly the moment the
+     player is trying to look at the board. */
+  border-left: 3px solid var(--alert);
+  border-radius: var(--panel-radius);
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.4;
+  animation: toast-in 140ms ease-out;
+}
+
+/* `full` and `started` are not failures of the player's, they are facts about
+   a table — so they are told in the same voice as the pending clock rather
+   than in the alert red kept for "that did not work". */
+.toast.k-full,
+.toast.k-started {
+  border-left-color: var(--pending);
+}
+
+.toast-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* A room code or a word is the point of the message, and both can be long
+     enough to need breaking rather than to overflow the panel. */
+  overflow-wrap: anywhere;
+}
+
+.toast-label {
+  display: block;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.toast-close {
+  flex: none;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  /* 44 square, like every other target here -- the glyph is a cross a few
+     pixels wide and the box around it is what makes it hittable. */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  cursor: pointer;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

@@ -1,0 +1,277 @@
+/* ── Battleships ───────────────────────────────────────────────────────
+   Two seas of a hundred squares each on a phone, which is the constraint the
+   whole section is written around. They sit side by side rather than stacking
+   for the same reason Word Duel's grids do: theirs is where you shoot and
+   yours is where you are being shot, and losing sight of either one is losing
+   half the game. The squares shrink; the layout does not change. */
+.bs-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* Stacked first, side by side once there is room to do it without shrinking
+   the squares past use.
+
+   The two seas sitting side by side on a phone was the original intent and it
+   did not survive measurement: at 360px it left each square 11.2px, and at
+   390px 12.7px, against a 44px floor the rest of the app holds. The placement
+   view -- one grid, alone, full width -- gives 25.9px at the same 360px, so
+   the board already knew the comfortable size; only the firing view did not
+   get it. A tap fires immediately, with no confirmation and no undo, so a
+   miss costs a turn.
+
+   Stacked, each sea gets the full column and lands near 30px: better than the
+   placement grid the design already accepts, at the cost of scrolling between
+   the two rather than seeing both at once.
+
+   Stacked at every width, and that is not the same as "stacked on phones".
+   The first attempt at this put the two-up layout back behind
+   `@media (min-width: 720px)`, which measured worse than the phone it was
+   meant to improve on: 17.2px squares at a 760px viewport, against 29.8px
+   stacked at 390px. The reason is `.app { max-width: 480px }` -- the board is
+   480px wide on a 768px tablet and on a 4K monitor alike, because this design
+   gives a desktop margins rather than width. A viewport query cannot see that.
+   It asks how big the window is when the only thing that matters is how big
+   the container is, and here the container stopped growing at 480px.
+
+   So: no breakpoint, because there is no width at which the split pays. If
+   the 480px cap is ever lifted for playing surfaces, two-up belongs here
+   again -- behind a container query on the board, not a media query on the
+   window. It needs about 700px of board to reach 30px squares. */
+.bs-seas {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.bs-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: var(--surface);
+}
+
+.bs-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+/* How many ships are left is reference, not headline — the same treatment the
+   guess count gets in Word Duel. */
+.bs-count {
+  flex: none;
+  font-family: var(--body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.bs-sea {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bs-sea-row {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+}
+
+/* A square of open water. Buttons, because every one of them is somewhere you
+   can fire — including for a keyboard, which walks them in reading order.
+
+   Both minimums are reset, and that is the whole point of this rule. The
+   global 44px touch floor on `button` applies here too, and against
+   `aspect-ratio: 1` it won: every cell came out 44px square inside a 39px
+   column, so ten of them overlapped, buried the 3px gaps and painted each row
+   as one solid black bar. `min-width: 0` alone was not enough — the floor was
+   getting in through the height.
+
+   `width: 100%` then makes the width definite, so the aspect ratio only ever
+   derives the height from it. Nothing is left to be resolved from an
+   indefinite size, which is what kept this engine-dependent. */
+.bs-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: var(--hole);
+}
+.bs-cell:disabled {
+  /* Water you cannot shoot at is still water: no dimming, because half this
+     grid is deliberately inert and a faded board would read as broken. Held
+     by the `:not(.bs-cell)` above; this states it locally as well so the
+     intent survives someone rewriting that selector. */
+  opacity: 1;
+  cursor: default;
+}
+
+/* Your own ships, on your own sea. Never drawn on theirs — what shows there
+   is a wreck, and only once it has been sunk. */
+.bs-cell.ship {
+  background: var(--hull);
+}
+
+/* A hit and a miss have to be told apart at a glance and at four millimetres,
+   so they differ in colour AND in shape: a filled square against a dot. */
+.bs-cell.hit {
+  background: var(--alert);
+}
+.bs-cell.miss {
+  background: radial-gradient(circle at 50% 50%, var(--muted) 0 22%, transparent 23%);
+}
+
+/* A ship the server has revealed: sunk, or the game is over. Outlined rather
+   than filled, so the hits that sank her still read through it. */
+.bs-cell.wreck {
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* Where the ship in hand would land. Green enough to mean "yes", and the
+   alert red — the same red as a hit — for "not there". */
+.bs-cell.ghost {
+  background: var(--mark-hit);
+}
+/* Where the ship will not go. Green and red at the same opacity is the one
+   place on this board that leans on hue alone -- two rules above, hit and
+   miss are careful to differ in shape as well, and this was not. The cross
+   is the shape: it reads as "no" before the colour is read at all, and it
+   survives a screenshot in greyscale. */
+.bs-cell.ghost.bad {
+  background: var(--alert);
+  opacity: 0.55;
+  background-image:
+    linear-gradient(45deg, transparent 44%, var(--board) 44%, var(--board) 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, var(--board) 44%, var(--board) 56%, transparent 56%);
+}
+
+/* ── Battleships: the harbour ─────────────────────────────────────────
+   Placing gets one sea at a readable size, because it is the only thing
+   happening. */
+.bs-harbour .bs-sea {
+  max-width: 420px;
+  width: 100%;
+  align-self: center;
+  gap: 3px;
+}
+.bs-harbour .bs-sea-row {
+  gap: 3px;
+}
+
+.bs-brief,
+.bs-waiting {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.bs-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The fleet, as five things you can pick up. */
+.bs-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+}
+.bs-pick-size {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* The ship in hand is the one the next tap places, so it is stated rather
+   than merely highlighted. */
+.bs-pick.in-hand {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* One already at sea. Struck through, the same way a spent letter is on the
+   Wheel's board -- gone, not missing. */
+.bs-pick.out {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.bs-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bs-tool {
+  padding: 6px 12px;
+}
+
+/* ── Battleships: the roster ──────────────────────────────────────────
+   What is left of a fleet, which is the one thing a player tracks between
+   shots and the one thing counting wrecks off a hundred squares is bad at. */
+.bs-roster {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bs-ship {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.bs-ship-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-ship-note {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.bs-ship.sunk {
+  /* Struck through as well as dimmed: sunk is a state you should be able to
+     read without separating two greys. */
+  color: var(--rule-hi);
+  text-decoration: line-through;
+}
+
+/* One pip per square of hull, filled as she takes damage. Small, but it is
+   the difference between "hit twice" and "one more and she goes". */
+.bs-pips {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.bs-pips i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--rule-hi);
+}
+.bs-pips i.hit {
+  background: var(--alert);
+}
+

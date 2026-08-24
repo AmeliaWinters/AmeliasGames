@@ -91,7 +91,9 @@ describe('seating', () => {
     room.join('b', 'B');
     const result = room.move(0, { type: 'drop', col: 0 });
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/not started/i);
+    // Named, because "the game has not started yet" left a player wondering
+    // which game the room thought it was holding.
+    expect(result.ok === false && result.error).toMatch(/Connect Four has not been dealt/i);
   });
 
   /**
@@ -121,7 +123,7 @@ describe('seating', () => {
     room.join('a', 'A');
     const early = room.move(0, { type: 'scatter' });
     expect(early.ok).toBe(false);
-    expect(early.ok === false && early.error).toMatch(/not started/i);
+    expect(early.ok === false && early.error).toMatch(/Battleships has not been dealt/i);
   });
 
   /** One fleet placed must not start the shooting on its own. */
@@ -251,7 +253,7 @@ describe('open seating', () => {
     const room = table(2);
     const result = room.move(0, { type: 'spin' });
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/not started/i);
+    expect(result.ok === false && result.error).toMatch(/Wheel of Fortune has not been dealt/i);
   });
 
   it('will not start below the game minimum', () => {
@@ -274,7 +276,9 @@ describe('open seating', () => {
     expect(room.start(0).ok).toBe(true);
     const again = room.start(0);
     expect(again.ok).toBe(false);
-    expect(again.ok === false && again.error).toMatch(/already started/i);
+    expect(again.ok === false && again.error).toMatch(
+      /Wheel of Fortune is already under way in room/i,
+    );
   });
 
   it('tells the game how many actually sat down', () => {

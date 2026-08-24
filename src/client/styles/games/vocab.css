@@ -1,0 +1,465 @@
+/* --------------------------------------------------------------- Vocab Race
+   One clue at a time, held large in the middle of the screen, with a scoreline
+   above it and a text field under it. Everything here is arranged around a
+   single rule: at any moment there is exactly one thing on this board worth
+   reading, and it should be unmistakable which. While a round is running that
+   is the clue; for the six seconds after it, it is the answer.
+
+   So the two big blocks -- `.vr-clue` and `.vr-answer-word` -- are the only
+   type on the board above 1.2rem, and they are deliberately close to the same
+   size. A reveal that shouted louder than the question would make the game
+   feel like it was correcting you. */
+.vr-board {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* ── The scoreline ──────────────────────────────────────────────────── */
+
+/* Wraps rather than scrolls: eight seats will not fit across a phone, and a
+   score you have to swipe to see is one nobody checks. */
+.vr-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vr-score {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 9px;
+  background: var(--surface);
+  /* The seat's colour on the leading edge, the same way Word Chain marks whose
+     word is whose -- one convention for "this row belongs to that player". */
+  border-left: 3px solid var(--seat-0);
+}
+.vr-score[data-seat="1"] {
+  border-left-color: var(--seat-1);
+}
+.vr-score[data-seat="2"] {
+  border-left-color: var(--seat-2);
+}
+.vr-score[data-seat="3"] {
+  border-left-color: var(--seat-3);
+}
+
+.vr-score.mine {
+  background: var(--rule);
+}
+
+/* Out of this round. Dimmed, but only to 0.55 -- their score is still live
+   information for everyone else, and a row faded to the disabled-control 0.45
+   would read as a player who had left. */
+.vr-score.out {
+  opacity: 0.55;
+}
+
+.vr-score.won .vr-score-points {
+  color: var(--accent);
+}
+
+.vr-score-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vr-score-points {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Which round, in which language, at which depth. Small and grey: it is the
+   answer to a question the player only asks once. */
+.vr-round {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ── The clue ───────────────────────────────────────────────────────── */
+
+.vr-clue-label {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* The question. Sized to fill a phone's width at three or four words and to
+   shrink rather than wrap awkwardly at more -- `clamp` against the viewport
+   rather than a media query, because the deciding factor is how long this
+   particular clue is and no breakpoint knows that. */
+.vr-clue {
+  margin: 0;
+  padding: 18px 12px;
+  background: var(--surface);
+  font-family: var(--display);
+  font-size: clamp(1.5rem, 7vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* ── Answering ──────────────────────────────────────────────────────── */
+
+.vr-entry {
+  margin: 0;
+}
+
+.vr-entry-row {
+  display: flex;
+  gap: 8px;
+}
+
+.vr-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 44px is the floor every touch target in this app is held to, and a text
+     field a thumb has to aim at is the last place to shave it. */
+  min-height: 44px;
+  padding: 0 12px;
+  background: var(--ground);
+  border: 1px solid var(--rule-hi);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1.05rem;
+}
+
+.vr-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.vr-input::placeholder {
+  color: var(--muted);
+}
+
+.vr-submit {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--action);
+  border: none;
+  color: var(--action-text);
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── The reveal ─────────────────────────────────────────────────────── */
+
+/* Who got it, and how fast. Above the word rather than below it, so the word
+   is the last thing on the block and the thing left in the eye. */
+.vr-verdict {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink);
+}
+
+/* What they actually typed, when it was not what the word looks like. Quiet:
+   it is a footnote to the verdict, not part of it. */
+.vr-said {
+  font-family: var(--body);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.vr-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 12px;
+  background: var(--surface);
+  /* Accented on all four sides rather than one, because this block is the
+     reason the game exists and the six seconds it is up are the six seconds
+     that teach. It is the only place on any board that gets a full border. */
+  border: 2px solid var(--accent);
+}
+
+/* The clue, repeated over the answer. It has been on screen for up to thirty
+   seconds and the player has been staring at it, so this is not a reminder --
+   it is what makes the pair readable as a pair, which is the thing being
+   memorised. */
+.vr-answer-clue {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.vr-answer-word {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(1.9rem, 9vw, 2.8rem);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Japanese in its own script. Full ink rather than muted, and near the size of
+   the romaji: a learner who only ever sees `sakura` never learns to read the
+   word, and shrinking the kanji into a caption is how that happens. */
+.vr-answer-script {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: var(--ink);
+  text-align: center;
+}
+
+.vr-answer-lemma {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.vr-answer-rank {
+  margin: 0;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The wait for the next clue. `aria-hidden` in the markup and quiet here: it
+   counts down a pause nobody is racing, and a second live countdown on a board
+   that already has one is noise. */
+.vr-next {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ── Setup ──────────────────────────────────────────────────────────── */
+
+.vr-setup {
+  gap: 12px;
+}
+
+.vr-brief {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.vr-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.vr-waiting {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Two side by side on any phone wide enough, stacked below that. Both groups
+   -- languages and difficulties -- use one class, because they are the same
+   control asked twice and giving them separate styles would be inviting them
+   to drift. */
+.vr-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.vr-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  text-align: left;
+}
+
+/* The chosen one, marked by its border rather than by its fill: these sit two
+   across, and a filled tile beside an empty one reads as one button and one
+   label. */
+.vr-choice.chosen {
+  border-color: var(--accent);
+  background: var(--rule);
+}
+
+.vr-choice-name {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.vr-choice-note {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.vr-begin {
+  min-height: 44px;
+}
+
+/* ── The end ────────────────────────────────────────────────────────── */
+
+.vr-end {
+  gap: 12px;
+}
+
+.vr-over .vr-verdict {
+  font-size: 1.25rem;
+}
+
+.vr-stat-seats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vr-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 9px;
+  background: var(--surface);
+}
+
+.vr-stat-name {
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.vr-stat-line {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.vr-highlight {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.vr-highlight strong {
+  font-family: var(--display);
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.vr-review-head {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The full list. Scrolls inside the board rather than pushing the rematch
+   button off the bottom of the screen -- a thirty-round game is a long list and
+   the control under it is the one everybody wants next. */
+.vr-reviews {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vr-review {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "word who"
+    "clue who";
+  align-items: baseline;
+  gap: 1px 10px;
+  padding: 7px 9px;
+  background: var(--surface);
+}
+
+/* The rounds nobody took, marked on the edge in the alert colour. These are
+   the rows worth reading twice, and the list is otherwise uniform enough that
+   they would disappear into it. */
+.vr-review.nobody {
+  border-left: 3px solid var(--alert);
+  padding-left: 6px;
+}
+
+.vr-review-word {
+  grid-area: word;
+  font-size: 1.02rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.vr-review-script {
+  margin-left: 8px;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.vr-review-clue {
+  grid-area: clue;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.vr-review-who {
+  grid-area: who;
+  align-self: center;
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}

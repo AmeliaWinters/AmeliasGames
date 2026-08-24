@@ -1,0 +1,368 @@
+/* ---------------------------------------------------------------- Word Chain
+   A vertical list of words that grows all game, with a translation under every
+   one that is not English. The gloss is not decoration here -- it is the whole
+   reason the game exists -- so it gets real contrast and real size rather than
+   being shrunk into a caption. */
+.wc-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* The chain outgrows a phone within a dozen turns, so it scrolls inside the
+   board rather than pushing the input off the bottom of the screen -- the one
+   control the player is under a clock to reach. */
+.wc-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wc-link {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "who word   rank"
+    ".   script rank"
+    ".   gloss  rank";
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  /* The seat's colour on the edge it was played from, so whose word is whose
+     reads at a glance without a legend. */
+  border-left: 3px solid var(--seat-1);
+}
+.wc-link.mine {
+  border-left-color: var(--seat-0);
+}
+
+.wc-who {
+  grid-area: who;
+  font-size: 0.72rem;
+  color: var(--muted);
+  /* Fixed width so the words line up in a column instead of running ragged
+     behind names of different lengths. */
+  min-width: 4.5em;
+}
+
+.wc-word {
+  grid-area: word;
+  font-size: 1.15rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Japanese in its own script, under the romaji. A learner who only ever sees
+   the romaji never learns to read the word. */
+.wc-script {
+  grid-area: script;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.wc-gloss {
+  grid-area: gloss;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+/* How common the word was, in its own language's frequency list.
+
+   Deliberately the quietest thing in the row and on the far edge of it: it is
+   the last thing you want to read about a word, after the word, its script and
+   its meaning, and a number in the reading order ahead of those would be a
+   score for a game that does not have one. Tabular figures so the column of
+   them stays a column.
+
+   Quiet by size and position only. An `opacity: 0.75` on top of `--muted` was
+   the first draft and it measured 3.5:1 against the surface in both palettes,
+   which fails AA for text this size — `--muted` on its own is 5.6:1 dark and
+   6.0:1 light. Small is allowed to be small; it is not allowed to be faint. */
+.wc-rank {
+  grid-area: rank;
+  align-self: center;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The dictionary form, for a Polish word played as an inflection: one word
+   said, another one learned. */
+.wc-lemma {
+  color: var(--ink);
+  font-style: italic;
+}
+.wc-lemma::after {
+  content: " \00b7 ";
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* How long the chain is, live above it and again once it has ended. One rule
+   for both, because it is one fact and it should not change size on the way to
+   becoming final. Muted and small: a game with no score should not grow a
+   scoreboard, and this is a thing to notice rather than to play towards.
+   Tabular figures so the number does not jitter the line as it climbs. */
+.wc-count {
+  margin: 0;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The end-of-game numbers. Under the reveal, and quieter than it: the reveal
+   is the reason to play and this is the thing you read afterwards. */
+.wc-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+
+.wc-stats-head {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wc-stat-seats,
+.wc-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wc-stat-seat {
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.wc-stat-who {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Four numbers, two by two at every width.
+
+   A wrapping flex row was the first draft and it is wrong on a phone: the four
+   fit at 320 as 2+2 and at 390 as 3+1, so the one screen size that reads as an
+   afterthought is the commonest one. Two fixed columns cannot orphan. Capped
+   rather than filling, because a board wider than a phone would otherwise
+   stretch two columns to 300px each and leave every label stranded a long way
+   from the number above it. */
+.wc-stat-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  max-width: 20em;
+}
+
+.wc-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.wc-stat-value {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Small, and muted rather than faded -- the same rule the per-word rank is
+   held to a few hundred lines up. `--muted` on `--surface` measures 5.6:1 in
+   stage and 6.0:1 in daylight; an opacity on top of it would fail AA. */
+.wc-stat-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* One sentence each, so they read rather than tabulate. The word itself is the
+   thing being pointed at, so it takes the ink. */
+.wc-highlight {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.wc-highlight strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.wc-highlight span[lang] {
+  color: var(--ink);
+}
+
+/* The letter carrying to the next word, said once and largely. */
+.wc-carry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+}
+.wc-carry strong {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+/* How many words are still behind that letter. Sits beside it rather than
+   under it so the line stays one line on a 320px screen, and stays muted: it
+   is a fact about the letter, not a second headline. */
+.wc-left {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Losing on purpose. A full-width thumb target like every other action, but
+   written as a quiet outline rather than in the action colour — it is a real
+   move and has to be reachable, and it must never be the thing a thumb lands
+   on while reaching for the word box above it. */
+.wc-give-up {
+  min-height: 44px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  font-size: 0.84rem;
+}
+
+.wc-langs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wc-lang {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* A thumb target, matching every other action in the app. */
+  min-height: 44px;
+  padding: 10px 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.wc-lang.chosen {
+  background: var(--action);
+  color: var(--action-text);
+  border-color: var(--action);
+}
+.wc-lang-name {
+  font-size: 0.9rem;
+}
+.wc-lang-native {
+  font-size: 0.78rem;
+  opacity: 0.72;
+}
+
+.wc-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wc-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wc-entry-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wc-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  /* 16px so iOS does not zoom the viewport the moment the field takes focus.
+     No letter-spacing and no uppercasing, unlike Word Duel's box: this one
+     holds real words in three alphabets, and a word spaced out like a puzzle
+     answer is harder to read back than the word is. */
+  font-size: 1rem;
+}
+
+.wc-submit {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.9rem;
+}
+.wc-submit:disabled {
+  opacity: 0.45;
+}
+
+.wc-brief,
+.wc-waiting,
+.wc-note {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.wc-note {
+  font-size: 0.78rem;
+}
+.wc-brief strong,
+.wc-brief em {
+  color: var(--ink);
+}
+
+.wc-over {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wc-verdict {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+/* The reveal. Shown large and with its meaning rather than tucked into the
+   status line, because a minute spent failing to think of a word is the moment
+   the answer sticks, and this is the only chance to spend it. */
+.wc-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+}
+.wc-reveal .wc-word {
+  font-size: 1.5rem;
+}
+.wc-reveal-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wc-setup {
+  gap: 16px;
+}

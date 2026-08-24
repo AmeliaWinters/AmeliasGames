@@ -51,7 +51,7 @@ npm run render:throw -- --old   # the same seed, before the last retune
 `dice.ts` is pure, seeded and dependency-free, so it runs in Node; the browser
 contributes nothing to the projection, since the tray has no `perspective` and a
 cube under `preserve-3d` without one is drawn orthographically.
-`scripts/render-throw.ts` runs the real simulation, projects it the same way,
+`scripts/render-throw3d.ts` runs the real simulation, projects it the same way,
 and writes contact sheets to `preview/` — one panel per sampled frame, time left
 to right. Read the PNG.
 
@@ -73,7 +73,7 @@ server-side. Touch the file and confirm with `curl` before believing anything
 the browser shows:
 
 ```bash
-curl -s http://localhost:5173/src/client/styles.css | grep -c 'the-thing-you-just-added'
+curl -s http://localhost:5173/src/client/styles/dice.css | grep -c 'the-thing-you-just-added'
 ```
 
 Touching anything under `src/shared/` or `src/server/` restarts `tsx watch`,

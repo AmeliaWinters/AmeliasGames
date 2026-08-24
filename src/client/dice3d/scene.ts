@@ -38,7 +38,7 @@ import type { Tray } from '../../shared/games/dice.js';
 import { DIE_HALF, trayInPhysics } from './engine.js';
 
 /**
- * The die's own colours, which are literals here for the reason `styles.css`
+ * The die's own colours, which are literals here for the reason `styles/dice.css`
  * gives for the same ones: this is the colour of an object under a light, not
  * of the interface, so it does not follow the palette and does not change with
  * the theme. A real die is the colour of a real die in both of them.
@@ -230,7 +230,16 @@ export interface DiceScene {
    */
   draw(
     dice: readonly Placed[],
-    look?: { held?: readonly boolean[]; spent?: readonly boolean[] },
+    look?: {
+      held?: readonly boolean[];
+      spent?: readonly boolean[];
+      /**
+       * How brightly the dice are lit from inside, 0 to 1. Nought on every
+       * ordinary frame; driven by a flourish's envelope in `beats.ts`, which
+       * is the only thing that ever turns it up.
+       */
+      glow?: number;
+    },
   ): Array<OnScreen | null>;
   /** Give back the GPU. A WebGL context that is dropped rather than released
    *  counts against a small per-page limit, and two trays plus a rematch is
@@ -347,6 +356,18 @@ export function createScene(host: HTMLElement, tray: Tray): DiceScene {
         map: textures[face - 1],
         roughness: 0.42,
         metalness: 0,
+        /*
+          Off at rest — `emissiveIntensity` is driven to zero on every ordinary
+          frame, and this is only the colour it takes when it is not.
+
+          Warm rather than the accent token, and for the same reason the body
+          and the pips are literals: this is light coming off an object, not a
+          piece of interface, and a die that glowed a different colour in each
+          palette would stop reading as a die at the one moment everybody is
+          looking straight at it.
+        */
+        emissive: new THREE.Color(0xffcf6a),
+        emissiveIntensity: 0,
       }),
   );
   /*
@@ -408,9 +429,22 @@ export function createScene(host: HTMLElement, tray: Tray): DiceScene {
 
   function draw(
     dice: readonly Placed[],
-    look?: { held?: readonly boolean[]; spent?: readonly boolean[] },
+    look?: { held?: readonly boolean[]; spent?: readonly boolean[]; glow?: number },
   ): Array<OnScreen | null> {
     const box = host.getBoundingClientRect();
+    /*
+      A celebrating die lights up from the inside.
+
+      Emissive rather than another lamp, because a lamp lights the tray and the
+      shadows too, and what is being said is "these dice", not "this table".
+      Written on every draw rather than only when it changes: the value comes
+      from a parabola sampled per frame, so there is no frame where it is the
+      same as the last one, and a comparison to skip the write would cost more
+      than the write.
+    */
+    const glow = look?.glow ?? 0;
+    for (const skin of skins) skin.emissiveIntensity = glow;
+    for (const skin of dimmed) skin.emissiveIntensity = glow;
     const at: Array<OnScreen | null> = [];
     for (let i = 0; i < Math.max(dice.length, cubes.length); i++) {
       const die = dice[i];
