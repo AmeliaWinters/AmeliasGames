@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 // The types below are type-only, so they are erased and carry no import.
 import {
   GRID_SIZE,
-  MAX_WORD,
   MIN_WORD,
   blockedBy,
   canExtend,
@@ -181,7 +180,7 @@ export function LetterpressBoard({ state, seat, names, canAct, onMove }: Props) 
               <span className="lp-spelt">{word}</span>
             ) : (
               <span className="lp-hint">
-                Tap any tiles, anywhere — {MIN_WORD} to {MAX_WORD} letters
+                Tap any tiles, anywhere — {MIN_WORD} letters or more
               </span>
             )}
             {spent !== null && (

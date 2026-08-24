@@ -4,6 +4,7 @@ import { die, pick } from './random.js';
 import {
   DICE_PER_PLAYER,
   FACES,
+  owesRoll,
   HIDDEN_FACE,
   beats,
   countFace,
@@ -30,6 +31,7 @@ export {
   isOut,
   livePlayers,
   nextLive,
+  owesRoll,
   seatCount,
   smallestRaise,
   totalDice,
@@ -93,6 +95,7 @@ function clone(state: LdState): LdState {
   return {
     ...state,
     dice: state.dice.map((hand) => [...hand]),
+    rolled: [...state.rolled],
     bid: state.bid === null ? null : { ...state.bid },
     history: state.history.map((said) => ({ ...said })),
     // The showdown is replaced wholesale or left alone, never edited, so the
@@ -221,10 +224,57 @@ function callBid(
   return { ok: true, state: after };
 }
 
+/**
+ * A seat's own hand, as the client that threw it reports it.
+ *
+ * The reducer already dealt this hand — see `nextRound` — so the game is
+ * playable without this ever arriving, which is the point: a client with no
+ * WebAssembly, or one that simply never sends it, is not a round that hangs.
+ * What this adds is that the dice a player *watched land* are the dice they
+ * are holding, rather than an animation that agreed with a number chosen
+ * elsewhere.
+ *
+ * **This is the most trusting thing in the app, and it is trusted on purpose.**
+ * A modified client reports five sixes and there is nothing here that could
+ * know. In a game whose whole substance is bluffing about a hidden hand, that
+ * is a large thing to give away; it was given away knowingly, in exchange for
+ * the dice being real everywhere rather than real in two games out of three.
+ * Anyone tightening this later wants the server to keep dealing and the client
+ * to animate onto what it was dealt — which is the same picture and none of
+ * this risk.
+ */
+function reportHand(state: LdState, seat: number, faces: unknown): MoveResult<LdState> {
+  if (!owesRoll(state, seat)) {
+    return { ok: false, error: 'Your dice are already on the table.' };
+  }
+  const want = state.dice[seat].length;
+  if (!Array.isArray(faces) || faces.length !== want) {
+    return { ok: false, error: `That is not ${want} dice.` };
+  }
+  const hand: number[] = [];
+  for (const face of faces) {
+    if (!Number.isInteger(face) || face < 1 || face > FACES) {
+      return { ok: false, error: `Dice run from 1 to ${FACES}.` };
+    }
+    hand.push(face);
+  }
+
+  const after = clone(state);
+  // Sorted, like a dealt hand: the owner already knows what they rolled and
+  // nobody else is shown it, so the order gives away nothing and a revealed
+  // hand is countable at a glance.
+  after.dice[seat] = hand.sort((a, b) => a - b);
+  after.rolled[seat] = true;
+  return { ok: true, state: after };
+}
+
 function nextRound(state: LdState, rng: Rng): LdState {
   const after = clone(state);
   after.round = state.round + 1;
   after.dice = state.dice.map((hand) => (hand.length > 0 ? roll(hand.length, rng) : []));
+  // Everyone's own throw is owed again. The hands above are the fallback, and
+  // the ones a client reports replace them — see `owesRoll`.
+  after.rolled = state.dice.map(() => false);
   after.bid = null;
   after.history = [];
   after.phase = 'bid';
@@ -253,6 +303,7 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     return {
       round: 1,
       dice: Array.from({ length: seats }, () => roll(DICE_PER_PLAYER, rng)),
+      rolled: Array.from({ length: seats }, () => false),
       turn: starter,
       bid: null,
       history: [],
@@ -269,6 +320,15 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     if (!move || typeof move !== 'object') return { ok: false, error: 'Unknown move.' };
     if (seat < 0 || seat >= seatCount(state)) return { ok: false, error: 'You are not playing.' };
     if (isOut(state, seat)) return { ok: false, error: 'You are out of dice.' };
+
+    /*
+      Before the turn check, because rolling is the one thing here that happens
+      out of turn: every hand hits the table at once at the top of a round, and
+      making four players wait their turn to throw would be a different game.
+      A seat may only ever report its *own* hand, which is what `seat` is.
+    */
+    if (move.type === 'roll') return reportHand(state, seat, move.faces);
+
     if (seat !== state.turn) return { ok: false, error: "It's not your turn." };
 
     if (state.phase === 'reveal') {
@@ -309,8 +369,15 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     return state.over ? null : state.turn;
   },
 
+  /*
+    Not `turn(state) === seat`, and the difference is real: everyone throws
+    their own dice at the top of a round, at the same time, whoever is due to
+    bid. So this is the union of "it is your turn" and "you still owe a throw",
+    and a board must not gate its *bidding* controls on it — `turn` is what
+    those want. `owesRoll` carries the other half.
+  */
   canAct(state, seat) {
-    return !state.over && state.turn === seat;
+    return !state.over && (state.turn === seat || owesRoll(state, seat));
   },
 
   isOver(state) {

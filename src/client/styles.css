@@ -61,6 +61,24 @@
      the board on its own takes this. */
   --motif-off: #7a7a86;
 
+  /* Ultimate's nine small boards, as ground rather than as one more mark: a
+     board that has been won is tinted its winner's hue for the whole 3x3
+     block, and the board you are sent to has its empty squares lit. A ring
+     could not say all three -- two of them are already rings, for "in play"
+     and "won the game" -- and nine tiny marks in a 93px block are not a thing
+     anyone reads across a whole board at arm's length.
+
+     A wash rather than the seat colour itself, because the winning three sit
+     on top of it and have to stay the brightest thing in their board. Measured
+     against the marks they carry: 3.7:1 and 4.8:1 for a winning mark beside
+     its washed neighbours here, 2.8:1 in the light palette, where the wash is
+     weaker for exactly that reason. The two winners' grounds differ mostly in
+     hue, which is why the marks and not the ground are what say whose it is. */
+  --ut-won-0: #592e2d;
+  --ut-won-1: #1f4a59;
+  --ut-drawn: #36363d;
+  --ut-target: #2d553f;
+
   --action: var(--accent);
   --action-text: #0c0c0f;
   --alert: #ff5a47;
@@ -121,6 +139,17 @@
 
   --motif-off: #7d7a6b;
 
+  /* Weaker than the dark palette's, and not by taste. --seat-0 clears --board
+     by only 3.8:1 here, so every point of tint the ground takes comes off the
+     mark standing on it; 22% is where a winning mark still holds 2.8:1 against
+     its washed neighbours while the block itself clears the plain board by
+     1.3:1. Pushing it further made a settled board louder and its winner
+     harder to name, which is the wrong trade for the thing this is for. */
+  --ut-won-0: #dfbdb2;
+  --ut-won-1: #b4cccd;
+  --ut-drawn: #cdcbc2;
+  --ut-target: #b9cab9;
+
   --action: var(--accent);
   --action-text: #ffffff;
   --alert: #cf3a24;
@@ -173,6 +202,10 @@
    already means letters here, and the board's own two colours are the seat
    hues, which the accent must not be mistaken for. */
 :root[data-game="letterpress"] { --accent: var(--seat-2); }
+/* Word Chain is the fourth word game and takes the same channel for the third
+   time. Green means letters here, and a game whose whole board is a column of
+   words has no business being any other colour. */
+:root[data-game="wordchain"] { --accent: var(--seat-2); }
 
 /* ── Type ──────────────────────────────────────────────────────────────
    A condensed signage face for every name, title, status line and button, and
@@ -229,6 +262,8 @@ body {
 .wd-panel,
 .wd-tile,
 .wd-key,
+.wc-link,
+.wc-lang,
 .wh-cell,
 .wh-list,
 button,
@@ -243,6 +278,7 @@ input {
 .board,
 .bg-board,
 .wd-board,
+.wc-board,
 .wh-board {
   border: 1px solid var(--rule);
   border-radius: var(--board-radius);
@@ -1279,80 +1315,18 @@ input:focus-visible {
   background: var(--mark-text);
 }
 
-/* ── A die as a cube ───────────────────────────────────────────────────
-   For dice that are thrown. The number is not written on a die, it is on a
-   *side* of one — the simulation tumbles the cube and the face pointing at you
-   when it stops is the face you get — and a flat square spun about one axis is
-   a flat square pretending.
+/* ── A tray of dice ────────────────────────────────────────────────────
+   The dice used to be CSS: six `<span>`s a cube under `preserve-3d`, turned by
+   a `matrix3d` written straight onto the parent, and deliberately no
+   `perspective` — which made the camera orthographic. That was right for what
+   it was and it fixed a real bug (five dice at rest each apparently tipped a
+   different way, because the vanishing point sat a hand's width in front of
+   the tray). What it could not do was give anything depth, or let light fall
+   on it, and a flat shape with a number on it is what "the dice look fake"
+   was about.
 
-   Placed to match `FACE_AXES` in `dice.ts`, in the same coordinates: x right,
-   y down, z towards the player. Those are CSS's own, which is what lets the
-   solver's rotation go straight into `matrix3d`. */
-.cube {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  /* The solver writes a rotation here every frame. */
-  will-change: transform;
-}
-
-.cube-face {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--rule-hi);
-  border-radius: calc(var(--die) * 0.14);
-  /* Five of the six always face away; not painting them is most of the frame
-     budget back. */
-  backface-visibility: hidden;
-}
-
-/* Shaded flat, one tone per pair of faces, so the cube has form without a
-   gradient in it. Two more literals, for the same reason as the cream: this is
-   the colour of the object under the light, not of the interface. */
-.cube-face.f3,
-.cube-face.f4 {
-  background: #e6ded0;
-}
-.cube-face.f2,
-.cube-face.f5 {
-  background: #d7cdba;
-}
-
-.cube-face.f1 { transform: translateZ(calc(var(--die) / 2)); }
-.cube-face.f6 { transform: rotateY(180deg) translateZ(calc(var(--die) / 2)); }
-.cube-face.f3 { transform: rotateY(90deg) translateZ(calc(var(--die) / 2)); }
-.cube-face.f4 { transform: rotateY(-90deg) translateZ(calc(var(--die) / 2)); }
-.cube-face.f2 { transform: rotateX(-90deg) translateZ(calc(var(--die) / 2)); }
-.cube-face.f5 { transform: rotateX(90deg) translateZ(calc(var(--die) / 2)); }
-
-/* A die nobody has thrown yet: the shape of a die with nothing on it, rather
-   than a die that happens to be showing a one. */
-.cube.blank .pips {
-  background: var(--board);
-}
-.cube.blank i {
-  display: none;
-}
-
-/* A die already played this turn. Dimmed rather than removed: the row
-   shrinking as you spent them made the dice left harder to count, because the
-   thing being counted kept moving. */
-.cube.spent {
-  opacity: 0.34;
-}
-
-/* ── The tray ──────────────────────────────────────────────────────────
-   A surface you throw dice onto, and the only thing in the app with a
-   simulation behind it.
-
-   Its shape is fixed rather than left to the layout, because the throw is
-   simulated in the tray's own units and read for its faces on the server: a
-   tray a different shape here than there would land the dice on different
-   numbers. `--tray-ratio` and `--die` are both set from the same constant the
-   reducer uses.
-
-   A playing surface, so it takes the board treatment rather than the panel
-   one — it is a thing on the stage, not another card. */
+   They are drawn by WebGL now — `src/client/dice3d/scene.ts`. What is left
+   here is the box it happens in, and the controls that ride on top of it. */
 .dice-tray {
   position: relative;
   width: 100%;
@@ -1361,20 +1335,6 @@ input:focus-visible {
   border-radius: var(--board-radius);
   background: var(--board);
   overflow: hidden;
-  /*
-     No `perspective`, and that is the camera: under `preserve-3d` a cube with
-     no perspective above it is drawn orthographically, straight down.
-
-     It used to be 900px, which was a vanishing point about a hand's width in
-     front of the tray. Every die away from the middle was therefore seen from
-     one side, leaning, showing a face nobody asked for — five dice at rest on
-     a flat table, each apparently tipped a different way. A camera looking
-     down a tray from a foot away is not the camera anyone reads dice with.
-
-     What it costs is the one cue for height, since a die twice as high above
-     the table is now drawn in exactly the same place. That is what
-     `.die-shadow` is for.
-  */
   /* A finger drags across this; the browser must not read that as a scroll. */
   touch-action: none;
   user-select: none;
@@ -1394,117 +1354,77 @@ input:focus-visible {
   border-color: var(--accent);
 }
 
-/* Every die's shadow, under every die. One layer rather than a shadow inside
-   each slot, because slots overlap: a shadow living with its die would fall
-   across whichever neighbour happened to be drawn before it, and a shadow on
-   top of a die is a light source nothing else in the drawing agrees with. */
-.die-shadows {
+/* The dice themselves. Transparent, so the tray's own background and border
+   are what you see around them rather than a second surface the canvas would
+   have to keep matching through both palettes and every theme change. */
+.dice-canvas {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* The gesture belongs to the tray. A canvas that swallowed the pointer would
+     take the flick with it. */
   pointer-events: none;
 }
 
-/*
-   What is left of height, now the camera is orthographic: a die a die's width
-   up moves nowhere on screen, so the shadow spreading out from under it is the
-   only thing that says it is in the air rather than lying there.
+/* A die's *handle*: an invisible box over wherever that die came out on the
+   screen, carrying the label, the touch target and the keeping state.
 
-   A gradient rather than a blur filter — it is the same soft blob for a
-   twentieth of the cost, and this is written to five times a frame during the
-   part of the throw that has the most going on. At rest it is a circle
-   inscribed in the die's own square, which is to say: invisible, underneath
-   it, exactly as a die lying on the table casts nothing you can see.
-*/
-.die-shadow {
+   The picture is a canvas and a canvas has no DOM inside it, so none of the
+   above could live on the die itself. It lives here instead, moved each frame
+   to the projected position `scene.draw` reports. A die that was not thrown
+   gets no mark at all, which is the same rule the old tray had to learn twice:
+   a hole is something you go and look at, a wrong number is not. */
+.die-mark {
   position: absolute;
-  left: 0;
-  top: 0;
-  width: var(--die);
-  height: var(--die);
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
-  will-change: transform, opacity;
-}
-
-/* What the solver actually moves. Sized as a share of the tray, so one number
-   in `dice.ts` sets both the simulation and the drawing. */
-.die-slot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: var(--die);
-  aspect-ratio: 1;
-  transform-style: preserve-3d;
-  will-change: transform;
-  /* Over the shadows, and over each other by height — `draw` raises a die that
-     is passing above another. Without perspective, nothing else would say
-     which of two overlapping dice is the one in the air. */
-  z-index: 1;
-}
-
-/* Keeping a die is a button, so it is reachable by tab and not only by
-   finger — but it is a die, not a control, so it gives up everything a button
-   is otherwise given here. */
-.die-hold {
   padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: 50%;
   background: none;
-  line-height: 0;
-  cursor: pointer;
   /*
-    The one a button gives that `aspect-ratio` cannot argue with, and the
-    reason a thrown die was not a cube.
-
-    `button` carries `min-height: 44px` — the touch floor the whole app is
-    held to — and a minimum beats an aspect ratio outright. So a die-slot 35px
-    wide came out 35 × 44, the cube inside it `inset: 0` of that, and its
-    faces still `translateZ`-ed by half of `--die`: an upright slab, 35 wide,
-    44 tall and 35 deep. It only showed on a phone. On a laptop `--die` is
-    comfortably over 44px, the minimum never bit, and the dice were square —
-    which is why this could sit in plain sight.
-
-    Nothing is lost by turning it off: `::before` below is the 44px, and it
-    has been since the tray was given room to throw in. `.bs-cell` learned the
-    same lesson; this is the other half of it.
+    `button` carries `min-height: 44px` — the touch floor the whole app is held
+    to — and a minimum beats any size set on the element. Under the old cube
+    that made a die-slot 35px wide come out 35 × 44, an upright slab rather
+    than a cube, and it only showed on a phone. Here the element is positioned
+    and sized in pixels from the projection, so the minimum would fight it the
+    same way. The 44px is honoured by the size the tray computes instead, which
+    is `max(projected, 44)`.
   */
   min-height: 0;
+  cursor: default;
+}
+.die-hold {
+  cursor: pointer;
 }
 .die-hold:disabled {
   cursor: default;
 }
-/* A die is small — smaller than a fingertip, and smaller again since the tray
-   was given room to throw in. The cube keeps its size and the area that
-   answers a tap does not: this is the 44px the die itself no longer is,
-   invisible, centred, and allowed to overlap its neighbours' rather than
-   leaving a strip down the middle that keeps nothing. */
-.die-hold::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: max(100%, 44px);
-  height: max(100%, 44px);
-  transform: translate(-50%, -50%);
-}
-/* Kept dice are ringed on every side, since any of them may be the one facing
-   you. The ring is the information, and it is the accent because keeping is a
-   choice you made rather than something the rules did to you.
+/* Kept dice are ringed. The ring is the information, and it is the accent
+   because keeping is a choice you made rather than something the rules did to
+   you.
 
    Two rings, though, not one colour. A die face is a fixed cream in both
-   palettes — deliberately, see `.pips` — and Yahtzee's accent is `--seat-3`,
-   which in `stage` is #ffc24b: about 1.4:1 against that cream, which is a mark
-   you cannot see, in the palette most people play in. (It passes in daylight,
-   where the same token is #9a6a00 — which is how it came to be written this
-   way.) The ink ring is what makes the state visible at all, at roughly 18:1,
-   and being a difference in lightness rather than hue it survives colour
-   blindness too; the accent still says whose choice it was. */
-.die-hold.held .cube-face {
-  border-color: #0c0c0f;
+   palettes — deliberately, it is the colour of an object rather than of the
+   interface — and Yahtzee's accent is `--seat-3`, which in `stage` is #ffc24b:
+   about 1.4:1 against that cream, which is a mark you cannot see, in the
+   palette most people play in. (It passes in daylight, where the same token is
+   #9a6a00 — which is how it came to be written this way.) The ink ring is what
+   makes the state visible at all, at roughly 18:1, and being a difference in
+   lightness rather than hue it survives colour blindness too; the accent still
+   says whose choice it was.
+
+   Drawn as a ring around the die rather than inset into its face, because the
+   face is now a texture on a cube that may be turned any way at all. */
+.die-hold.held {
   box-shadow:
-    inset 0 0 0 max(1.5px, calc(var(--die) * 0.045)) var(--accent),
-    inset 0 0 0 max(3px, calc(var(--die) * 0.09)) #0c0c0f;
+    0 0 0 2px #0c0c0f,
+    0 0 0 5px var(--accent),
+    0 0 0 7px #0c0c0f;
+}
+.die-hold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .dice-hint {
@@ -2024,6 +1944,7 @@ input:focus-visible {
 .game[data-game="morris"] { --accent: var(--seat-0); }
 .game[data-game="ultimate"] { --accent: var(--seat-0); }
 .game[data-game="letterpress"] { --accent: var(--seat-2); }
+.game[data-game="wordchain"] { --accent: var(--seat-2); }
 
 .game.picked {
   border-color: var(--accent);
@@ -3386,6 +3307,17 @@ input:focus-visible {
   color: var(--muted);
 }
 
+/* Your own five, thrown, at the top of a round. Above the hands rather than
+   among them: it is a thing you do, and they are a thing you read. It is gone
+   the moment the dice land, because the hand below becomes the record and a
+   tray still sitting there would invite a roll the reducer refuses. */
+.ld-throw {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .ld-hands {
   display: flex;
   flex-direction: column;
@@ -4262,6 +4194,45 @@ input:focus-visible {
   box-shadow: inset 0 0 0 3px var(--live);
 }
 
+/* "You must play here" said a second time, on the squares themselves. The ring
+   alone was one green outline among nine boards on a phone, and it says which
+   board without saying which squares are left in it -- a board sent to late in
+   the game may have two empty cells in it and seven that cannot be pressed.
+
+   Keyed on the mark, not on the button: an empty square in the board being
+   played is the fact worth drawing whether or not it is your turn, and off
+   :disabled it would vanish on the opponent's move, which is exactly the
+   moment a player is trying to read where the game is going next. */
+.ut-small.only .ut-cell.empty {
+  background: var(--ut-target);
+}
+
+/* Whose a settled board is. The marks in it say it too -- three in a seat
+   colour, six deadened -- but nine marks in a block this size is not something
+   anybody reads across nine blocks, and "who won that one" was being counted
+   rather than seen.
+
+   The three that won it keep the plain board under them, so the line reads as
+   punched through the wash rather than sitting on it, and stays at the full
+   contrast the seat colour has against --board: 5.4:1 and 8.3:1 dark, 3.8:1
+   and 3.7:1 light. It also draws the shape of the line for free.
+
+   A drawn board takes a neutral ground of the same weight. It is settled and
+   it is nobody's, and those are two different facts from "still open" -- which
+   is what it looked like before, being the only settled board with no tint. */
+.ut-small.won0 .ut-cell {
+  background: var(--ut-won-0);
+}
+.ut-small.won1 .ut-cell {
+  background: var(--ut-won-1);
+}
+.ut-small.drawn .ut-cell {
+  background: var(--ut-drawn);
+}
+.ut-small.settled .ut-cell.line {
+  background: var(--board);
+}
+
 /* A settled board keeps its marks: it is the record of how it was won, and one
    big mark laid over nine small ones is two shapes in one colour on a board
    the size of a phone. What changes is that the marks stop being live -- the
@@ -4777,4 +4748,232 @@ input:focus-visible {
 .lp-history li.s1::before {
   background: var(--seat-1);
   box-shadow: inset 0 0 0 1.5px var(--ring);
+}
+
+/* ---------------------------------------------------------------- Word Chain
+   A vertical list of words that grows all game, with a translation under every
+   one that is not English. The gloss is not decoration here -- it is the whole
+   reason the game exists -- so it gets real contrast and real size rather than
+   being shrunk into a caption. */
+.wc-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  background: var(--board);
+}
+
+/* The chain outgrows a phone within a dozen turns, so it scrolls inside the
+   board rather than pushing the input off the bottom of the screen -- the one
+   control the player is under a clock to reach. */
+.wc-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wc-link {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "who word"
+    ".   script"
+    ".   gloss";
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  /* The seat's colour on the edge it was played from, so whose word is whose
+     reads at a glance without a legend. */
+  border-left: 3px solid var(--seat-1);
+}
+.wc-link.mine {
+  border-left-color: var(--seat-0);
+}
+
+.wc-who {
+  grid-area: who;
+  font-size: 0.72rem;
+  color: var(--muted);
+  /* Fixed width so the words line up in a column instead of running ragged
+     behind names of different lengths. */
+  min-width: 4.5em;
+}
+
+.wc-word {
+  grid-area: word;
+  font-size: 1.15rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Japanese in its own script, under the romaji. A learner who only ever sees
+   the romaji never learns to read the word. */
+.wc-script {
+  grid-area: script;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.wc-gloss {
+  grid-area: gloss;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+/* The dictionary form, for a Polish word played as an inflection: one word
+   said, another one learned. */
+.wc-lemma {
+  color: var(--ink);
+  font-style: italic;
+}
+.wc-lemma::after {
+  content: " \00b7 ";
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* The letter carrying to the next word, said once and largely. */
+.wc-carry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+}
+.wc-carry strong {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.wc-langs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wc-lang {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* A thumb target, matching every other action in the app. */
+  min-height: 44px;
+  padding: 10px 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.wc-lang.chosen {
+  background: var(--action);
+  color: var(--action-text);
+  border-color: var(--action);
+}
+.wc-lang-name {
+  font-size: 0.9rem;
+}
+.wc-lang-native {
+  font-size: 0.78rem;
+  opacity: 0.72;
+}
+
+.wc-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wc-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.wc-entry-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wc-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  /* 16px so iOS does not zoom the viewport the moment the field takes focus.
+     No letter-spacing and no uppercasing, unlike Word Duel's box: this one
+     holds real words in three alphabets, and a word spaced out like a puzzle
+     answer is harder to read back than the word is. */
+  font-size: 1rem;
+}
+
+.wc-submit {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.9rem;
+}
+.wc-submit:disabled {
+  opacity: 0.45;
+}
+
+.wc-brief,
+.wc-waiting,
+.wc-note {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.wc-note {
+  font-size: 0.78rem;
+}
+.wc-brief strong,
+.wc-brief em {
+  color: var(--ink);
+}
+
+.wc-over {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wc-verdict {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+/* The reveal. Shown large and with its meaning rather than tucked into the
+   status line, because a minute spent failing to think of a word is the moment
+   the answer sticks, and this is the only chance to spend it. */
+.wc-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+}
+.wc-reveal .wc-word {
+  font-size: 1.5rem;
+}
+.wc-reveal-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wc-setup {
+  gap: 16px;
 }

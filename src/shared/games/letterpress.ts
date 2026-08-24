@@ -100,8 +100,18 @@ const VOWELS = new Set(['A', 'E', 'I', 'O', 'U']);
 const MIN_VOWELS = 7;
 const MAX_VOWELS = 11;
 
-/** The lengths a planted seed word may be — long enough to be worth planting. */
+/**
+ * The lengths a planted seed word may be — long enough to be worth planting,
+ * short enough to leave a grid.
+ *
+ * The ceiling used to be the dictionary's, back when the list stopped at
+ * eight; now that it runs to twenty-five it has to be written down, and eight
+ * is the number it was. A planted word is dealt into the grid whole, so a
+ * fifteen-letter seed would be three fifths of the board arriving pre-spelt
+ * and the same word every game for both players to race to.
+ */
 const SEED_MIN = 7;
+const SEED_MAX = 8;
 
 /**
  * The seven- and eight-letter words as an array, so one can be drawn by index.
@@ -112,7 +122,9 @@ let seedCache: readonly string[] | null = null;
 function seedWords(): readonly string[] {
   if (seedCache === null) {
     const out: string[] = [];
-    for (const word of allWords()) if (word.length >= SEED_MIN) out.push(word);
+    for (const word of allWords()) {
+      if (word.length >= SEED_MIN && word.length <= SEED_MAX) out.push(word);
+    }
     seedCache = out;
   }
   return seedCache;
@@ -129,20 +141,33 @@ function seedWords(): readonly string[] {
  */
 const LONG_WORD = 5;
 
-/** How many of each letter a set of tiles holds. */
-function counts(letters: readonly string[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const letter of letters) out.set(letter, (out.get(letter) ?? 0) + 1);
+const A = 'A'.charCodeAt(0);
+
+/**
+ * How many of each letter a set of tiles holds, as twenty-six counts indexed
+ * from A.
+ *
+ * An array rather than the obvious `Map<string, number>` because of what uses
+ * it: `spellableFrom` copies the pool once per dictionary word, and the
+ * dictionary is a third of a million words long. Twenty-six bytes copy for
+ * a fraction of what a Map of twenty-five string keys costs: one full sweep of
+ * the list went from about 340ms to about 15ms when the list grew to a third
+ * of a million words, which is the difference between a bad deal costing a
+ * blink and costing three seconds of somebody's game starting.
+ */
+function counts(letters: readonly string[]): Int8Array {
+  const out = new Int8Array(26);
+  for (const letter of letters) out[letter.charCodeAt(0) - A] += 1;
   return out;
 }
 
 /** Whether these tiles can spell this word, each tile used at most once. */
-function spellable(pool: Map<string, number>, word: string): boolean {
-  const left = new Map(pool);
-  for (const letter of word) {
-    const have = left.get(letter) ?? 0;
-    if (have === 0) return false;
-    left.set(letter, have - 1);
+function spellable(pool: Int8Array, word: string): boolean {
+  const left = Int8Array.from(pool);
+  for (let i = 0; i < word.length; i++) {
+    const at = word.charCodeAt(i) - A;
+    if (at < 0 || at > 25 || left[at] === 0) return false;
+    left[at] -= 1;
   }
   return true;
 }
@@ -157,7 +182,10 @@ function spellable(pool: Map<string, number>, word: string): boolean {
 function* spellableFrom(grid: readonly string[], minLength: number): Generator<string> {
   const pool = counts(grid);
   for (const word of allWords()) {
-    if (word.length < minLength) continue;
+    // The list runs to twenty-five letters for this game's sake, and the tail
+    // of it cannot be spelt from a grid that has already spent tiles — but the
+    // length test is a number compare and `spellable` is not, so it goes here.
+    if (word.length < minLength || word.length > grid.length) continue;
     if (spellable(pool, word)) yield word;
   }
 }

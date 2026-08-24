@@ -58,8 +58,9 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *
  * 2. **Length is the whole of the scoring**, and it climbs faster than length
  *    does — see `wordScore`. Words run from three letters to eight, which is
- *    also exactly what the dictionary holds, so there is no trace a player can
- *    draw that the list was never going to take.
+ *    all a 4x4 grid can give up; the shared list runs further, for
+ *    Letterpress, so this game reads the short end of it and plants from the
+ *    short end too.
  *
  * 3. **The grid is built to be beatable.** A random bag of letters is usually
  *    a grid with nothing in it, so `setup` plants real words along real paths
@@ -77,22 +78,31 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  */
 
 /**
- * The list as an array, so a word can be drawn by index while planting. Built
- * on first use for the same reason `prefixes()` below is: planting a grid is
- * the only thing that needs it, and a hundred and fifty thousand strings
- * spread into an array at import taxed every server start for a game nobody
- * may play.
+ * The words *this* game plays with, as an array, so one can be drawn by index
+ * while planting. Built on first use for the same reason `prefixes()` below
+ * is: planting a grid is the only thing that needs it, and a hundred and fifty
+ * thousand strings spread into an array at import taxed every server start for
+ * a game nobody may play.
+ *
+ * The length filter is not decoration. The shared list runs to twenty-five
+ * letters now, because Letterpress can spell that far, and better than half of
+ * it is longer than a trace on a 4x4 grid may be. A planted CONTRAPUNTALLY is
+ * twelve cells of grid that no player is allowed to draw through.
  */
 let listCache: readonly string[] | null = null;
 function wordList(): readonly string[] {
-  if (listCache === null) listCache = [...allWords()];
+  if (listCache === null) {
+    listCache = [...allWords()].filter(
+      (word) => word.length >= MIN_WORD && word.length <= MAX_WORD,
+    );
+  }
   return listCache;
 }
 
 /**
- * Every proper prefix of every word, so the solver can abandon a path the
- * moment it spells something no word starts with. This is what makes the
- * search affordable at all: a 4x4 grid has millions of paths eight cells long,
+ * Every proper prefix of every word this game plays with, so the solver can
+ * abandon a path the moment it spells something no word starts with. This is
+ * what makes the search affordable at all: a 4x4 grid has millions of paths eight cells long,
  * and almost none of them survive three letters.
  *
  * Built on first use rather than at import: it is only ever needed by a grid

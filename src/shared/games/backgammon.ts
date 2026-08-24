@@ -1,7 +1,8 @@
 import type { GameDefinition, MoveResult } from "../types.js";
 import { GAME_MANIFEST } from "./manifest.js";
-import { throwNext, type Tray } from "./dice.js";
-import type { Flick, Toss } from "./toss.js";
+import type { Tray } from "./dice.js";
+import { nextToss } from "./toss.js";
+import type { Toss } from "./toss.js";
 
 /**
  * Backgammon.
@@ -104,7 +105,10 @@ export type Source = number | "bar";
 
 export type BgMove =
   // The flick is how the dice were thrown, not what they landed on.
-  | { type: "roll"; flick?: Flick }
+  // The throw is what the client's simulation did, reported back — not a
+  // request to roll. `readThrow` in `toss.ts` says how far it is believed, and
+  // a move with nothing usable in it is rolled here instead.
+  | { type: "roll"; throw?: unknown }
   | { type: "move"; from: Source; die: number }
   | { type: "pass" };
 
@@ -157,14 +161,13 @@ function clone(state: BgState): BgState {
     // with the state it came from, which is one careless write away from
     // corrupting a stored snapshot.
     roll: state.roll ? ([...state.roll] as [number, number]) : null,
-    // The throw carries three arrays of its own, and the spread above copies
+    // The throw carries two arrays of its own, and the spread above copies
     // only the reference to it. Nothing writes to a stored `Toss` today —
-    // `throwNext` only ever fills in the object it just built — so this costs
+    // `nextToss` only ever fills in the object it just built — so this costs
     // nothing now and is here for the same reason `roll` is.
     toss: state.toss
       ? {
           ...state.toss,
-          spin: state.toss.spin.slice(),
           from: state.toss.from.map((r) => ({ ...r })),
           rest: state.toss.rest.map((r) => ({ ...r })),
         }
@@ -389,11 +392,12 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
 
     if (move.type === "roll") {
       if (state.phase !== "roll") return { ok: false, error: "You have already rolled." };
-      // The pair is read off the dice where they stop, not chosen and then
-      // shown — see `dice.ts`.
-      const thrown = throwNext({
+      // The pair is read off the dice where they stop — but the dice stopped
+      // in the browser that threw them, so this is the *reported* pair. See
+      // `toss.ts`: the shape is checked, the numbers cannot be.
+      const thrown = nextToss({
         previous: state.toss,
-        flick: move.flick,
+        sent: move.throw,
         rng,
         tray: BACKGAMMON_TRAY,
         count: 2,

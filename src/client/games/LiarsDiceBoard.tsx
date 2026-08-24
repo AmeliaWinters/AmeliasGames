@@ -1,21 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 // Values from liarsDiceDisplay.js, which imports nothing — the board must never
 // pull the reducer into the client bundle. The types below are type-only, so
 // they are erased and carry no runtime import.
 import {
   DICE_PER_PLAYER,
   FACES,
+  LIARSDICE_TRAY,
   beats,
   countInHand,
   describeBid,
   describeCount,
   isOut,
+  owesRoll,
   smallestRaise,
   totalDice,
 } from "../../shared/games/liarsDiceDisplay.js";
 import type { Bid, LdMove, LdState, Showdown } from "../../shared/games/liarsDiceDisplay.js";
 import { Die } from "./Die.js";
 import { useReveal } from "../dice/useReveal.js";
+import { useLanding } from "../dice/useLanding.js";
+import { Dice3DTray, type DiceTrayHandle } from "../dice3d/Dice3DTray.js";
+import { startingFrom, type ThrownDice, type Toss } from "../../shared/games/toss.js";
 
 import type { BoardProps } from "./boards.js";
 
@@ -67,6 +72,38 @@ function revealOrder(state: LdState): number[] {
 export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const [quantity, setQuantity] = useState(1);
   const [face, setFace] = useState(1);
+
+  /*
+    Your own throw, and it never goes on the wire.
+
+    Every other tray in the app replays a `Toss` out of the game state, because
+    both players are meant to watch the same dice land. Here they are emphatically
+    not: your hand is yours, `view()` redacts it from everybody else, and a
+    throw on the wire would be the hand on the wire. So the toss is local — this
+    client makes it, this client animates it, and the only thing that leaves is
+    the five numbers it came up with.
+
+    Which also means the opponent has nothing to watch, and gets nothing: their
+    hands stay as the counted rows below, face down until a call turns them up.
+  */
+  const [ownToss, setOwnToss] = useState<Toss | null>(null);
+  const trayRef = useRef<DiceTrayHandle>(null);
+  const owed = seat !== null && owesRoll(state, seat);
+  const [rolling, landed] = useLanding(ownToss?.n ?? 0);
+
+  const reportThrow = (thrown: ThrownDice) => {
+    setOwnToss((previous) => ({
+      n: (previous?.n ?? 0) + 1,
+      seed: thrown.seed,
+      x: thrown.x,
+      y: thrown.y,
+      // The same starting places the tray itself used, from the same helper, so
+      // the throw that is animated is the throw that was reported.
+      from: startingFrom(previous, LIARSDICE_TRAY, DICE_PER_PLAYER),
+      rest: thrown.rest,
+    }));
+    onMove({ type: "roll", faces: thrown.faces });
+  };
 
   // The pickers start on the smallest bid that would be legal, which is where a
   // player reaches first and saves them tapping up from one every time. Re-armed
@@ -148,6 +185,30 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
         Round {state.round} · {total} {total === 1 ? "die" : "dice"} on the table ·{" "}
         {nameFor(state.starter)} opened
       </p>
+
+      {/* Your own five, thrown. Only while you owe a throw: once they have
+          landed the hand below is the hand, and a tray still sitting there
+          would invite a second roll the reducer would refuse. */}
+      {owed && (
+        <div className="ld-throw">
+          <Dice3DTray
+            ref={trayRef}
+            count={DICE_PER_PLAYER}
+            tray={LIARSDICE_TRAY}
+            faces={seat !== null ? (state.dice[seat] ?? []) : []}
+            toss={ownToss}
+            flying={rolling}
+            mine
+            label="Your dice. Flick to throw them."
+            hint={rolling ? undefined : "Flick to throw"}
+            onThrow={reportThrow}
+            onRest={landed}
+          />
+          <button className="primary" onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}>
+            Roll
+          </button>
+        </div>
+      )}
 
       {/* Every hand, yours face up and theirs face down — until a call turns
           them all over. */}

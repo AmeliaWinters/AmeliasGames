@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, expect, it } from 'vitest';
 import { PUZZLES } from '../shared/games/wheel.js';
 import { WORD_SOURCE } from '../shared/games/words.js';
+import { EN_SOURCE, JA_SOURCE, PL_SOURCE } from '../shared/games/chainWords.js';
 
 /**
  * The one property in this project that a passing unit-test suite cannot
@@ -68,5 +69,28 @@ it('ships no word list to the browser', { timeout: 120_000 }, () => {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+  expect(runs.filter((run) => bundle.includes(run))).toEqual([]);
+});
+
+/**
+ * Word Chain has no secret to leak either, and the same boundary matters for
+ * the same reason it does for Word Duel, only more so: its three lists are the
+ * second largest thing in the repo, they exist to validate a move, and moves
+ * are validated on the server. One convenience import in `WordChainBoard.tsx`
+ * would put thirty thousand Polish inflections and twelve thousand Japanese
+ * entries on the phone of everyone who opens the lobby.
+ *
+ * A run of the raw source rather than any single word: the lists are ordinary
+ * vocabulary and `apple` or `pan` would hit on UI copy and fail for no reason.
+ * If the module is imported at all, its template literal is in the bundle
+ * verbatim, newlines and all — so a few hundred consecutive characters of it
+ * is both a precise question and an unmissable one.
+ */
+it('ships no chain word list to the browser', { timeout: 120_000 }, () => {
+  const bundle = buildClient();
+  const runs = [PL_SOURCE, JA_SOURCE, EN_SOURCE].flatMap((source) => {
+    const body = source.trim();
+    return [0, 0.4, 0.8].map((at) => body.slice(Math.floor(body.length * at), Math.floor(body.length * at) + 300));
+  });
   expect(runs.filter((run) => bundle.includes(run))).toEqual([]);
 });

@@ -22,13 +22,14 @@ export const CELL_COUNT = GRID_SIZE * GRID_SIZE;
  * adjacency, so every pair of letters on the board is available every turn,
  * and a game where both players open with AX is not a game.
  *
- * The ceiling is eight because that is where the dictionary stops. Twenty-five
- * free tiles would happily spell longer, so this is a limit imposed by the
- * word list rather than by the board — which is exactly why it is written down
- * here, where the board can read it, instead of being discovered as a refusal.
+ * The ceiling is the grid itself. It used to be eight, which was where the
+ * dictionary stopped rather than anything about the game, and it reached the
+ * player as a refusal: PHOTOGRAPH spelt out across the board with the tenth
+ * tile refusing to join. The word list now runs to twenty-five, so the only
+ * thing left to limit a word is how many tiles there are to spell it with.
  */
 export const MIN_WORD = 3;
-export const MAX_WORD = 8;
+export const MAX_WORD = CELL_COUNT;
 
 /** Seat holding a tile, or null for one nobody has claimed yet. */
 export type Owner = 0 | 1 | null;

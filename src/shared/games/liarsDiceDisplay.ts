@@ -12,6 +12,10 @@
  * on importing from one place.
  */
 
+// Type-only, so nothing is imported at runtime and the rule above holds:
+// this is erased at compile time and `bundle.test.ts` never sees it.
+import type { Tray } from './dice.js';
+
 /** What everyone starts with. Lose one per call you get wrong. */
 export const DICE_PER_PLAYER = 5;
 
@@ -71,6 +75,15 @@ export interface Showdown {
   out: number[];
 }
 
+/**
+ * The tray a player throws their own five into.
+ *
+ * Shorter than Yahtzee's, because it appears above a table of hands rather
+ * than being the board: it has to be big enough to throw across and small
+ * enough not to push everyone else's dice off a phone screen.
+ */
+export const LIARSDICE_TRAY: Tray = { w: 100, h: 40, die: 6.2 };
+
 export interface LdState {
   /** 1-based, counting up for as long as the game lasts. */
   round: number;
@@ -94,6 +107,16 @@ export interface LdState {
   history: Bid[];
   /** `reveal` means the dice are face up and the next round is owed a roll. */
   phase: 'bid' | 'reveal' | 'over';
+  /**
+   * Which seats have thrown their own dice this round.
+   *
+   * The hands are dealt by the reducer as they always were, so a round is
+   * always playable — but a client with a physics engine may throw its own and
+   * report what it got, once, before it bids. `rolled[s]` is what stops that
+   * being twice: a player who could re-roll until they liked their hand would
+   * be playing a different game.
+   */
+  rolled: boolean[];
   /** Who opened the current round. */
   starter: number;
   /** The last call and what it found, or null before anyone has called. */
@@ -103,10 +126,36 @@ export interface LdState {
 }
 
 export type LdMove =
+  /**
+   * "I threw my dice, and this is what they say."
+   *
+   * Sent by a seat about its **own** hand, out of turn, at the top of a round.
+   * See `owesRoll` and the note on `rolled` above for why it is allowed at all
+   * and why it is allowed once.
+   */
+  | { type: 'roll'; faces?: unknown }
   | { type: 'bid'; quantity: number; face: number }
   | { type: 'challenge' }
   | { type: 'exact' }
   | { type: 'next' };
+
+/**
+ * Whether this seat still has its own throw to make.
+ *
+ * Rolling is the one thing in this game that happens out of turn — everyone's
+ * dice hit the table at once — so it is a second predicate beside `turn`, and
+ * `canAct` is the union of the two. Bidding controls must gate on `turn`, not
+ * on `canAct`, or every player gets a bid box at the top of a round.
+ */
+export function owesRoll(state: LdState, seat: number): boolean {
+  return (
+    !state.over &&
+    state.phase === 'bid' &&
+    !isOut(state, seat) &&
+    !state.rolled[seat] &&
+    state.history.length === 0
+  );
+}
 
 export function seatCount(state: LdState): number {
   return state.dice.length;

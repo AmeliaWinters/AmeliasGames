@@ -7,6 +7,10 @@ dist-android/
 # Contact sheets from scripts/render-throw.ts
 preview/
 
+# Sources for scripts/build-wordchain.ts: 350MB, almost all of it PoliMorf,
+# and re-fetched about as often as the word lists are rebuilt.
+.cache/
+
 # Built artefacts
 *.apk
 *.aab

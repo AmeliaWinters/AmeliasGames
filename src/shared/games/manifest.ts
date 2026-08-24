@@ -31,6 +31,7 @@ export const GAME_MANIFEST = {
   morris: { id: 'morris', name: "Nine Men's Morris", minPlayers: 2, maxPlayers: 2 },
   ultimate: { id: 'ultimate', name: 'Ultimate Tic-Tac-Toe', minPlayers: 2, maxPlayers: 2 },
   letterpress: { id: 'letterpress', name: 'Letterpress', minPlayers: 2, maxPlayers: 2 },
+  wordchain: { id: 'wordchain', name: 'Word Chain', minPlayers: 2, maxPlayers: 2 },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;

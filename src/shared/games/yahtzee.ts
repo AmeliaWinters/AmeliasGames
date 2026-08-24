@@ -1,6 +1,6 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import { GAME_MANIFEST } from './manifest.js';
-import { throwNext } from './dice.js';
+import { nextToss } from './toss.js';
 import {
   CATEGORIES,
   CATEGORY_NAME,
@@ -97,19 +97,19 @@ const SEATS = {
 /**
  * Throw the dice that are not being kept, and see what they say.
  *
- * The faces are read off the cubes where they stop — see `dice.ts`. A die
- * being kept stays where it is, so the simulation hands its own face straight
- * back and there is nothing to merge.
+ * The faces are read off the cubes where they stop — in the browser that threw
+ * them, now, so what arrives here is a report. `nextToss` checks its shape and
+ * overrules the kept dice; it cannot check the numbers, and `toss.ts` says why.
  */
 function throwDice(
   state: YState,
-  flick: unknown,
+  sent: unknown,
   rng: Rng,
 ): { toss: Toss; dice: number[] } {
   const keeping = hasRolled(state) ? state.held : Array<boolean>(DICE).fill(false);
-  const thrown = throwNext({
+  const thrown = nextToss({
     previous: state.toss,
-    flick,
+    sent,
     rng,
     tray: YAHTZEE_TRAY,
     count: DICE,
@@ -147,7 +147,7 @@ function isOver(state: YState): boolean {
   return state.over;
 }
 
-function roll(state: YState, flick: unknown, rng: Rng): MoveResult<YState> {
+function roll(state: YState, sent: unknown, rng: Rng): MoveResult<YState> {
   if (state.rollsLeft <= 0) {
     return { ok: false, error: 'No rolls left — the hand has to go somewhere.' };
   }
@@ -158,7 +158,7 @@ function roll(state: YState, flick: unknown, rng: Rng): MoveResult<YState> {
   if (hasRolled(state) && state.held.every(Boolean)) {
     return { ok: false, error: 'You are keeping all five — there is nothing to throw.' };
   }
-  const thrown = throwDice(state, flick, rng);
+  const thrown = throwDice(state, sent, rng);
   return {
     ok: true,
     state: {
@@ -290,7 +290,7 @@ export const yahtzee: GameDefinition<YState, YMove> = {
 
     switch (move.type) {
       case 'roll':
-        return roll(state, move.flick, rng);
+        return roll(state, move.throw, rng);
       case 'hold':
         return hold(state, move.die);
       case 'score':

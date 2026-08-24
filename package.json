@@ -8,8 +8,9 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite",
     "test": "vitest run",
-    "render:throw": "tsx scripts/render-throw.ts",
+    "render:throw": "tsx scripts/render-throw3d.ts",
     "render:wheel": "tsx scripts/render-wheel.ts",
+    "build:wordchain": "tsx scripts/build-wordchain.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.client.json && tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json",
     "build": "vite build",
@@ -22,8 +23,10 @@
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "three": "^0.185.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
@@ -32,6 +35,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
+    "@types/three": "^0.185.4",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",

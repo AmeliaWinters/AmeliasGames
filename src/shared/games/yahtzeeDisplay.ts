@@ -16,7 +16,7 @@
 // Both are leaves like this one — no reducer, no registry — so the board can
 // take them without dragging `applyMove` into the browser behind them.
 import type { Tray } from './dice.js';
-import type { Flick, Toss } from './toss.js';
+import type { Toss } from './toss.js';
 
 /**
  * The tray the dice are thrown into, in its own units.
@@ -135,9 +135,11 @@ export interface YState {
 }
 
 export type YMove =
-  // The flick is how the dice were thrown, not what they landed on. Optional
-  // because a keyboard has no flick in it, and a tap is a throw too.
-  | { type: 'roll'; flick?: Flick }
+  // The throw is what the client's simulation did, reported back — not a
+  // request to roll. `readThrow` in `toss.ts` says how far it is believed, and
+  // a move with nothing usable in it is rolled by the reducer instead, which
+  // is what a keyboard roll and a client with no WebAssembly both take.
+  | { type: 'roll'; throw?: unknown }
   | { type: 'hold'; die: number }
   | { type: 'score'; category: Category };
 

@@ -9,6 +9,7 @@ import {
   isDuelWord,
   isWord,
 } from './words.js';
+import { MAX_WORD as LP_MAX, MIN_WORD as LP_MIN } from './letterpressDisplay.js';
 import { MAX_WORD, MIN_WORD } from './wordHuntDisplay.js';
 
 /**
@@ -64,14 +65,20 @@ describe('the word list', () => {
   });
 
   /**
-   * The board draws paths to Word Hunt's limits and the server validates
-   * against the dictionary's. If those two ever disagree, the player can draw
-   * traces the list was never going to take — or is stopped from drawing words
-   * that are sitting right there in it.
+   * Every board draws paths to its own limits and the server validates against
+   * the dictionary's. Where those disagree the player can draw traces the list
+   * was never going to take — or, the way it went wrong in Letterpress, is
+   * stopped from drawing words that are sitting right there in it.
+   *
+   * So the list has to span every game's range, and Letterpress's is the one
+   * that has to match at the top: its ceiling is the whole grid, which is only
+   * an honest limit while the list goes that far.
    */
-  it('spans exactly the lengths Word Hunt lets a player trace', () => {
-    expect(MIN_WORD_LENGTH).toBe(MIN_WORD);
-    expect(MAX_WORD_LENGTH).toBe(MAX_WORD);
+  it('covers every length a board will let a player build', () => {
+    expect(MIN_WORD_LENGTH).toBeLessThanOrEqual(MIN_WORD);
+    expect(MAX_WORD_LENGTH).toBeGreaterThanOrEqual(MAX_WORD);
+    expect(MIN_WORD_LENGTH).toBeLessThanOrEqual(LP_MIN);
+    expect(MAX_WORD_LENGTH).toBe(LP_MAX);
   });
 
   it('gives Word Duel the one length it plays at', () => {
@@ -97,9 +104,8 @@ describe('isWord', () => {
   it('turns away things that are not on the list', () => {
     expect(isWord('zzzzz')).toBe(false);
     expect(isWord('')).toBe(false);
-    // Real words, but outside the range the list was cut to.
+    // A real word, but outside the range the list was cut to.
     expect(isWord('ox')).toBe(false);
-    expect(isWord('splendidly')).toBe(false);
   });
 
   it('takes the short words Word Hunt is played with', () => {
@@ -108,9 +114,56 @@ describe('isWord', () => {
     }
   });
 
+  /**
+   * The list used to stop at eight, which was fine for a 4x4 grid tracing a
+   * path and wrong for Letterpress, where twenty-five tiles with no adjacency
+   * will spell almost anything. `photograph` is the one that was reported.
+   */
+  it('takes the long words Letterpress can spell', () => {
+    for (const word of ['photograph', 'sandwiches', 'thunderclaps', 'unremarkable']) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
+    }
+  });
+
   it('allows the slang and profanity the list deliberately includes', () => {
     for (const word of ['janky', 'legit', 'bitch', 'fucks', 'cocks', 'pussy', 'porno']) {
       expect(isWord(word)).toBe(true);
+    }
+  });
+
+  /**
+   * Two shapes of hole the source has, both reported from real games. It drops
+   * words that began as proper nouns — `jaffa`, where it kept `satsuma` and
+   * `clementine` — and it is unreliable about the plurals of what it borrowed
+   * recently, taking `courgette` and refusing `courgettes`.
+   */
+  it('knows the words its source dropped for being names or plurals', () => {
+    for (const word of ['jaffa', 'jaffas', 'satsumas', 'clementines', 'courgettes']) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
+    }
+  });
+
+  /**
+   * The other half of the same age gap: the insults. `jabroni` was reported,
+   * and `muppet`, `bellend` and `plonker` were not there either — the source
+   * predates most of what people actually call each other.
+   */
+  it('knows the names people call each other', () => {
+    for (const word of ['jabroni', 'doofus', 'muppet', 'bellend', 'plonker', 'dumbass']) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
+    }
+  });
+
+  /**
+   * The imported list is old rather than squeamish — it has had `fellatio` and
+   * `cunnilingus` all along — so the sexual vocabulary it misses is the
+   * everyday half. `jizz` was the one reported.
+   */
+  it('knows the everyday sexual slang its source is too old for', () => {
+    const missing = ['jizz', 'cumming', 'handjob', 'queef', 'creampie', 'milf', 'thot'];
+    const present = ['fellatio', 'cunnilingus', 'blowjob', 'boner', 'clit', 'wanker'];
+    for (const word of [...missing, ...present]) {
+      expect(isWord(word), `${word} should be a word`).toBe(true);
     }
   });
 

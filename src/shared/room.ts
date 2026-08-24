@@ -21,8 +21,14 @@ export interface SeatRecord {
  * game restored across that change would draw dice that disagree with the
  * score beside them. That is the same failure as a misread field and takes the
  * same cure.
+ *
+ * 9: the dice became real cubes. `Toss` changed shape — `Rest` was `{x, y, o}`
+ * indexing 24 square orientations and is now `{x, y, up, q}` with a full
+ * rotation, `spin` is gone, and the simulation that re-runs it is Rapier in
+ * the browser rather than a 2.5D solver on the server. Every one of those on
+ * its own would need this bump.
  */
-export const SNAPSHOT_VERSION = 8;
+export const SNAPSHOT_VERSION = 9;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {

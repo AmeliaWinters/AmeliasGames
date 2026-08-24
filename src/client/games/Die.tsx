@@ -1,4 +1,3 @@
-import { forwardRef } from "react";
 
 /**
  * A die, drawn in pips.
@@ -10,16 +9,17 @@ import { forwardRef } from "react";
  * mechanism — folded back in, because one die is the precondition for one
  * throw.
  *
- * Two shapes, one set of faces. `Die` is flat, for dice that sit in a row and
- * are there to be counted; `Cube` is the real thing, for dice that are
- * thrown. `Pips` is the face both are made of, so the six faces are drawn
- * once.
+ * One shape, now. `Die` is flat, for dice that sit in a row and are there to be
+ * counted — Liar's Dice's hands, and the pair printed beside the Backgammon
+ * board. A thrown die is not this and never was: it is a cube, and since the
+ * dice became a real simulation it is drawn by WebGL in `dice3d/scene.ts`
+ * rather than by six `<span>`s under `preserve-3d`. `Pips` stays here because
+ * a counted die still needs a face.
  *
- * **Six pip slots, always, placed by CSS from `data-face`.** The alternative
- * is rendering only the pips a face needs, which is tidier to read and wrong
- * here: a die in a tray changes face forty times while it tumbles, and an
- * attribute write is one DOM operation where re-rendering children is six. It
- * is also what lets the solver drive the face without a React render a frame.
+ * **Six pip slots, always, placed by CSS from `data-face`.** The alternative is
+ * rendering only the pips a face needs, which is tidier to read. It stays this
+ * way because the reason it was written still holds for a counted hand: an
+ * attribute write is one DOM operation where re-rendering children is six.
  */
 
 /** One face: a 3×3 grid of pip slots, of which `face` are shown. */
@@ -72,41 +72,3 @@ export function Die({ value, hidden, match, label }: DieProps) {
     </span>
   );
 }
-
-/**
- * A die as an actual cube — six faces, and five of them behind the one you can
- * read.
- *
- * It is a cube because the number is not written on it, it is *on a side of
- * it*: the simulation tumbles the die and the face pointing at you when it
- * stops is the face you get. A flat square cannot express that, and a flat
- * square spun about one axis is a flat square pretending.
- *
- * There is no face prop, and that is the point: which number a cube is showing
- * is a fact about how it is turned, and the solver is what turns it. The only
- * thing the board says about it is whether it has been thrown at all.
- *
- * The faces are placed to match `FACE_AXES` in `dice.ts`, in the same
- * coordinates CSS uses — x right, y down, z towards the player — so the
- * solver's rotation can be handed to `matrix3d` without a change of basis
- * nobody would remember. Opposite faces sum to seven, as on any real die, and
- * `dice.test.ts` holds them to it.
- */
-export const Cube = forwardRef<HTMLSpanElement, { blank?: boolean; spent?: boolean }>(
-  function Cube({ blank, spent }, ref) {
-    return (
-      <span
-        className={['cube', blank ? 'blank' : '', spent ? 'spent' : ''].filter(Boolean).join(' ')}
-        ref={ref}
-        aria-hidden="true"
-      >
-        <Pips face={1} className="pips cube-face f1" />
-        <Pips face={6} className="pips cube-face f6" />
-        <Pips face={2} className="pips cube-face f2" />
-        <Pips face={5} className="pips cube-face f5" />
-        <Pips face={3} className="pips cube-face f3" />
-        <Pips face={4} className="pips cube-face f4" />
-      </span>
-    );
-  },
-);

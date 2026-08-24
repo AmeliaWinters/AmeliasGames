@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BACKGAMMON_TRAY,
   POINTS,
@@ -11,8 +11,8 @@ import {
   type BgState,
   type Source,
 } from "../../shared/games/backgammon.js";
-import type { Flick } from "../../shared/games/toss.js";
-import { DiceTray } from "../dice/DiceTray.js";
+import type { ThrownDice } from "../../shared/games/toss.js";
+import { Dice3DTray, type DiceTrayHandle } from "../dice3d/Dice3DTray.js";
 import { useLanding } from "../dice/useLanding.js";
 import type { BoardProps } from "./boards.js";
 
@@ -261,7 +261,7 @@ export function BackgammonGame({
         seat={seat}
         canAct={canAct}
         flying={flying}
-        onThrow={(flick) => onMove({ type: "roll", flick })}
+        onThrow={(thrown) => onMove({ type: "roll", throw: thrown })}
         onPass={() => onMove({ type: "pass" })}
         onRest={land}
       />
@@ -291,10 +291,11 @@ export function BackgammonStatus({
   seat: number | null;
   canAct: boolean;
   flying: boolean;
-  onThrow(flick: Flick): void;
+  onThrow(thrown: ThrownDice): void;
   onPass(): void;
   onRest(): void;
 }) {
+  const trayRef = useRef<DiceTrayHandle>(null);
   const view = seat ?? 0;
   const stuck = canAct && state.phase === "move" && !flying && legalMoves(state).length === 0;
   const canRoll = canAct && state.phase === "roll" && !flying;
@@ -309,7 +310,8 @@ export function BackgammonStatus({
         {pipCount(state, view)} pips to go · they have {pipCount(state, 1 - view)}
       </span>
 
-      <DiceTray
+      <Dice3DTray
+        ref={trayRef}
         count={thrown.length}
         tray={BACKGAMMON_TRAY}
         faces={thrown}
@@ -332,7 +334,9 @@ export function BackgammonStatus({
       {canRoll && (
         // The tray is the throw; this is the same throw for a thumb that would
         // rather press something, and the one a keyboard reaches first.
-        <button className="primary" onClick={() => onThrow({ x: 0, y: 0 })}>
+        // Through the tray, so the button throws the same dice the flick
+        // does — the physics is in there.
+        <button className="primary" onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}>
           Roll
         </button>
       )}

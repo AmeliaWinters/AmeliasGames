@@ -10,6 +10,7 @@ import {
   liarsDice,
   livePlayers,
   nextLive,
+  owesRoll,
   smallestRaise,
   totalDice,
   type LdMove,
@@ -30,6 +31,10 @@ function position(overrides: Partial<LdState> = {}): LdState {
     bid: null,
     history: [],
     phase: 'bid',
+    // Already thrown, unless a test says otherwise: almost every position here
+    // is about bidding, and a hand that still owes a roll would make `canAct`
+    // true for a seat these tests expect to be waiting.
+    rolled: [true, true, true, true, true, true],
     starter: 0,
     showdown: null,
     winner: null,
@@ -676,5 +681,104 @@ describe('full games', () => {
       expect(livePlayers(state)).toEqual([state.winner]);
       expect(totalDice(state)).toBeLessThan(seats * DICE_PER_PLAYER);
     }
+  });
+});
+
+describe('throwing your own dice', () => {
+  /*
+    The hands are dealt by the reducer and may then be *replaced* by the client
+    that threw them. Everything here is about the seams of that: who may do it,
+    when, how often, and what the reducer refuses.
+
+    What none of it tests is whether the reported hand is a real throw, because
+    nothing can — that is the accepted cost of client-side physics, and
+    `reportHand` says so at length.
+  */
+  const owes = (over: Partial<LdState> = {}) =>
+    position({ rolled: [false, false], ...over });
+
+  it('lets a seat report its own hand at the top of a round', () => {
+    const before = owes();
+    const after = liarsDice.applyMove(before, { type: 'roll', faces: [6, 6, 5, 2, 1] }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    // Sorted, like a dealt hand.
+    expect(after.state.dice[0]).toEqual([1, 2, 5, 6, 6]);
+    expect(after.state.rolled[0]).toBe(true);
+  });
+
+  it('lets a seat throw out of turn, because everyone throws at once', () => {
+    // Seat 1 is not the player to move and must still be able to roll.
+    const before = owes({ turn: 0 });
+    const after = liarsDice.applyMove(before, { type: 'roll', faces: [1, 1, 1, 1, 1] }, 1, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.dice[1]).toEqual([1, 1, 1, 1, 1]);
+    // And it did not steal the turn on the way past.
+    expect(after.state.turn).toBe(0);
+  });
+
+  it('says so through canAct, rather than quietly allowing a move it denies', () => {
+    // The contract this project holds every game to: `canAct` is what the
+    // controls are gated on, so a seat that may roll has to read as able to act.
+    const before = owes({ turn: 0 });
+    expect(liarsDice.canAct(before, 1)).toBe(true);
+    expect(owesRoll(before, 1)).toBe(true);
+    const after = liarsDice.applyMove(before, { type: 'roll', faces: [3, 3, 3, 3, 3] }, 1, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(liarsDice.canAct(after.state, 1)).toBe(false);
+  });
+
+  it("never touches anybody else's hand", () => {
+    const before = owes();
+    const theirs = [...before.dice[1]];
+    const after = liarsDice.applyMove(before, { type: 'roll', faces: [6, 6, 6, 6, 6] }, 0, never);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.dice[1]).toEqual(theirs);
+    expect(after.state.rolled[1]).toBe(false);
+  });
+
+  it('refuses a second throw, so nobody fishes for a hand they like', () => {
+    const once = liarsDice.applyMove(owes(), { type: 'roll', faces: [6, 6, 6, 6, 6] }, 0, never);
+    expect(once.ok).toBe(true);
+    if (!once.ok) return;
+    const twice = liarsDice.applyMove(once.state, { type: 'roll', faces: [6, 6, 6, 6, 6] }, 0, never);
+    expect(twice.ok).toBe(false);
+  });
+
+  it('refuses a throw once the bidding has started', () => {
+    const bidding = owes({ bid: { seat: 0, quantity: 2, face: 3 }, history: [{ seat: 0, quantity: 2, face: 3 }] });
+    const after = liarsDice.applyMove(bidding, { type: 'roll', faces: [6, 6, 6, 6, 6] }, 1, never);
+    expect(after.ok).toBe(false);
+  });
+
+  it('refuses a hand that is the wrong size, or not dice at all', () => {
+    for (const faces of [undefined, null, 'sixes', [], [6, 6, 6, 6], [6, 6, 6, 6, 6, 6], [0, 1, 2, 3, 4], [1, 2, 3, 4, 7], [1, 2, 3, 4, 1.5], [1, 2, 3, 4, NaN]]) {
+      const after = liarsDice.applyMove(owes(), { type: 'roll', faces } as LdMove, 0, never);
+      expect(after.ok, `${JSON.stringify(faces)} was accepted`).toBe(false);
+    }
+  });
+
+  it('gives everyone a fresh throw to make when the next round is dealt', () => {
+    const revealed = position({ phase: 'reveal', rolled: [true, true], turn: 0 });
+    const next = liarsDice.applyMove(revealed, { type: 'next' }, 0, () => 0.5);
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    expect(next.state.rolled).toEqual([false, false]);
+    expect(next.state.phase).toBe('bid');
+  });
+
+  it('is optional — a round nobody reports is still a playable round', () => {
+    // The reducer dealt these hands, and a client that never sends anything is
+    // not a round that hangs.
+    const before = owes();
+    for (const hand of before.dice) {
+      expect(hand).toHaveLength(5);
+      for (const face of hand) expect(face).toBeGreaterThanOrEqual(1);
+    }
+    const bid = liarsDice.applyMove(before, { type: 'bid', quantity: 1, face: 3 }, 0, never);
+    expect(bid.ok).toBe(true);
   });
 });

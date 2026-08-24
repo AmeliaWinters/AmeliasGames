@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import type { Toss } from "./toss.js";
+import { seeded } from "./dice.js";
 import {
   backgammon,
   legalMoves,
@@ -78,10 +80,18 @@ describe("setup", () => {
   });
 });
 
-/** Throw until the dice come up the way a test needs them. */
+/**
+ * Throw until the dice come up the way a test needs them.
+ *
+ * A *sequence* per seed rather than a constant rng, and the difference is not
+ * cosmetic: the reducer rolls its two dice with two draws, so a constant rng
+ * gives both of them the same number and this helper can only ever produce
+ * doubles. It did, and "plays a pair as two dice" went looking for a
+ * non-double through four hundred seeds that could not contain one.
+ */
 function rolls(from: BgState, want: (roll: [number, number]) => boolean): BgState {
   for (let seed = 0; seed < 400; seed++) {
-    const result = backgammon.applyMove(from, { type: "roll" }, from.turn, () => seed / 400);
+    const result = backgammon.applyMove(from, { type: "roll" }, from.turn, seeded(seed + 1));
     if (result.ok && result.state.roll && want(result.state.roll)) return result.state;
   }
   throw new Error("no seed in 400 produced the roll this test needs");
@@ -557,18 +567,18 @@ describe("immutability", () => {
   });
 
   it("never mutates the throw the dice arrived on", () => {
-    // Same lesson as `roll`, one level deeper: a `Toss` carries three arrays of
+    // Same lesson as `roll`, one level deeper: a `Toss` carries two arrays of
     // its own, and a shallow spread copies only the reference to it. Nothing
     // writes to a stored throw today, which is exactly when this is cheap to
     // guarantee rather than expensive to discover.
-    const toss = {
+    const flat = [1, 0, 0, 0] as const;
+    const toss: Toss = {
       n: 1,
       seed: 12345,
       x: 0,
       y: 0,
-      spin: [3, 7],
-      from: [{ x: 1, y: 2, o: 0 }, { x: 3, y: 4, o: 1 }],
-      rest: [{ x: 5, y: 6, o: 2 }, { x: 7, y: 8, o: 3 }],
+      from: [{ x: 1, y: 2, up: 0, q: flat }, { x: 3, y: 4, up: 0, q: flat }],
+      rest: [{ x: 5, y: 6, up: 0, q: flat }, { x: 7, y: 8, up: 0, q: flat }],
     };
     const before = position({ points: withChecker(10, 1), dice: [4], roll: [4, 2], toss });
     const after = applyOne(before, 0, 10, 4)!;
@@ -576,11 +586,9 @@ describe("immutability", () => {
 
     after.toss!.rest[0].x = 99;
     after.toss!.from[0].y = 99;
-    after.toss!.spin[0] = 99;
 
     expect(before.toss!.rest[0].x).toBe(5);
     expect(before.toss!.from[0].y).toBe(2);
-    expect(before.toss!.spin[0]).toBe(3);
   });
 
   it("does not leave the previous player's dice lying around after the turn flips", () => {

@@ -172,17 +172,44 @@ describe('the disabled-button rule', () => {
  * that would catch it is somebody rendering a throw and noticing.
  */
 describe('the dice tray', () => {
-  it('is looked at straight down', () => {
-    const tray = css.match(/^\.dice-tray\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
-    expect(tray, 'the .dice-tray rule went missing').not.toBe('');
-    expect(tray).not.toMatch(/^\s*perspective:/m);
+  /*
+    These used to guard the opposite thing, and the swap is the whole story of
+    the change: the tray had *no* `perspective` on purpose, because a cube
+    under `preserve-3d` with no perspective above it is drawn straight down,
+    and a vanishing point a hand's width in front of the tray made five resting
+    dice each look tipped a different way. The dice are WebGL now and the
+    camera lives in `scene.ts`, so there is nothing left here to get wrong
+    about projection — and two new things that a single declaration could
+    quietly reverse.
+  */
+  it('lets the flick through to the tray', () => {
+    // The canvas covers the tray edge to edge. If it ever takes the pointer,
+    // the throw gesture stops existing — and it would look like nothing at
+    // all, since the dice would still be drawn perfectly.
+    const canvas = css.match(/^\.dice-canvas\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
+    expect(canvas, 'the .dice-canvas rule went missing').not.toBe('');
+    expect(canvas).toMatch(/pointer-events:\s*none/);
   });
 
-  it('says how high a die is the only way an orthographic view can', () => {
-    // Height moves nothing on screen under this camera, so the shadow is the
-    // whole of the cue — and a die passing over another is the stacking order.
-    expect(css).toMatch(/^\.die-shadow\s*\{/m);
-    expect(css).toMatch(/^\.die-slot\s*\{[^}]*z-index/m);
+  it('does not let a button minimum decide how big a die is', () => {
+    /*
+      `button` carries `min-height: 44px`, the app's touch floor, and a minimum
+      beats a size set on the element. The old cube learned this the hard way:
+      a 35px die-slot came out 35 wide and 44 tall — an upright slab — and only
+      on a phone, because on a laptop the die was over 44px and the minimum
+      never bit. The mark is positioned in pixels from the projection now, so
+      the same rule would fight it the same way; the 44px is honoured by the
+      size the tray computes instead.
+    */
+    const mark = css.match(/^\.die-mark\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
+    expect(mark, 'the .die-mark rule went missing').not.toBe('');
+    expect(mark).toMatch(/min-height:\s*0/);
+  });
+
+  it('still refuses to be scrolled by a thumb dragged across it', () => {
+    const tray = css.match(/^\.dice-tray\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
+    expect(tray, 'the .dice-tray rule went missing').not.toBe('');
+    expect(tray).toMatch(/touch-action:\s*none/);
   });
 });
 

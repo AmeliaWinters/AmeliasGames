@@ -25,13 +25,20 @@ type Props = BoardProps<UtState, UtMove>;
  *
  * Three things are drawn about a small board and they are deliberately three
  * different marks, because a player has to read all of them at once: whose it
- * is (the marks in it, and the winning three in a seat colour), whether it is
- * still in play (the green edge), and whether it is part of the line that won
- * the game (the ink edge, the same one Connect Four draws).
+ * is (the ground it stands on, and the winning three in a seat colour),
+ * whether it is still in play (the green edge), and whether it is part of the
+ * line that won the game (the ink edge, the same one Connect Four draws).
  *
- * A settled board keeps its marks rather than being crossed out. It is the
- * record of how it was won, and on a phone the alternative — one big mark over
- * nine small ones — is two overlapping shapes in the same colour.
+ * Whose it is used to be the marks alone, and it did not carry: nine small
+ * marks in a block a third the width of a phone is something you count, not
+ * something you see, and across nine blocks nobody counts. So a settled board
+ * now takes its winner's hue as ground, and the board you are sent to lights
+ * its empty squares — one channel each for the two questions this board is
+ * always being asked. The CSS holds the measurements.
+ *
+ * A settled board still keeps its marks rather than being crossed out. They
+ * are the record of how it was won, and on a phone the alternative — one big
+ * mark over nine small ones — is two overlapping shapes in the same colour.
  */
 export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
   const nameFor = (index: 0 | 1) => names[index] ?? `Player ${index + 1}`;

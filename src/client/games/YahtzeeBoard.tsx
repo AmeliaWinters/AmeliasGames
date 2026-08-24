@@ -1,3 +1,4 @@
+import { useRef } from "react";
 // Values from yahtzeeDisplay.js, which imports nothing: the board needs the
 // scoring table at runtime to show a player what a box would be worth, and
 // taking it from the reducer would pull `applyMove` and the whole registry
@@ -25,8 +26,8 @@ import type {
   YMove,
   YState,
 } from "../../shared/games/yahtzeeDisplay.js";
-import type { Flick } from "../../shared/games/toss.js";
-import { DiceTray } from "../dice/DiceTray.js";
+import type { ThrownDice } from "../../shared/games/toss.js";
+import { Dice3DTray, type DiceTrayHandle } from "../dice3d/Dice3DTray.js";
 import { useLanding } from "../dice/useLanding.js";
 
 /**
@@ -110,7 +111,8 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
       ? legalCategories(state.sheets[seat], state.dice)
       : [];
 
-  const throwDice = (flick: Flick) => onMove({ type: "roll", flick });
+  const trayRef = useRef<DiceTrayHandle>(null);
+  const throwDice = (thrown: ThrownDice) => onMove({ type: "roll", throw: thrown });
 
   const nameFor = (index: number) =>
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
@@ -137,7 +139,8 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
         Round {state.round} of {CATEGORIES.length}
       </p>
 
-      <DiceTray
+      <Dice3DTray
+        ref={trayRef}
         count={state.dice.length}
         tray={YAHTZEE_TRAY}
         faces={state.dice}
@@ -167,7 +170,10 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
         <button
           className="primary"
           disabled={!canRoll}
-          onClick={() => throwDice({ x: 0, y: 0 })}
+          // Through the tray, so the button throws the same dice the flick
+          // does — the physics is in there, and a move sent from here without
+          // it would land the dice with no throw to watch.
+          onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}
         >
           {rolled ? `Roll again (${state.rollsLeft})` : "Roll"}
         </button>

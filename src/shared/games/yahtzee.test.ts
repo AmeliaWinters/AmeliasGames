@@ -24,8 +24,8 @@ import {
   type YMove,
   type YState,
 } from './yahtzee.js';
-import { YAHTZEE_TRAY, hasRolled } from './yahtzeeDisplay.js';
-import { facesOf, open, settle } from './dice.js';
+import { hasRolled } from './yahtzeeDisplay.js';
+import { faceUp } from './dice.js';
 import { RoomEngine } from '../room.js';
 import type { MoveResult } from '../types.js';
 
@@ -459,18 +459,27 @@ describe('the dice on the table', () => {
         for (let roll = 0; roll < ROLLS; roll++) {
           if (hasRolled(state) && state.held.every(Boolean)) break;
           state = ok(
-            apply(state, { type: 'roll', flick: { x: rng() * 4 - 2, y: -rng() * 3 } }, state.turn, rng),
+            apply(state, { type: 'roll', throw: undefined }, state.turn, rng),
           );
 
-          // What the board does with the state it has just been handed.
-          const world = open({
-            tray: YAHTZEE_TRAY,
-            toss: state.toss!,
-            from: state.toss!.from,
-            held: state.held,
-          });
-          settle(world);
-          expect(facesOf(world)).toEqual(state.dice);
+          /*
+            The cube agrees with the scoresheet.
+
+            This used to re-run the server's simulation and compare; there is no
+            server simulation any more, so what is checked instead is the thing
+            that actually goes wrong — every board draws the dice by turning
+            them to `toss.rest[i].q`, and every score is computed from
+            `state.dice[i]`. Those two disagreeing is a die showing one number
+            while being counted as another, which is the bug this file's game
+            has now reported twice.
+
+            No `throw` is sent, so this is also the fallback path: a client with
+            no WebAssembly, or one older than this build. It has to hold there
+            too — arguably especially there, since nobody is watching it.
+          */
+          for (let die = 0; die < state.dice.length; die++) {
+            expect(faceUp(state.toss!.rest[die].q)).toBe(state.dice[die]);
+          }
 
           for (let die = 0; die < state.dice.length; die++) {
             if (rng() < 0.4) {

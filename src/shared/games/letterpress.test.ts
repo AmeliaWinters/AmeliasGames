@@ -136,15 +136,25 @@ describe('a word', () => {
     expect(refuse(board(GRID), { type: 'play', path: [0, 1, 3] })).toMatch(/not in the word list/i);
   });
 
-  it('is refused if it is too short, too long, or taps a tile twice', () => {
+  it('is refused if it is too short or taps a tile twice', () => {
     const state = board(GRID);
     expect(refuse(state, { type: 'play', path: [0, 1] })).toMatch(
       new RegExp(`${MIN_WORD} to ${MAX_WORD}`),
     );
-    expect(refuse(state, { type: 'play', path: [0, 1, 2, 3, 4, 5, 6, 7, 8] })).toMatch(
-      new RegExp(`${MIN_WORD} to ${MAX_WORD}`),
-    );
     expect(refuse(state, { type: 'play', path: [0, 1, 1] })).toMatch(/different tiles/i);
+  });
+
+  /**
+   * There is no "too long" left to test on its own: the ceiling is the grid,
+   * so a path that overruns it has to have tapped something twice to get
+   * there. What is worth pinning instead is the other end — a word past the
+   * eight letters the list used to stop at, which is what was reported.
+   */
+  it('takes a word longer than the dictionary used to go', () => {
+    const state = board(GRID);
+    const path = tapsFor(state, 'THUNDERCLAPS');
+    expect(path).toHaveLength(12);
+    expect(letterpress.applyMove(state, { type: 'play', path }, 0, rng).ok).toBe(true);
   });
 
   it('is refused if it points off the board', () => {
