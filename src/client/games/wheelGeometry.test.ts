@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WEDGE_ARC } from '../../shared/games/wheelDisplay.js';
-import { FLAP_MAX, WEDGE_COUNT, bandPath, flapAngle, restAngle } from './wheelGeometry.js';
+import { FLAP_MAX, HUB_RADIUS, RADIUS, WEDGE_COUNT, flapAngle, restAngle, sectorPath } from './wheelGeometry.js';
 
 /**
  * The flapper, pinned rather than looked at.
@@ -50,13 +50,27 @@ describe('the flapper', () => {
   });
 });
 
-/** The window the wheel is seen through — two circles, not a rectangle. */
-describe('the rim band', () => {
-  it('is a ring: an outer edge and a hole', () => {
-    const d = bandPath(55);
-    expect(d.match(/M /g)).toHaveLength(2);
-    // The outer edge is the rim itself, so the wedges reach it exactly.
-    expect(d).toContain('A 100 100');
-    expect(d).toContain('A 55 55');
+/**
+ * A wedge is a slice, not a tile of a ring.
+ *
+ * The board used to clip the wheel to a band of rim, and what everybody saw
+ * was a doughnut — nothing converged, so nothing read as a wheel and there was
+ * no middle to throw it about. The geometry was always right; the crop was
+ * hiding it. This pins the geometry so the next crop cannot quietly go back.
+ */
+describe('a wedge', () => {
+  it('runs from the hub to the rim', () => {
+    // Starts at the centre, arcs along the rim, closes back to the centre.
+    expect(sectorPath(0).startsWith('M 0 0 L ')).toBe(true);
+    expect(sectorPath(0)).toContain(`A ${RADIUS} ${RADIUS}`);
+    expect(sectorPath(0).endsWith('Z')).toBe(true);
+  });
+
+  it('is capped at the hub by something wide enough to hide the point', () => {
+    // Thirty-six wedges at the cap's radius: each is this wide where the cap
+    // covers it, and a sliver thinner than a stroke is what the cap is for.
+    const atCap = (2 * Math.PI * HUB_RADIUS) / WEDGE_COUNT;
+    expect(atCap).toBeGreaterThan(1);
+    expect(HUB_RADIUS).toBeLessThan(RADIUS / 5);
   });
 });

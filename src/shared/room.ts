@@ -22,13 +22,28 @@ export interface SeatRecord {
  * score beside them. That is the same failure as a misread field and takes the
  * same cure.
  *
+ * 11: the wheel is thrown rather than dialled. `travel` was wedges of pointer
+ * travel, always forwards; it is now signed wedges of *rotation*, positive
+ * clockwise, with the pointer running the other way round it — see
+ * `wedgeAfter`. Meaning again: a stored spin re-read under the old rule turns
+ * the wheel the wrong way and stops it on a wedge nobody spun.
+ *
+ * 10: Word Chain. Words carry a frequency rank, the state carries how many
+ * answers are left and whether the loser gave up, the threshold that refuses a
+ * stranding word moved from one answer to a per-language count, and a chain
+ * between two players in the same language now links on the accented letter.
+ * A stored game would restore without the rank or the count and draw
+ * `#undefined` beside every word, and the last one is meaning rather than
+ * shape: a Polish chain resumed after this deploy would start asking for `ł`
+ * where it had been asking for `l`.
+ *
  * 9: the dice became real cubes. `Toss` changed shape — `Rest` was `{x, y, o}`
  * indexing 24 square orientations and is now `{x, y, up, q}` with a full
  * rotation, `spin` is gone, and the simulation that re-runs it is Rapier in
  * the browser rather than a 2.5D solver on the server. Every one of those on
  * its own would need this bump.
  */
-export const SNAPSHOT_VERSION = 9;
+export const SNAPSHOT_VERSION = 11;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {

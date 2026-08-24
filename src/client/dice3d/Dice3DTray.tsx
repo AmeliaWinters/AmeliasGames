@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayo
 import type { Tray } from "../../shared/games/dice.js";
 import { row3, startingFrom, type Flick, type Rest3, type ThrownDice, type Toss } from "../../shared/games/toss.js";
 import { useFlick } from "../dice/flick.js";
+import { Die } from "../games/Die.js";
 import { clatter, buzz } from "../feel.js";
 import { wantsStillness } from "../motion.js";
 import type { DiceScene, OnScreen, Placed } from "./scene.js";
@@ -406,6 +407,40 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
 
   const throwable = Boolean(onThrow);
 
+  /*
+    Whether any die is hard to read where it lies.
+
+    Real cubes may finish on top of one another, wedged against a wall, or
+    simply nose to nose from where this camera is standing — and a die under
+    another one is a number the player cannot read and a target they cannot
+    hit. The physics is left alone about it, deliberately: shoving the dice
+    apart afterwards would mean the tray showing something the throw did not
+    do. What changes is the *reading*, and only when there is something to fix.
+
+    Two ways to be buried, and both are asked at rest rather than in flight,
+    where every die is briefly on top of every other one:
+
+      · standing above the floor at all, which means on top of something;
+      · overlapping another die on screen, which is the same problem arriving
+        through the camera rather than through the pile.
+  */
+  const buried = useMemo(() => {
+    if (flying) return false;
+    if (resting.some((r) => r.up > tray.die * 0.35)) return true;
+    for (let i = 0; i < spots.length; i++) {
+      for (let j = i + 1; j < spots.length; j++) {
+        const a = spots[i];
+        const b = spots[j];
+        if (!a || !b) continue;
+        // Their drawn sizes, not the 44px floor the buttons are given: the
+        // question is whether one cube hides another, not whether two touch
+        // targets overlap.
+        if (Math.hypot(a.x - b.x, a.y - b.y) < Math.max(a.size, b.size) * 0.72) return true;
+      }
+    }
+    return false;
+  }, [flying, resting, spots, tray]);
+
   return (
     <div
       ref={box}
@@ -451,8 +486,16 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
             className={held?.[i] ? "die-mark die-hold held" : "die-mark die-hold"}
             data-die={i}
             disabled={flying || !keepable}
-            aria-pressed={Boolean(held?.[i])}
-            aria-label={dieLabel(i, faces[i] ?? 0, Boolean(held?.[i]), flying)}
+            /*
+              While the row below is showing, it is the way to reach these
+              dice and this is scenery: two controls for one die would be two
+              stops in the tab order and two things read out for one number.
+              The pointer still lands on the cube itself, because a tap is the
+              flick gesture's business and `data-die` is what it looks for.
+            */
+            {...(buried
+              ? { tabIndex: -1, "aria-hidden": true as const }
+              : { "aria-pressed": Boolean(held?.[i]), "aria-label": dieLabel(i, faces[i] ?? 0, Boolean(held?.[i]), flying) })}
             style={style}
             /*
               Keyboard only. A tap is already the flick gesture's business —
@@ -470,6 +513,52 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
           />
         );
       })}
+      {/*
+        The dice as numbers, along the top edge, when the tray alone will not
+        say what they are.
+
+        Along the *far* edge on purpose: that end of the tray is where a die is
+        drawn smallest and read worst, and a bar over it covers less than one
+        over the near end would. `data-die` rather than an `onClick`, because
+        the tray takes the pointer capture on the way down and a click handler
+        on a child of it either never fires or fires twice — the same reason
+        the cubes' own buttons are keyboard-only.
+      */}
+      {buried && (
+        <div className="dice-readout">
+          {Array.from({ length: count }, (_, i) => {
+            const face = faces[i] ?? 0;
+            const spoken = dieLabel(i, face, Boolean(held?.[i]), flying);
+            if (!onTapDie) {
+              return (
+                <span key={i} className={spent?.[i] ? "readout-die spent" : "readout-die"}>
+                  <Die value={face} label={spoken} />
+                </span>
+              );
+            }
+            return (
+              <button
+                key={i}
+                type="button"
+                className={held?.[i] ? "readout-die held" : "readout-die"}
+                data-die={i}
+                disabled={flying || !keepable}
+                aria-pressed={Boolean(held?.[i])}
+                aria-label={spoken}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onTapDie(i);
+                }}
+              >
+                {/* The label is the button's; the die inside it is a picture. */}
+                <Die value={face} label="" />
+              </button>
+            );
+          })}
+        </div>
+      )}
       {hint && (
         <p className="dice-hint" id={hintId}>
           {hint}

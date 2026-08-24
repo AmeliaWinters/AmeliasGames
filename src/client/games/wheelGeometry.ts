@@ -51,23 +51,16 @@ export function restAngle(at: number | null): number {
 }
 
 /**
- * The visible band of rim, as a path to clip the wheel with.
+ * How big the cap over the hub is drawn, as a radius.
  *
- * A window that is a plain rectangle cuts the wedges off along a straight line
- * at the sides and the bottom, and what is left reads as a fan of stripes
- * rather than as part of a wheel — which is exactly what the first crop looked
- * like. Bounded by two circles instead, the same shape is unmistakable: the
- * rim curves away at the top, the band sweeps down as it goes out, and it runs
- * off both sides the way the rim of something much larger does.
- *
- * Even-odd, so the inner circle is a hole and not a second disc. Drawn about
- * the origin, like `sectorPath`, so one translate places both.
+ * Thirty-six wedges meeting at a point is thirty-six slivers a fraction of a
+ * unit wide, which turns to mush at any size and shimmers when the wheel
+ * turns. A real wheel has a hub for the same reason: something has to hold the
+ * middle. Wide enough to swallow the slivers, no wider — the wedges have to
+ * read as slices of *this* disc, and a big cap makes them a ring again, which
+ * is what the crop used to do and the complaint that started this.
  */
-export function bandPath(inner: number): string {
-  const ring = (r: number) =>
-    `M 0 ${-r} A ${r} ${r} 0 1 1 0 ${r} A ${r} ${r} 0 1 1 0 ${-r} Z`;
-  return `${ring(RADIUS)} ${ring(inner)}`;
-}
+export const HUB_RADIUS = 11;
 
 /** How far the flapper is pushed aside at the moment a peg passes under it. */
 export const FLAP_MAX = 14;

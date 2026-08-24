@@ -13,16 +13,38 @@
  */
 import { EN_SOURCE, JA_SOURCE, PL_SOURCE } from './chainWords.js';
 import { MIN_LENGTH } from './wordChainDisplay.js';
-import type { ChainLang } from './wordChainDisplay.js';
+import type { ChainLang, ChainMode } from './wordChainDisplay.js';
 
 export interface ChainEntry {
   /** The word as it should be read — Polish accented, Japanese in romaji. */
   word: string;
-  /** `word` folded: what the chain links on and compares. */
+  /** `word` folded: what the chain compares, and what it links on in a
+   * cross-language game. */
   key: string;
+  /**
+   * `word` folded only as far as case and punctuation — Polish diacritics
+   * kept. What the chain links on when both players are in the same language.
+   *
+   * Identical to `key` for English and Japanese, which have no accented forms
+   * between them: strict chaining is a Polish feature and nothing else, and
+   * this field being the same string twice everywhere else is the cheapest
+   * possible way to say so.
+   */
+  strict: string;
   gloss: string;
   script: string;
   lemma: string;
+  /**
+   * Where the word sits in its language's frequency order, commonest first and
+   * counting from one.
+   *
+   * The lists were always ordered by frequency — this only writes the order
+   * down, so a word can carry it to the board and say how common it is. Rank
+   * within a list, not across them: the Japanese list is half the size of the
+   * other two, so `#900` is a rarer word in English than it is in Japanese,
+   * and the board says which language it is ranking.
+   */
+  rank: number;
 }
 
 /**
@@ -63,6 +85,42 @@ export function fold(word: string): string {
     .replace(/[^a-z]/g, '');
 }
 
+/** The nine Polish letters that survive `foldStrict` and die in `fold`. */
+const PL_LETTERS = 'ąćęłńóśźż';
+
+/**
+ * `fold`, stopping short of the accents.
+ *
+ * The other half of the same bargain. `fold` exists because a phone keyboard
+ * has no `ż` on it and a game that demanded one would be unplayable; this
+ * exists because when both players are in Polish, refusing to notice the
+ * accent throws away the most Polish thing about the language. A chain that
+ * links `ł` to `ł` asks for *łatwo* after *był*, and the whole family of words
+ * beginning `ś` — *świat*, *światło*, *śmierć* — becomes a letter you can be
+ * handed rather than a spelling detail the game flattens away.
+ *
+ * Still only ever compared against a *stored* word, never against what was
+ * typed: `chainLookup` finds the entry from the folded form, so `swiatlo`
+ * still finds **światło** and the accent is checked on the entry the list
+ * holds. The player is never asked to type a letter their keyboard lacks.
+ */
+export function foldStrict(word: string): string {
+  return word
+    .toLowerCase()
+    .normalize('NFC')
+    .replace(new RegExp(`[^a-z${PL_LETTERS}]`, 'g'), '');
+}
+
+/** The form the chain links on, which depends on who is playing. */
+export function chainKey(entry: ChainEntry, mode: ChainMode): string {
+  return mode === 'strict' ? entry.strict : entry.key;
+}
+
+/** A required letter, reduced the same way the keys it is matched against were. */
+export function foldLetter(letter: string, mode: ChainMode): string {
+  return (mode === 'strict' ? foldStrict(letter) : fold(letter)).slice(0, 1);
+}
+
 /**
  * Romaji, normalised hard enough that the three ways to spell a Japanese word
  * stop being two ways to lose: `shi`/`si`, `tsu`/`tu`, `chi`/`ti`, `fu`/`hu`,
@@ -98,6 +156,11 @@ let lists: Lists | null = null;
 /** First wins, and the source is frequency-ordered, so a clash keeps the commoner word. */
 function add(into: Map<string, ChainEntry>, ordered: ChainEntry[], entry: ChainEntry): boolean {
   if (entry.key.length < MIN_LENGTH || into.has(entry.key)) return false;
+  // Rank is the position it lands in, which is only knowable here: the source
+  // is frequency-ordered but holds words this list drops — too short, or a
+  // second inflection folding onto a key already taken — so the source line
+  // number and the rank drift apart within the first hundred words.
+  entry.rank = ordered.length + 1;
   into.set(entry.key, entry);
   ordered.push(entry);
   return true;
@@ -111,23 +174,32 @@ function build(): Lists {
   const loose = new Map<string, ChainEntry>();
 
   for (const word of EN_SOURCE.split(/\s+/)) {
-    if (word) add(byKey.en, ordered.en, { word, key: fold(word), gloss: '', script: '', lemma: '' });
+    if (!word) continue;
+    const key = fold(word);
+    const entry = { word, key, strict: key, gloss: '', script: '', lemma: '', rank: 0 };
+    add(byKey.en, ordered.en, entry);
   }
   for (const line of PL_SOURCE.split('\n')) {
     const [word, lemma = '', gloss = ''] = line.trim().split('|');
-    if (word) add(byKey.pl, ordered.pl, { word, key: fold(word), gloss, script: '', lemma });
+    if (!word) continue;
+    const entry = { word, key: fold(word), strict: foldStrict(word), gloss, script: '', lemma, rank: 0 };
+    add(byKey.pl, ordered.pl, entry);
   }
   for (const line of JA_SOURCE.split('\n')) {
     const [romaji, kana = '', kanji = '', gloss = ''] = line.trim().split('|');
     if (!romaji) continue;
+    const key = fold(romaji);
     const entry: ChainEntry = {
       word: romaji,
-      key: fold(romaji),
+      key,
+      // Romaji has no accented forms, so the two keys are the same string.
+      strict: key,
       gloss,
       // Kanji where there is one, kana otherwise: the board shows a single line
       // of Japanese under the romaji, and the kanji teaches more.
       script: kanji || kana,
       lemma: '',
+      rank: 0,
     };
     if (add(byKey.ja, ordered.ja, entry)) {
       const key = jaLoose(romaji);
@@ -172,17 +244,52 @@ export function commonestStarting(
   lang: ChainLang,
   letter: string,
   used: ReadonlySet<string>,
+  mode: ChainMode = 'loose',
 ): ChainEntry | null {
   const l = lists ?? build();
-  const first = fold(letter).slice(0, 1);
+  const first = foldLetter(letter, mode);
   let fallback: ChainEntry | null = null;
   for (const entry of l.ordered[lang]) {
+    // `used` is folded whatever the mode: a word already said is already said,
+    // and its accents have nothing to do with it.
     if (used.has(entry.key)) continue;
-    if (first !== '' && !entry.key.startsWith(first)) continue;
+    if (first !== '' && !chainKey(entry, mode).startsWith(first)) continue;
     if (entry.gloss) return entry;
     fallback ??= entry;
   }
   return fallback;
+}
+
+/**
+ * How many words in `lang` start with `letter` and have not been said.
+ *
+ * The number the board shows a player while they are thinking — "412 words
+ * left" — and the number the reducer gates on, so that a letter with four
+ * obscure answers behind it is never handed to anybody. Same scan as
+ * `commonestStarting`, counted rather than stopped at the first hit; an empty
+ * `letter` counts the whole language, which is what an opening word may choose
+ * from.
+ *
+ * Every word counts the same here, however rare. It is a count of what is
+ * legal, not an estimate of what a player will think of, and a number that
+ * quietly discounted the long tail would disagree with the list the reveal
+ * reads from.
+ */
+export function countStarting(
+  lang: ChainLang,
+  letter: string,
+  used: ReadonlySet<string>,
+  mode: ChainMode = 'loose',
+): number {
+  const l = lists ?? build();
+  const first = foldLetter(letter, mode);
+  let n = 0;
+  for (const entry of l.ordered[lang]) {
+    if (used.has(entry.key)) continue;
+    if (first !== '' && !chainKey(entry, mode).startsWith(first)) continue;
+    n++;
+  }
+  return n;
 }
 
 /** How many words each language contributes — for the tests that hold the sizes. */

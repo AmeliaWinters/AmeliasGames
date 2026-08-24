@@ -1427,6 +1427,61 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+/* ── The dice as numbers ───────────────────────────────────────────────
+   Shown only when the tray cannot say it on its own: a die resting on another
+   one, or hidden behind one from where the camera stands. Real cubes do that,
+   the physics is left alone about it, and this is what stops it costing the
+   player a number they cannot read or a die they cannot tap.
+
+   Along the far edge, which is where a die is drawn smallest and read worst,
+   so the bar covers the least. The scrim is what keeps the faces legible over
+   whatever is behind them — the tray's own board colour is close to a die's
+   cream in daylight. */
+.dice-readout {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px;
+  background: linear-gradient(var(--board), color-mix(in srgb, var(--board) 82%, transparent) 78%, transparent);
+}
+.dice-readout .die {
+  --die: 26px;
+}
+/* A chip is a button where the game has something to do with a die, and a
+   plain mark where it does not — Backgammon and Liar's Dice never keep one. */
+.readout-die {
+  display: block;
+  padding: 0;
+  border: 0;
+  min-height: 0;
+  background: none;
+  border-radius: 5px;
+  cursor: default;
+}
+button.readout-die:not(:disabled) {
+  cursor: pointer;
+}
+/* The same two rings the cube's own handle wears, and for the same reason: a
+   die face is a fixed cream in both palettes, and the accent alone is about
+   1.4:1 against it in `stage`. The ink ring is what makes the state visible;
+   the accent still says whose choice it was. */
+.readout-die.held {
+  box-shadow:
+    0 0 0 2px #0c0c0f,
+    0 0 0 4px var(--accent);
+}
+.readout-die.spent {
+  opacity: 0.5;
+}
+.readout-die:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .dice-hint {
   position: absolute;
   left: 0;
@@ -1612,20 +1667,21 @@ input:focus-visible {
   gap: 8px;
 }
 
-/* A window onto the top of the wheel — see VIEW_W and CROP in
-   `WheelBoard.tsx`. The wheel itself is drawn twice as wide as this and mostly
-   falls off both sides, which is what makes a wedge big enough to read at
-   thirty-six of them. What is left is bounded by two circles rather than by
-   the edges of this box — see `bandPath` — so it reads as the rim of
-   something much bigger rather than as a fan of stripes. */
+/* A window onto the wheel — see VIEW_W and CROP in `WheelBoard.tsx`. The
+   wheel is drawn wider than this and runs off both sides, which is what makes
+   a wedge big enough to read at thirty-six of them; what the box does hold is
+   the whole radius, hub included, so the wedges are seen to be slices of a
+   disc. It used to hold a band of rim with no middle, and a wheel with no
+   middle is a doughnut. */
 .wof-wheel-frame {
   position: relative;
   width: 100%;
-  /* Capped short of the column it sits in. The window is a band, so width
-     buys height at nearly two to one, and at the full 608px the wheel alone
-     was a third of a laptop screen with a keyboard still to come below it. */
-  max-width: 440px;
-  aspect-ratio: 104 / 64;
+  /* Capped short of the column it sits in. The box is nearly square now that
+     the hub is inside it, so width buys height almost one for one — and at the
+     full 608px the wheel alone would be most of a laptop screen with a
+     keyboard still to come below it. */
+  max-width: 380px;
+  aspect-ratio: 150 / 116;
 }
 
 .wof-disc {
@@ -1647,10 +1703,17 @@ input:focus-visible {
   cursor: grabbing;
 }
 
-/* The turn itself. Heavily eased out, so it flies and then creeps the last few
-   degrees the way a real wheel does. The rotation is set from React as an
-   absolute angle that only ever grows, so this never has to work out which way
-   round to go.
+/* The turn itself. The easing is not a taste: a wheel slowed by a constant
+   frictional torque covers `2t - t²` of its distance in normalised time, which
+   is exactly quadratic ease-out, which is exactly this cubic-bezier — the
+   quadratic Bézier (0, 0) (0.5, 1) (1, 1) raised a degree. So the curve on
+   screen is the same equation `spinThrow` resolved the landing with, and the
+   duration beside it is that throw's own. Change SPIN_DRAG and nothing here
+   moves; change this and the wheel starts lying about the other.
+
+   The rotation is set from React as an absolute angle, signed both ways now —
+   a flick left is a smaller number than the one before it — so this never has
+   to work out which way round to go.
 
    `center` here means half the box measured from the element's own origin, so
    the wheel is drawn about (0, 0) and then moved to the middle of a box that
@@ -1665,13 +1728,12 @@ input:focus-visible {
      below the frame entirely, which is why neither number can be guessed
      from the box. */
   transform-origin: var(--wof-hub-x) var(--wof-hub-y);
-  /* Eased across the whole spin rather than front-loaded into the first fifth
-     of it. The old curve was 45% of the way round by the first tenth of the
-     time and 99.7% by the last sixth, so the wheel snapped and then sat
-     apparently still for four hundred milliseconds — which is why a spin never
-     felt like one. This carries a visible eighth of a wedge into the final
-     stretch, so it slows, crawls, and stops. */
-  transition: transform var(--wof-spin, 2900ms) cubic-bezier(0.25, 0.6, 0.35, 1);
+  /* The old curve was 45% of the way round by the first tenth of the time and
+     99.7% by the last sixth, so the wheel snapped and then sat apparently
+     still for four hundred milliseconds. This one is physics: it sheds speed
+     at a constant rate from the moment the finger lets go, right down to the
+     stop. */
+  transition: transform var(--wof-spin, 2400ms) cubic-bezier(0.333, 0.667, 0.667, 1);
 }
 
 /* Under the finger there is nothing to ease: the wheel is where the hand put
@@ -1735,18 +1797,27 @@ input:focus-visible {
    the rim, so the wedge it is sitting on is unmistakable. Drawn inside the
    wheel's own viewBox, so it keeps its place on the rim at every width.
    The stroke is the ground, which is what lifts it off a dark wedge. */
-/* The band's two edges. Not decoration: with the card gone the wheel needs an
-   edge of its own, and a real wheel has exactly this one — a rim. The inner
-   line is quieter, because it is where the wheel carries on out of sight
-   rather than where it ends. */
+/* The rim. Not decoration: with the card gone the wheel needs an edge of its
+   own, and a real wheel has exactly this one. It runs off both sides of the
+   frame, which is the whole point of a wheel too big for its window. */
 .wof-rim {
   fill: none;
   stroke: var(--ink);
   stroke-width: 1.4;
 }
-.wof-rim.inner {
-  stroke: var(--rule);
-  stroke-width: 0.8;
+
+/* The hub, over the point where thirty-six wedges meet — see HUB_RADIUS. Two
+   circles: the cap, and the pin it turns on. Filled from the page rather than
+   from the wheel, so it reads as a fitting on top of the disc and not as a
+   thirty-seventh wedge. */
+.wof-hub {
+  fill: var(--ground);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+.wof-hub.pin {
+  fill: var(--ink);
+  stroke: none;
 }
 
 /* The flapper. Hinged along its top edge rather than pinned at its middle, so
@@ -4779,11 +4850,11 @@ input:focus-visible {
 
 .wc-link {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   grid-template-areas:
-    "who word"
-    ".   script"
-    ".   gloss";
+    "who word   rank"
+    ".   script rank"
+    ".   gloss  rank";
   align-items: baseline;
   gap: 2px 10px;
   padding: 8px 10px;
@@ -4826,6 +4897,26 @@ input:focus-visible {
   color: var(--muted);
 }
 
+/* How common the word was, in its own language's frequency list.
+
+   Deliberately the quietest thing in the row and on the far edge of it: it is
+   the last thing you want to read about a word, after the word, its script and
+   its meaning, and a number in the reading order ahead of those would be a
+   score for a game that does not have one. Tabular figures so the column of
+   them stays a column.
+
+   Quiet by size and position only. An `opacity: 0.75` on top of `--muted` was
+   the first draft and it measured 3.5:1 against the surface in both palettes,
+   which fails AA for text this size — `--muted` on its own is 5.6:1 dark and
+   6.0:1 light. Small is allowed to be small; it is not allowed to be faint. */
+.wc-rank {
+  grid-area: rank;
+  align-self: center;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 /* The dictionary form, for a Polish word played as an inflection: one word
    said, another one learned. */
 .wc-lemma {
@@ -4852,6 +4943,27 @@ input:focus-visible {
   line-height: 1;
   color: var(--accent);
   text-transform: uppercase;
+}
+
+/* How many words are still behind that letter. Sits beside it rather than
+   under it so the line stays one line on a 320px screen, and stays muted: it
+   is a fact about the letter, not a second headline. */
+.wc-left {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Losing on purpose. A full-width thumb target like every other action, but
+   written as a quiet outline rather than in the action colour — it is a real
+   move and has to be reachable, and it must never be the thing a thumb lands
+   on while reaching for the word box above it. */
+.wc-give-up {
+  min-height: 44px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  font-size: 0.84rem;
 }
 
 .wc-langs {

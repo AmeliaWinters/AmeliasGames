@@ -27,6 +27,21 @@ export type ChainLang = 'en' | 'pl' | 'ja';
 
 export const LANGS: readonly ChainLang[] = ['en', 'pl', 'ja'];
 
+/**
+ * How the chain links one word to the next.
+ *
+ * `loose` links on the folded letter, which is the only thing that works
+ * across languages: a Polish word ending in `ś` has to hand an English or
+ * Japanese player something they can answer, and it hands them an `s`.
+ *
+ * `strict` links on the letter as written, accents and all, and is what a
+ * game gets when both players chose the same language — there is nobody to
+ * strand, so there is no reason to flatten it. In practice this is a Polish
+ * setting: English and Japanese have no accented forms between them, so the
+ * two modes are the same game in those languages.
+ */
+export type ChainMode = 'loose' | 'strict';
+
 /** What to call each language, and what to call a word in it. */
 export const LANG_NAME: Record<ChainLang, string> = {
   en: 'English',
@@ -46,6 +61,47 @@ export const LANG_NAME: Record<ChainLang, string> = {
  * to explain the refusal.
  */
 export const MIN_LENGTH = 3;
+
+/**
+ * The fewest unsaid words a letter has to have behind it before the game will
+ * hand it to anybody.
+ *
+ * "There is one" and "you could think of one" are different questions. The
+ * lists come from subtitle corpora, so the thinnest letters are answerable
+ * only by whatever proper nouns wandered in: Polish X is *Xavier* and nothing
+ * else, Polish Y is four American place names, Polish V is fourteen Dutch
+ * surnames, English X is three. Being handed one of those is losing to the
+ * dictionary rather than to your own vocabulary, which is not a game.
+ *
+ * Per language, because the three lists are not the same size and are not
+ * distributed the same way. Sorted, the whole-list counts below two hundred
+ * run
+ *
+ *     ja L 0   ja Q 0   ja X 0   pl X 1   ja V 2   en X 3   pl Q 3
+ *     pl Y 4   pl V 14  | en Z 50  en Q 93 | ja W 103  en Y 109
+ *     ja E 152  ja U 156  ja Z 167  pl E 189
+ *
+ * English sits at forty, which clears its one dead letter and keeps Z (50) and
+ * Q (93) — thin, but *zebra* and *question* are words anybody can find, and a
+ * bar high enough to take them would be the game refusing letters on the
+ * player's behalf. Polish and Japanese sit at a hundred, which is comfortable
+ * in Polish — the next letter up is E at 189 — and deliberate rather than
+ * comfortable in Japanese, where W at 103 clears it by three words. If a
+ * rebuild of the lists moves Japanese W, this number is the thing to look at,
+ * and `wordChain.test.ts` fails loudly rather than quietly dropping the
+ * letter.
+ *
+ * It is a floor on what is *left*, not on the letter, so it tightens as a long
+ * game eats a thin one — English Z starts at fifty and stops being handable
+ * once eleven Z words have been said. That is right: the last few words
+ * starting with Z are no easier to find than the only one.
+ *
+ * It does the second half of its job in `strict` mode, where it is the whole
+ * of "given they're possible": five of the nine Polish accented letters —
+ * ą, ę, ń, ó, ź — begin no Polish word at all, so a word ending in one of them
+ * is refused, and ł, ś and ż, which begin hundreds, are handed over happily.
+ */
+export const MIN_ANSWERS: Record<ChainLang, number> = { en: 40, pl: 100, ja: 100 };
 
 /**
  * How long a player has to produce a word, and how long the two of them have
@@ -95,6 +151,19 @@ export interface ChainLink {
    * for the languages where the distinction does not arise.
    */
   lemma: string;
+  /**
+   * Where the word sits in its language's frequency list, commonest first and
+   * counting from one — `#742` under the word on the board, which is how a
+   * player finds out that the word they reached for is the four hundredth
+   * commonest thing anyone says.
+   *
+   * On the wire because the board has no list to look it up in, and a rank
+   * within a language rather than across them: the Japanese list holds twelve
+   * thousand words to English's twenty-five, so the same number means
+   * something rarer in English. The board shows the language beside it, which
+   * is as much as a bare number can honestly carry.
+   */
+  rank: number;
 }
 
 export type WcPhase = 'setup' | 'playing' | 'over';
@@ -103,20 +172,52 @@ export interface WcState {
   phase: WcPhase;
   /** Each seat's language, or null while they are still choosing. */
   langs: (ChainLang | null)[];
+  /**
+   * How the chain links, decided once when play begins and never after: two
+   * players who chose the same language get `strict`, everyone else `loose`.
+   *
+   * Derivable from `langs`, and stored anyway, because the board has to say
+   * which game it is before the first word is played and the two must never
+   * disagree about it mid-chain. `false` throughout setup.
+   */
+  strict: boolean;
   /** Oldest first. The last link is the one being answered. */
   chain: ChainLink[];
   /** The seat the game is waiting on. Meaningless once `phase` is `over`. */
   at: number;
   /**
    * The letter the next word must start with, or '' for the opening word,
-   * which is free. Computed by the server from the last link's `key` so that
-   * nothing else has to know how folding works.
+   * which is free. Computed by the server from the last link so that nothing
+   * else has to know how folding works — and in a `strict` game it can be an
+   * accented one, `ł` or `ś` or `ż`, which the board shows as it stands.
    */
   required: string;
+  /**
+   * How many words the seat on the clock could still legally say: unsaid words
+   * in their language starting with `required`, or the whole of their language
+   * before the first word. Null while nobody is on the clock.
+   *
+   * The server counts it because only the server has the lists — the board
+   * shows the number and never derives it, the same bargain as `required`.
+   * It is symmetric information: both players see the same count, and it is
+   * the count for whoever is thinking, not for whoever is reading it.
+   */
+  available: number | null;
   /** When the current minute runs out, or null before the game is on a clock. */
   deadline: number | null;
-  /** The seat that ran out of time, or null while nobody has. */
+  /** The seat that lost, or null while nobody has. */
   loser: number | null;
+  /**
+   * Whether the loser said so themselves rather than running the clock down.
+   *
+   * The two endings want different words on the screen — "ran out of time" is
+   * wrong about a player who pressed the button with forty seconds left — but
+   * they are otherwise the same ending, reveal and all. Giving up is not a
+   * lesser loss here: the reveal is the reason to play, and a player who
+   * cannot think of a word should be able to reach it without sitting out a
+   * minute they have already spent.
+   */
+  gaveUp: boolean;
   /**
    * The word the loser could have said: the commonest one in their language
    * that starts with `required` and has not been used. Null until somebody
@@ -131,7 +232,9 @@ export interface WcState {
 
 export type WcMove =
   | { type: 'lang'; lang: ChainLang }
-  | { type: 'say'; word: string };
+  | { type: 'say'; word: string }
+  /** Only from the seat on the clock, and only once play has started. */
+  | { type: 'give-up' };
 
 export function isFinished(state: WcState): boolean {
   return state.phase === 'over';

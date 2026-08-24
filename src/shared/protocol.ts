@@ -5,7 +5,7 @@
  * a deploy reconnects with whatever shape it was built with, so the server
  * checks this and asks that client to refresh rather than misreading it.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message

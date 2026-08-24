@@ -96,6 +96,23 @@ export interface Flick {
    */
   x: number;
   y: number;
+  /**
+   * Where on the tray the hand was when it let go, as a fraction of the tray's
+   * own width and height: `0,0` is the top-left corner and `1,1` the bottom
+   * right.
+   *
+   * **Absent for a tap**, and absent rather than centred on purpose — a tap
+   * has no aim, and a tap recorded as "aimed at the middle" would be a
+   * different throw from the one the player made. `openThrow` reads the two
+   * together: with a speed, this is where the dice come *in* from; without
+   * one, it is not consulted at all.
+   *
+   * A fraction rather than tray units so that the number means the same thing
+   * on a phone and on a laptop, which is the same reason everything else here
+   * is measured in widths.
+   */
+  ax?: number;
+  ay?: number;
 }
 
 /**
@@ -128,11 +145,30 @@ function real(value: unknown, low: number, high: number): number {
     : 0;
 }
 
+/** A number in range, or undefined — for a field whose absence means something. */
+function maybe(value: unknown, low: number, high: number): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(Math.max(value, low), high)
+    : undefined;
+}
+
 /** A flick as it arrived from a client, which is to say: anything at all. */
 export function readFlick(value: unknown): Flick {
   if (!value || typeof value !== 'object') return { x: 0, y: 0 };
   const sent = value as Partial<Flick>;
-  return { x: real(sent.x, -MAX_FLICK, MAX_FLICK), y: real(sent.y, -MAX_FLICK, MAX_FLICK) };
+  const flick: Flick = {
+    x: real(sent.x, -MAX_FLICK, MAX_FLICK),
+    y: real(sent.y, -MAX_FLICK, MAX_FLICK),
+  };
+  // Both or neither: half an aim is not one, and a throw that knew where it
+  // came from on one axis only would be aimed at a corner nobody flicked from.
+  const ax = maybe(sent.ax, 0, 1);
+  const ay = maybe(sent.ay, 0, 1);
+  if (ax !== undefined && ay !== undefined) {
+    flick.ax = ax;
+    flick.ay = ay;
+  }
+  return flick;
 }
 
 /** One resting die off the wire, or null if it is not one. */
@@ -300,8 +336,10 @@ export function nextToss(opts: {
     toss: {
       n: (previous?.n ?? 0) + 1,
       seed: thrown.seed,
-      x: thrown.x,
-      y: thrown.y,
+      // The flick entire, aim included: a stored throw is re-run rather than
+      // replayed frame by frame, and a re-run missing where the dice came in
+      // from lands them somewhere else.
+      ...readFlick(thrown),
       from: from.map((r) => ({ ...r, q: [...r.q] as unknown as Quat })),
       rest,
     },

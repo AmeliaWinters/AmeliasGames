@@ -9,42 +9,22 @@ import {
   ROUNDS,
   VOWELS,
   VOWEL_COST,
-  SPIN_MAX_TRAVEL,
   WEDGE_ARC,
   WHEEL,
   money,
+  spinMs,
   wedgeLabel,
   wedgeName,
 } from "../../shared/games/wheelDisplay.js";
 import type { Wedge, WofMove, WofState } from "../../shared/games/wheel.js";
 import { wantsStillness } from "../motion.js";
 import {
+  HUB_RADIUS,
   RADIUS,
-  WEDGE_COUNT,
-  bandPath,
   flapAngle,
   restAngle,
   sectorPath,
 } from "./wheelGeometry.js";
-
-/**
- * How long a spin lasts, from the distance it covers.
- *
- * A flick that travels five turns cannot take the same time as one that
- * travels one, or the speed the player threw at is thrown away and every spin
- * feels identical. Not proportional either: the long ones would outstay their
- * welcome, so the constant part carries the ending — the crawl and the stop —
- * and the distance carries the rest.
- *
- * Handed to the stylesheet as a custom property rather than written out in
- * both places. The transition is what the eye sees and this is when the value
- * is allowed to appear; they have to agree, and two numbers that have to agree
- * eventually do not.
- */
-export function spinMs(travel: number): number {
-  const wedges = Number.isFinite(travel) ? Math.min(Math.max(travel, 0), SPIN_MAX_TRAVEL) : 0;
-  return Math.round(900 + wedges * 16);
-}
 
 /** Where a wedge's label sits. The rim itself is RADIUS, from
     `wheelGeometry.ts`; this is far enough in that a number clears the pointer
@@ -53,38 +33,26 @@ const LABEL_RADIUS = 78;
 
 /**
  * The window onto the wheel: how wide a slice of it the table shows, and how
- * far down the rim the window reaches.
+ * far down it reaches.
  *
- * A whole wheel in a phone's width is a wheel about 240px across, and at
- * thirty-six wedges that is ten degrees of arc for a three-figure sum — the
- * numbers would be specks. So the box is 104 units wide against a 200-unit
- * wheel: the same wheel drawn about twice as big as the box that holds it,
- * with six wedges in view and the rest of it off both sides. That is
- * what makes a wedge wide enough to letter, and it is why the wedges stream
- * past the pointer *sideways* — a thing you can read while it is moving —
- * rather than turning as a disc going blurry in the middle of the page.
+ * A whole wheel in a phone's width is a wheel about 340px across, and at
+ * thirty-six wedges that is ten degrees of arc for a three-figure sum. So the
+ * box is 150 units wide against a 200-unit wheel: most of the wheel, with the
+ * far sides of the rim running off both edges, which is what keeps a wedge
+ * wide enough to letter.
  *
- * The depth is set by the band rather than by the rim: RIM_INNER dips to
- * y ≈ 63 at the corners of the window, and nothing below that is drawn.
+ * The depth is the whole radius and a little under the hub. That is the
+ * change: the window used to be a band of rim 64 units deep with the hub 46
+ * units below the frame, and a wheel with no middle in it is a doughnut —
+ * nothing converges, nothing reads as a disc, and there is visibly nothing to
+ * throw it about. Height is what that costs, and it is worth it.
  */
-const VIEW_W = 104;
-const CROP = 64;
+const VIEW_W = 150;
+const CROP = 116;
 
 /**
- * The inner edge of the visible band, as a radius.
- *
- * The wheel is clipped to the ring between this and the rim — see `bandPath`.
- * A rectangular window cut the wedges off along a straight line at the sides
- * and the bottom, and what was left read as a fan of stripes rather than as
- * part of a wheel. Far enough in that the numbers at 78 sit well clear of the
- * edge, near enough out that the band is a band and not a disc with a bite
- * taken out of the bottom of the frame.
- */
-const RIM_INNER = 55;
-
-/**
- * The wheel's hub, in the box's own coordinates. Well below the bottom edge,
- * which is the point — the window is on the top of the rim.
+ * The wheel's hub, in the box's own coordinates — now in the frame, a dozen
+ * units up from the bottom edge, so the wedges are seen to meet.
  *
  * The wheel is drawn about its own origin and then moved here by a translate,
  * rather than the box being given a viewBox centred on zero. That reads like
@@ -97,24 +65,7 @@ const RIM_INNER = 55;
  * point, whichever way an engine reads it.
  */
 const HUB_X = VIEW_W / 2;
-const HUB_Y = 110;
-
-/**
- * The flick, in degrees of rim per millisecond at the moment of release.
- *
- * `MIN` is the floor and not a threshold: let go slower than this — or
- * backwards, or without moving at all — and the wheel still goes, at the
- * gentlest throw `spinTravel` knows. That is deliberate. A wheel that did
- * nothing until you flicked hard enough would let a player creep it round to
- * the wedge they wanted and release, which is the one way a grabbable wheel
- * can be cheated, and it is why the landing is measured from where the wheel
- * *stopped last time* rather than from wherever the drag left it.
- *
- * `MAX` is a hard thumb across a phone: past it, throwing harder is just
- * waiting longer.
- */
-const FLICK_MIN = 0.15;
-const FLICK_MAX = 1.2;
+const HUB_Y = CROP - 12;
 
 /** How long a release looks back for its speed. Long enough to average out a
     jittery finger, short enough that a drag that stopped dead reads as one. */
@@ -165,22 +116,33 @@ function wedgeClass(index: number): string {
  * can land on the same wedge, and a wheel that sat still on the second one
  * would look broken.
  *
- * The rim is also grabbable. A drag turns the wheel under the finger and the
- * speed at the moment of release is sent up as the flick that decides where it
- * stops. The drag itself decides nothing — see FLICK_MIN.
+ * The rim is grabbable. A drag turns the wheel under the finger at one to one,
+ * and the speed at the moment of release — signed, so a flick left throws it
+ * left — is the whole of the throw. Where the drag *left* the wheel decides
+ * nothing: see the note on `spin` in `wheel.ts` for why the landing is
+ * anchored to where the wheel stopped last time instead.
  */
 function Wheel({
   state,
   spinning,
   grabbable,
   onSpin,
+  onSettled,
 }: {
   state: WofState;
   spinning: boolean;
   grabbable: boolean;
-  onSpin: (power: number) => void;
+  onSpin: (velocity: number) => void;
+  onSettled: () => void;
 }) {
-  const [angle, setAngle] = useState(() => restAngle(state.wedgeAt));
+  /*
+    Where the wheel is standing and how long it has to get there — one piece of
+    state because they are one fact, and because the duration can only be
+    worked out in the same breath as the angle. A drag sets `ms` to zero; the
+    stylesheet takes it from here.
+  */
+  const [turn, setTurn] = useState(() => ({ angle: restAngle(state.wedgeAt), ms: 0 }));
+  const angle = turn.angle;
   const [dragging, setDragging] = useState(false);
   const seen = useRef(state.spins);
   /* The two elements the flapper loop touches directly. It runs every frame
@@ -205,16 +167,22 @@ function Wheel({
     if (state.spins === seen.current) return;
     seen.current = state.spins;
     if (state.wedgeAt === null) return;
-    setAngle((current) => {
-      // Whole turns from the distance the wheel was actually thrown, so a hard
-      // flick visibly goes further than a gentle one. At least one, because a
-      // spin that never comes round at all does not read as a spin.
-      const turns = Math.max(1, Math.floor(state.travel / WEDGE_COUNT));
-      const base = current + turns * 360;
+    setTurn((current) => {
+      // The distance the throw actually covered, signed — a flick left turns
+      // the wheel left, and a hard one visibly goes further than a gentle one.
+      const swept = current.angle + state.travel * WEDGE_ARC;
       const target = restAngle(state.wedgeAt);
-      // The smallest angle at or past `base` that puts the wedge under the
-      // pointer. Always forwards, and always at least `turns` of it.
-      return base + ((((target - base) % 360) + 360) % 360);
+      // ...landed exactly on a wedge. `swept` is a whole number of wedges from
+      // where the wheel *rested*, but a drag may have left it up to half a
+      // turn either side of that, so the last step is the nearest angle to the
+      // physical distance that still puts the wedge under the pointer. Half a
+      // wedge to eight of them, on a throw of forty at the very least.
+      const landed = swept + (((((target - swept) % 360) + 540) % 360) - 180);
+      // Timed from the distance actually drawn rather than from `travel`, so
+      // the wheel decelerates at the wheel's own rate whatever the drag added
+      // or took off. The two agree to within a few per cent; the transition and
+      // the freeze upstairs would both be lying about the other few.
+      return { angle: landed, ms: spinMs(Math.abs(landed - current.angle) / WEDGE_ARC) };
     });
   }, [state.spins, state.wedgeAt, state.travel]);
 
@@ -300,7 +268,8 @@ function Wheel({
     const turned = last + (((raw - last + 540) % 360) - 180);
     live.trail.push({ at: turned, t: event.timeStamp });
     if (live.trail.length > 24) live.trail.shift();
-    setAngle(live.base + turned);
+    // No easing under the hand: the wheel is where the finger is, this frame.
+    setTurn({ angle: live.base + turned, ms: 0 });
     // Under the hand the wheel ticks too — that is most of what tells you you
     // have hold of it.
     setFlap(live.base + turned);
@@ -323,11 +292,12 @@ function Wheel({
     const last = trail[trail.length - 1];
     const first = trail.find((sample) => last.t - sample.t <= FLICK_WINDOW_MS) ?? trail[0];
     const ms = last.t - first.t;
-    const speed = ms > 0 ? (last.at - first.at) / ms : 0;
-    // Backwards and stationary both land on zero, which is the gentlest throw
-    // the wheel knows rather than no throw at all.
-    const power = Math.min(Math.max((speed - FLICK_MIN) / (FLICK_MAX - FLICK_MIN), 0), 1);
-    onSpin(power);
+    // Signed, and in the same units the reducer thinks in: degrees of the
+    // wheel's own rotation per millisecond, positive clockwise. `spinThrow`
+    // clamps it at both ends and floors it, so a finger that stopped dead
+    // before letting go still throws the wheel — see SPIN_MIN_TRAVEL.
+    const velocity = ms > 0 ? (last.at - first.at) / ms : 0;
+    onSpin(velocity);
   }
 
   const classes = ["wof-disc"];
@@ -341,13 +311,13 @@ function Wheel({
         className={classes.join(" ")}
         viewBox={`0 0 ${VIEW_W} ${CROP}`}
         /* The three numbers the stylesheet needs and cannot know: how long
-           this spin lasts, which now depends on how far it goes, and where the
-           wheel's hub is. The pivot used to be `center`, which meant half the
-           box — true only while the box was square, and it stopped being square
-           the moment it was cropped. */
+           this throw takes, which is the throw's own duration and not a stock
+           one, and where the wheel's hub is. The pivot used to be `center`,
+           which meant half the box — true only while the box was square, and it
+           stopped being square the moment it was cropped. */
         style={
           {
-            "--wof-spin": `${spinMs(state.travel)}ms`,
+            "--wof-spin": `${turn.ms}ms`,
             "--wof-hub-x": `${HUB_X}px`,
             "--wof-hub-y": `${HUB_Y}px`,
           } as React.CSSProperties
@@ -362,24 +332,32 @@ function Wheel({
         // keyboard has; a flick has no keyboard equivalent worth faking.
         aria-hidden="true"
       >
-        <defs>
-          {/* The window, as a shape rather than as the edges of the box — see
-              `bandPath`. On a static wrapper, never on the group that turns,
-              or the window would go round with the wheel. */}
-          <clipPath id="wof-rim-band">
-            <path
-              clipRule="evenodd"
-              transform={`translate(${HUB_X} ${HUB_Y})`}
-              d={bandPath(RIM_INNER)}
-            />
-          </clipPath>
-        </defs>
-        {/* Three groups, and they do different jobs: the outer one holds the
-            window still, the middle one is the only thing that turns, and the
-            inner one never moves — it just carries the wheel from the origin
-            to the hub. See HUB_X. */}
-        <g clipPath="url(#wof-rim-band)">
-          <g className="wof-turn" ref={turning} style={{ transform: `rotate(${angle}deg)` }}>
+        {/* Two groups, and they do different jobs: the outer one is the only
+            thing that turns, and the inner one never moves — it just carries
+            the wheel from the origin to the hub. See HUB_X. There is no clip
+            any more: the box itself is the crop now that the whole radius is
+            inside it, and what falls off the sides is the far rim of a wheel
+            wider than the frame.
+
+            `transitionend` is what says the wheel has stopped, rather than a
+            second clock upstairs racing this one — the board holds the whole
+            position back until it fires. */}
+        <g>
+          <g
+            className="wof-turn"
+            ref={turning}
+            style={{ transform: `rotate(${angle}deg)` }}
+            /* This element's own rotation, and nothing else. React routes a
+               bubbled `transitionend` through here too, so a transition added
+               to a wedge or a label later would otherwise end the spin early —
+               and ending it early is the board showing the answer over a wheel
+               that is still going round. */
+            onTransitionEnd={(event) => {
+              if (event.target === turning.current && event.propertyName === "transform") {
+                onSettled();
+              }
+            }}
+          >
             <g transform={`translate(${HUB_X} ${HUB_Y})`}>
               {WHEEL.map((wedge, index) => (
                 <path key={index} className={wedgeClass(index)} d={sectorPath(index)} />
@@ -416,7 +394,11 @@ function Wheel({
             the ground in both palettes, which is enough to tell them apart
             and not enough to give the wheel an edge of its own. */}
         <circle className="wof-rim" cx={HUB_X} cy={HUB_Y} r={RADIUS} />
-        <circle className="wof-rim inner" cx={HUB_X} cy={HUB_Y} r={RIM_INNER} />
+        {/* The hub. Still, and drawn over the turning group: thirty-six wedges
+            meeting at a point is thirty-six slivers of mush, and a wheel needs
+            something at the middle holding it anyway. */}
+        <circle className="wof-hub" cx={HUB_X} cy={HUB_Y} r={HUB_RADIUS} />
+        <circle className="wof-hub pin" cx={HUB_X} cy={HUB_Y} r={HUB_RADIUS / 3} />
         {/* The flapper. Drawn inside the wheel's own box rather than floated
             over it, so it sits on the rim at every width without a percentage
             anybody has to keep in step with the crop. One wedge wide, so what
@@ -425,7 +407,7 @@ function Wheel({
         <path
           className="wof-pointer"
           ref={flapper}
-          d={`M ${HUB_X} 22 L ${HUB_X - 7} 1 L ${HUB_X + 7} 1 Z`}
+          d={`M ${HUB_X} 17 L ${HUB_X - 6} 1 L ${HUB_X + 6} 1 Z`}
         />
       </svg>
     </div>
@@ -505,10 +487,16 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     if (wantsStillness()) return;
     setSpinning(true);
     setFrozen(before.current);
+    // A backstop, not the clock. The wheel says when it has stopped, because
+    // only it knows how far the drag left it to travel — see `onSettled`. This
+    // is here because a transition that never runs never ends: a tab
+    // backgrounded mid-spin, or a wheel that was already where it had to be,
+    // would otherwise freeze the board for good. Generous on purpose; it
+    // should never be the thing that fires.
     const id = setTimeout(() => {
       setSpinning(false);
       setFrozen(null);
-    }, spinMs(state.travel));
+    }, spinMs(state.travel) + 600);
     return () => clearTimeout(id);
     // Layout rather than plain effect: a passive one runs after paint, so the
     // spun value got one frame on screen before the freeze caught it — a
@@ -590,7 +578,11 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
             state={state}
             spinning={spinning}
             grabbable={canSpin && !spinning}
-            onSpin={(power) => onMove({ type: "spin", power })}
+            onSpin={(velocity) => onMove({ type: "spin", velocity })}
+            onSettled={() => {
+              setSpinning(false);
+              setFrozen(null);
+            }}
           />
 
           {/* What the wheel means, in words. The wheel is the flourish; this
@@ -669,8 +661,9 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               <button
                 className="primary"
                 disabled={!canSpin}
-                /* No `power`, so the wheel decides — see WofMove. This is the
-                   keyboard's throw, and a player who would rather not flick. */
+                /* No `velocity`, so the wheel decides — see WofMove. This is
+                   the keyboard's throw, and a player who would rather not
+                   flick. */
                 onClick={() => onMove({ type: "spin" })}
               >
                 Spin

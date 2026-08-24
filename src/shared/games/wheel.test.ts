@@ -5,6 +5,10 @@ import {
   CONSONANTS,
   FINDS_PER_TURN,
   PUZZLES,
+  SPIN_MAX_SPEED,
+  SPIN_MAX_TRAVEL,
+  SPIN_MIN_SPEED,
+  SPIN_MIN_TRAVEL,
   WEDGE_ARC,
   ROUNDS,
   SOLVE_BONUS,
@@ -18,6 +22,8 @@ import {
   occurrences,
   remaining,
   seatCount,
+  spinThrow,
+  wedgeAfter,
   wheel,
   type WofMove,
   type WofState,
@@ -633,57 +639,109 @@ describe('where the wheel stopped', () => {
 });
 
 /**
- * The flick. A player grabs the rim and throws it, and how hard they threw is
- * what decides the wedge — so these are rules, not decoration, and the one
- * thing they must not permit is aiming.
+ * The flick. A player grabs the rim and throws it, and how hard and which way
+ * they threw is the whole of what decides the wedge — so these are rules, not
+ * decoration, and the one thing they must not permit is aiming.
  */
 describe('throwing the wheel by hand', () => {
+  /* Velocities are signed degrees of rotation per millisecond at the moment of
+     release, which is what a pointer trail measures. */
+  const flick = (velocity: number, state = position()) =>
+    ok(apply(state, { type: 'spin', velocity }, 0, seeded(1)));
+
   it('travels further the harder it is thrown', () => {
-    const gentle = ok(apply(position(), { type: 'spin', power: 0 }, 0, seeded(1)));
-    const hard = ok(apply(position(), { type: 'spin', power: 1 }, 0, seeded(1)));
-    expect(hard.travel).toBeGreaterThan(gentle.travel * 3);
+    const gentle = flick(SPIN_MIN_SPEED);
+    const hard = flick(SPIN_MAX_SPEED);
+    expect(gentle.travel).toBe(SPIN_MIN_TRAVEL);
+    expect(hard.travel).toBe(SPIN_MAX_TRAVEL);
+    // Distance goes as the square of the speed, so twice as hard is four times
+    // as far — the thing a linear dial could never give back.
+    expect(flick(2 * SPIN_MIN_SPEED).travel).toBeCloseTo(4 * SPIN_MIN_TRAVEL, -1);
+  });
+
+  /* The reason any of this changed. A wheel that only ever went one way is a
+     button with a gesture in front of it. */
+  it('throws the wheel the way the finger went', () => {
+    // Not the hardest throw available: a distance that happens to be half a
+    // whole number of turns lands the same wedge either way round, which would
+    // pass this test by arithmetic accident rather than by direction.
+    const left = flick(-0.95);
+    const right = flick(0.95);
+    expect(left.travel).toBe(-right.travel);
+    expect(left.wedgeAt).not.toBe(right.wedgeAt);
+    expect(left.wedgeAt).toBe(wedgeAfter(0, left.travel));
   });
 
   it('lands on the wedge that far round from where it was standing', () => {
-    const from = 5;
-    const s = ok(apply(position({ wedgeAt: from }), { type: 'spin', power: 0.5 }, 0, seeded(9)));
-    expect(s.wedgeAt).toBe((from + s.travel) % WHEEL.length);
-  });
-
-  /* The whole of the anti-cheat. A drag can put the wheel anywhere on screen,
-     so if the landing were measured from where the finger let go, a slow
-     careful drag would be a free choice of wedge. It is measured from where
-     the wheel *stopped last time*, which no gesture can move. */
-  it('always carries the wheel at least a full turn, however limp the flick', () => {
-    for (const power of [0, -5, Number.NaN, 0.0001]) {
-      const s = ok(apply(position(), { type: 'spin', power }, 0, seeded(3)));
-      expect(s.travel).toBeGreaterThan(WHEEL.length);
+    for (const velocity of [0.8, -0.8, SPIN_MAX_SPEED, -SPIN_MIN_SPEED]) {
+      const from = 5;
+      const s = flick(velocity, position({ wedgeAt: from }));
+      expect(s.wedgeAt).toBe(wedgeAfter(from, s.travel));
     }
   });
 
-  it('refuses to be aimed: the same throw does not always land the same way', () => {
+  /* The whole of the anti-cheat, and it is two halves. The landing is measured
+     from where the wheel *stopped last time*, which no gesture can move — so a
+     slow careful drag is not a free choice of wedge. And a release that has
+     stopped dead is still a throw of a full turn and more, so letting go
+     gently is not one either. */
+  it('always carries the wheel at least a full turn, however limp the flick', () => {
+    for (const velocity of [0, -0, 0.0001, -0.0001, Number.NaN]) {
+      const s = flick(velocity);
+      expect(Math.abs(s.travel)).toBe(SPIN_MIN_TRAVEL);
+      expect(Math.abs(s.travel)).toBeGreaterThan(WHEEL.length);
+    }
+  });
+
+  it('does not let a hard enough throw run for ever', () => {
+    expect(Math.abs(flick(50).travel)).toBe(SPIN_MAX_TRAVEL);
+    expect(Math.abs(flick(-50).travel)).toBe(SPIN_MAX_TRAVEL);
+  });
+
+  /* Deterministic on purpose: the throw decides, and nothing else does. A
+     wheel that scattered the landing would be quietly overruling the player
+     who threw it. */
+  it('is the same throw whatever the wheel would have drawn', () => {
     const landings = new Set(
       Array.from({ length: 40 }, (_, i) =>
-        ok(apply(position(), { type: 'spin', power: 0.5 }, 0, seeded(i + 1))).wedgeAt,
+        ok(apply(position(), { type: 'spin', velocity: 0.9 }, 0, seeded(i + 1))).wedgeAt,
       ),
     );
-    expect(landings.size).toBeGreaterThan(1);
+    expect(landings.size).toBe(1);
+  });
+
+  /* The board draws what the reducer resolved, off the same function, so this
+     is the seam where an animation of a lie would start. */
+  it('agrees with the throw the board is about to draw', () => {
+    for (const velocity of [0.7, -1.1, SPIN_MAX_SPEED]) {
+      const s = flick(velocity);
+      expect(s.travel).toBe(spinThrow(velocity).travel);
+      expect(spinThrow(velocity).ms).toBeGreaterThan(1000);
+    }
   });
 
   /* A hostile client sends whatever it likes. Anything that is not a number is
      not a flick, and falls back to the wheel deciding — which is exactly what
-     the Spin button does, so this is also the old-client path. */
-  it('treats a power that is not a number as no flick at all', () => {
-    for (const power of ['1', null, { valueOf: () => 1 }]) {
-      const s = ok(apply(position(), { type: 'spin', power }, 0, spinTo(BANKRUPT)));
+     the Spin button does, so this is also the old-client path: a build from
+     before the wheel was thrown by hand sends `power`, and gets a button spin
+     rather than a wheel that will not turn. */
+  it('treats a velocity that is not a number as no flick at all', () => {
+    for (const velocity of ['1', null, { valueOf: () => 1 }]) {
+      const s = ok(apply(position(), { type: 'spin', velocity }, 0, spinTo(BANKRUPT)));
       expect(s.wedgeAt).toBe(BANKRUPT);
     }
+    expect(ok(apply(position(), { type: 'spin', power: 1 }, 0, spinTo(BANKRUPT))).wedgeAt).toBe(
+      BANKRUPT,
+    );
   });
 
   it('spins the wheel a plausible distance even when nobody threw it', () => {
     const s = ok(apply(position(), { type: 'spin' }, 0, spinTo(CASH)));
     expect(s.wedgeAt).toBe(CASH);
     expect(s.travel).toBeGreaterThan(WHEEL.length);
+    // And by the same geometry as a flick, or the board would draw the button
+    // spin turning to a different wedge from the one it landed on.
+    expect(wedgeAfter(0, s.travel)).toBe(CASH);
   });
 });
 

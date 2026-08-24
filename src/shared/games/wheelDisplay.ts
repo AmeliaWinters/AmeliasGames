@@ -122,35 +122,117 @@ export const WEDGE_ARC = 360 / WHEEL.length;
 // ── The throw ──────────────────────────────────────────────────────────
 
 /**
+ * The wheel's friction, in degrees of rotation per millisecond squared.
+ *
+ * A wheel on a spindle is slowed by a roughly constant frictional torque, so
+ * it sheds speed at a constant rate: `v(t) = v0 - SPIN_DRAG * t`, and it stops
+ * when that reaches zero. Everything else here — how far a throw carries, how
+ * long it takes, and the curve the board eases along — falls out of that one
+ * number, which is why it is the only one tuned by feel.
+ *
+ * Constant deceleration also gives the animation its shape exactly: distance
+ * is `2t - t²` in normalised time, which is a quadratic ease-out, which is the
+ * cubic-bezier the stylesheet carries. The wheel on screen is not *like* the
+ * throw the reducer resolved; it is the same equation drawn.
+ */
+export const SPIN_DRAG = 0.00045;
+
+/**
  * How far a spin carries, in wedges, at the gentlest and the hardest flick.
  *
- * The player grabs the rim and throws it, and the speed they let go at is what
- * decides where it stops — so these two numbers are the whole of the wheel's
- * feel. The floor is a little over a full turn: hard enough that a slow, aimed
- * drag cannot be used to park the wheel on a wedge somebody fancied, which is
- * the one way this control could be cheated. The ceiling is five and a half
- * turns, past which a spin is only a longer wait for the same answer.
+ * The floor is a little over a full turn, and it is a floor on the *speed* the
+ * wheel leaves at rather than on the distance: let go slower than that — or
+ * backwards-then-forwards, or without moving at all — and the wheel still goes
+ * this far. A wheel that crept a wedge and stopped would let a player line up
+ * the one they fancied and release, which is the one way a grabbable wheel can
+ * be cheated. The ceiling is five and a half turns, past which a spin is only
+ * a longer wait for the same answer.
  */
 export const SPIN_MIN_TRAVEL = 40;
 export const SPIN_MAX_TRAVEL = 198;
 
+/** The release speed, in degrees of rotation per millisecond, that carries the
+    wheel exactly `wedges` wedges: `v = sqrt(2 * a * s)`. */
+const speedFor = (wedges: number) => Math.sqrt(2 * SPIN_DRAG * wedges * WEDGE_ARC);
+
 /**
- * Wedges travelled for a flick of `power`, where power is 0 at the minimum
- * useful speed and 1 at the point where throwing harder stops meaning
- * anything.
+ * The two ends of a flick, in degrees per millisecond.
  *
- * Shared rather than server-only because the board animates the same journey
- * the reducer just resolved, and a wheel that turned a different distance from
- * the one it landed by would be an animation of a lie. The reducer adds a
- * wedge or two of drift on top — see `spin` in `wheel.ts` — so a player who
- * learned this curve by heart still could not aim.
- *
- * The clamp is not politeness: `power` arrives from a client, which may be
- * lying or broken, and a NaN here would travel the wheel nowhere for ever.
+ * Derived rather than chosen, so that the clamps on speed and the clamps on
+ * distance are the same two facts and cannot drift apart. `MAX` is about a
+ * quarter of a turn in the length of a frame — a hard thumb across a phone.
  */
-export function spinTravel(power: number): number {
-  const p = Number.isFinite(power) ? Math.min(Math.max(power, 0), 1) : 0;
-  return Math.round(SPIN_MIN_TRAVEL + p * (SPIN_MAX_TRAVEL - SPIN_MIN_TRAVEL));
+export const SPIN_MIN_SPEED = speedFor(SPIN_MIN_TRAVEL);
+export const SPIN_MAX_SPEED = speedFor(SPIN_MAX_TRAVEL);
+
+/** A throw, as the reducer stores it and the board draws it. */
+export interface Throw {
+  /**
+   * Signed wedges of *rotation*, positive clockwise — the direction a finger
+   * dragging the top of the rim to the right sends it.
+   *
+   * The sign is the whole reason this is a number and not a distance: the
+   * wheel is thrown either way, and a flick left has to end up left of where
+   * it started.
+   */
+  travel: number;
+  /** How long it is still moving, in milliseconds. */
+  ms: number;
+}
+
+/**
+ * How long a throw of `travel` wedges lasts.
+ *
+ * Not a constant and not proportional: `t = sqrt(2s/a)` is what constant
+ * friction gives, so a throw four times as long lasts twice as long. Guessing
+ * at this was what made every spin feel the same length as every other.
+ */
+export function spinMs(travel: number): number {
+  const wedges = Math.min(
+    Math.max(Number.isFinite(travel) ? Math.abs(travel) : 0, SPIN_MIN_TRAVEL),
+    SPIN_MAX_TRAVEL,
+  );
+  return Math.round(Math.sqrt((2 * wedges * WEDGE_ARC) / SPIN_DRAG));
+}
+
+/**
+ * The throw a release at `velocity` makes, where velocity is signed degrees of
+ * rotation per millisecond at the moment the finger left the rim.
+ *
+ * Pure, and shared rather than server-only, because both ends need the same
+ * answer for different reasons: the reducer to know which wedge came up, the
+ * board to draw the journey that got there. A wheel that turned a different
+ * distance from the one it landed by would be an animation of a lie.
+ *
+ * There is no randomness here at all, which is the point — the throw decides.
+ * What stops a steady hand from aiming is not scatter but the anchor: `spin`
+ * in `wheel.ts` measures this from where the wheel *stopped last time*, never
+ * from wherever a slow drag left it, so lining the rim up buys nothing.
+ *
+ * The clamps are not politeness: `velocity` arrives from a client, which may
+ * be lying or broken, and a NaN here would travel the wheel nowhere for ever.
+ */
+export function spinThrow(velocity: number): Throw {
+  const v = Number.isFinite(velocity) ? velocity : 0;
+  const speed = Math.min(Math.max(Math.abs(v), SPIN_MIN_SPEED), SPIN_MAX_SPEED);
+  // s = v² / 2a, in degrees, then in wedges.
+  const wedges = Math.round((speed * speed) / (2 * SPIN_DRAG * WEDGE_ARC));
+  const travel = Math.min(Math.max(wedges, SPIN_MIN_TRAVEL), SPIN_MAX_TRAVEL);
+  return { travel: v < 0 ? -travel : travel, ms: spinMs(travel) };
+}
+
+/**
+ * Where the pointer ends up: `from`, carried `travel` wedges of rotation.
+ *
+ * The minus sign is the one piece of this geometry worth reading twice. The
+ * wedges are numbered clockwise from twelve o'clock — see `sectorPath` — so
+ * turning the disc clockwise brings the wedge *before* the current one under
+ * the pointer. Rotation and index run opposite ways, and every place that
+ * converts between them goes through here.
+ */
+export function wedgeAfter(from: number, travel: number): number {
+  const count = WHEEL.length;
+  return (((from - travel) % count) + count) % count;
 }
 
 /**

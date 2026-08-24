@@ -11,9 +11,13 @@ import { MAX_FLICK, type Flick } from "../../shared/games/toss.js";
  * die is that die being kept, which is the one case the tray has to tell apart
  * from a throw.
  *
+ * What a flick carries is a direction, a speed and a starting point, and
+ * between them they are the throw: `engine.ts` sends the dice in from the edge
+ * the gesture came from, the way it was aimed, as hard as it was thrown. A tap
+ * carries none of the three and gets the tray's own throw instead.
+ *
  * What the flick decides is how the dice got there — never what they landed
- * on. That is the server's, and it has already made up its mind by the time
- * any of this runs.
+ * on. That is read off the cubes when they stop, and no gesture can aim it.
  */
 
 /** Below this the finger was resting, not throwing. */
@@ -45,6 +49,8 @@ export function useFlick(opts: {
   const down = useRef(false);
   const id = useRef(-1);
   const at = useRef({ x: 0, y: 0, t: 0 });
+  /** Where the gesture began, which is where the dice come in from. */
+  const began = useRef({ x: 0, y: 0 });
   const velocity = useRef({ x: 0, y: 0 });
   const travelled = useRef(0);
   const origin = useRef<number | null>(null);
@@ -59,6 +65,7 @@ export function useFlick(opts: {
       travelled.current = 0;
       velocity.current = { x: 0, y: 0 };
       at.current = { x: event.clientX, y: event.clientY, t: event.timeStamp };
+      began.current = { x: event.clientX, y: event.clientY };
       // Which die the press landed on, remembered now because the capture
       // below retargets every later event for this pointer to the tray — so a
       // listener on the die itself would never hear the release.
@@ -110,7 +117,18 @@ export function useFlick(opts: {
       // direction and only takes the speed down, so a wild throw is still
       // thrown the way it was aimed.
       const cap = Math.min(1, (MAX_FLICK * box.width) / speed) / box.width;
-      onThrow?.({ x: velocity.current.x * cap, y: velocity.current.y * cap });
+      onThrow?.({
+        x: velocity.current.x * cap,
+        y: velocity.current.y * cap,
+        // And where the hand was when it started, as a fraction of the tray.
+        // The *start* rather than the release: a flick is a throwing motion,
+        // and the dice should come in from where the arm swung from rather
+        // than from wherever the finger happened to leave the glass. Clamped
+        // because the tray captured the pointer and a fast flick can finish
+        // well outside it.
+        ax: Math.min(1, Math.max(0, (began.current.x - box.left) / box.width)),
+        ay: Math.min(1, Math.max(0, (began.current.y - box.top) / box.height)),
+      });
     },
     [onThrow, onTapDie],
   );

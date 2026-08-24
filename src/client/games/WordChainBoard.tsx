@@ -32,6 +32,37 @@ const LANG_NATIVE: Record<ChainLang, string> = {
   ja: "日本語",
 };
 
+/** Thousands separated, because `1501 words` reads as a year. */
+const count = new Intl.NumberFormat();
+
+/** `1st`, `2nd`, `13th`, `742nd` — spoken aloud by the rank, so it has to be right. */
+function ordinal(n: number): string {
+  const teen = n % 100;
+  const suffix =
+    teen >= 11 && teen <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
+  return `${count.format(n)}${suffix}`;
+}
+
+/**
+ * How common the word was: its place in its language's frequency list.
+ *
+ * A bare number, because that is what it is. A band — "common", "rare" — was
+ * the other option and it says less: `#12` and `#190` are both "very common"
+ * and are nothing like each other. The rank is only comparable within a
+ * language, so the language is named beside it for the screen reader, which is
+ * the one place there is room to say so.
+ */
+function Rank({ link }: { link: ChainLink }) {
+  return (
+    <span className="wc-rank">
+      <span aria-hidden="true">#{count.format(link.rank)}</span>
+      <span className="sr-only">
+        the {ordinal(link.rank)} commonest {LANG_NAME[link.lang]} word{" "}
+      </span>
+    </span>
+  );
+}
+
 /**
  * One word in the chain.
  *
@@ -70,16 +101,39 @@ function Link({ link, mine, name }: { link: ChainLink; mine: boolean; name: stri
           {link.gloss}
         </span>
       )}
+      <Rank link={link} />
     </li>
   );
 }
 
-/** The letter the next word has to start with, said once and largely. */
-function Carry({ letter }: { letter: string }) {
+/**
+ * The letter the next word has to start with, said once and largely, with the
+ * number of words still behind it.
+ *
+ * The count is the same for both players and shown to both. It is not a hint
+ * about any particular word — knowing that 1,501 English words start with A
+ * does not put one of them in your head — but it does tell you whether you are
+ * being asked something ordinary or something the game has nearly run dry, and
+ * watching it fall is most of the late game.
+ */
+function Carry({ letter, available }: { letter: string; available: number | null }) {
+  const n = available === null ? null : count.format(available);
   return (
-    <p className="wc-carry" aria-label={`Next word starts with ${letter.toUpperCase()}`}>
+    <p
+      className="wc-carry"
+      aria-label={
+        n === null
+          ? `Next word starts with ${letter.toUpperCase()}`
+          : `Next word starts with ${letter.toUpperCase()}. ${n} words left.`
+      }
+    >
       <span aria-hidden="true">↓</span>
       <strong>{letter.toUpperCase()}</strong>
+      {n !== null && (
+        <span className="wc-left" aria-hidden="true">
+          {n} left
+        </span>
+      )}
     </p>
   );
 }
@@ -159,8 +213,21 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
           an English or Japanese one beginning with A. Japanese is typed in
           romaji, and Polish accents are optional — <em>zolty</em> finds{" "}
           <strong lang="pl">żółty</strong>. Words are {MIN_LENGTH} letters or
-          longer, nothing may be said twice, and you have a minute a turn.
-          Running out is the only way to lose.
+          longer, nothing may be said twice, and you have a minute a turn. The
+          clock is what beats you — run it out, or give up when you know you
+          will. Either way the game shows you the word you were reaching for.
+        </p>
+        {/*
+          Said on the setup screen because it is the one moment it can change
+          anybody's mind. Two players in the same language are not stranding
+          each other, so the chain stops flattening the accents — which in
+          Polish is most of the alphabet's character, and the difference
+          between being asked for an L and being asked for an Ł.
+        */}
+        <p className="wc-note">
+          Both pick the same language and the accents count: a word ending in{" "}
+          <strong lang="pl">ś</strong> then wants <strong lang="pl">świat</strong>,
+          not <em>sen</em>. You still never have to type them.
         </p>
 
         <div className="wc-langs" role="group" aria-label="Choose your language">
@@ -213,19 +280,32 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
       {state.chain.length === 0 && (
         <p className="wc-waiting">
           {nameFor(state.at)} open{state.at === seat ? "" : "s"} with any word.
+          {/*
+            The opening word has no letter to carry, so it gets no `Carry` and
+            would be the one turn with no count on the screen. It is also the
+            only turn where the count is the whole language, which is worth
+            seeing once — it is the number every later count is a fraction of.
+          */}
+          {state.available !== null && ` ${count.format(state.available)} to choose from.`}
         </p>
       )}
 
-      {!over && state.required && <Carry letter={state.required} />}
+      {!over && state.required && (
+        <Carry letter={state.required} available={state.available} />
+      )}
 
       {over && (
         <div className="wc-over" role="status">
           <p className="wc-verdict">
             {state.loser === null
               ? "Game over."
-              : state.loser === seat
-                ? "Your minute went."
-                : `${nameFor(state.loser)} ran out of time.`}
+              : state.gaveUp
+                ? state.loser === seat
+                  ? "You gave up."
+                  : `${nameFor(state.loser)} gave up.`
+                : state.loser === seat
+                  ? "Your minute went."
+                  : `${nameFor(state.loser)} ran out of time.`}
           </p>
           {/*
             The reveal, and the reason the lists are ordered by frequency at
@@ -325,6 +405,39 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
               </button>
             </div>
           </form>
+          {/*
+            Losing on purpose, which is a real move here rather than a way out
+            of one. The reveal is the point of the game, so a player who knows
+            the minute is gone can reach it now instead of watching a clock
+            they have already lost to. Only offered on your own turn, because
+            that is the only turn you can lose on — the same gate every other
+            control here is on.
+
+            Not a confirmation dialogue. It ends a sixty-second round of a word
+            game, the wording says plainly what it does, and a modal over a
+            running clock would cost the seconds it is meant to protect.
+          */}
+          {myMove && (
+            <button
+              type="button"
+              className="wc-give-up"
+              onClick={() => onMove({ type: "give-up" })}
+            >
+              Give up and see the word
+            </button>
+          )}
+          {/*
+            The one thing a strict game has to say out loud, and only while it
+            can still be acted on. A player who types `swiat` for a `ś` and has
+            it taken will work the rule out; a player who sees `Ś` and believes
+            they need a Polish keyboard just stops.
+          */}
+          {myMove && state.strict && state.required && (
+            <p className="wc-note">
+              Accents count in a same-language chain — but type it however you
+              like, <em>swiat</em> still finds <strong lang="pl">świat</strong>.
+            </p>
+          )}
           {!myMove && (
             <p className="wc-waiting" aria-live="polite">
               {left === 0

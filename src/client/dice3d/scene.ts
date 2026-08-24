@@ -59,28 +59,94 @@ const PIP = 0x0c0c0f;
  */
 const PITCH = (70 * Math.PI) / 180;
 const FOV = 24;
-/** A little air around the tray, so a die against a wall is not half cropped. */
-const MARGIN = 1.06;
+/** A little air around the whole thing, so nothing sits exactly on the edge. */
+const MARGIN = 1.03;
 
 /**
- * Where to put the camera so the whole tray is in frame.
+ * How much more than the tray floor has to be in shot.
+ *
+ * The framing used to solve for the floor rectangle alone, which is not what
+ * is on the screen: a die is a solid two units on a side standing *on* that
+ * rectangle, it can rest against a wall with its far half hanging over the
+ * edge of it, it can come to rest on top of another one, and on the way there
+ * it is in the air. Measured against the shipped lens, dice at rest reached
+ * 0.95 to 1.00 of the way to the edge of the canvas — Backgammon's crossed
+ * it — and in flight they reached 1.15 to 1.24, which is a die you cannot see
+ * and, at rest, a number you cannot read.
+ *
+ * So the camera frames a *box*: the floor grown by half a die on every side,
+ * and `HEADROOM` tall. Four units is a die standing on another die, which is
+ * the tallest thing a throw can leave behind, and `engine.ts` keeps the flight
+ * under it by releasing the handful lower than it used to.
+ *
+ * It costs size — the tray is drawn 15–25% smaller than it was, depending on
+ * its shape — and that is the trade: a smaller die you can read beats a bigger
+ * one with its top cropped off.
+ */
+const ROOM = 1;
+const HEADROOM = 4;
+
+/**
+ * Where to put the camera so the whole tray — and everything standing on it —
+ * is in frame.
  *
  * Pure, and exported, because it is the one thing in this file a test can
- * check without a screen — see the note at the top about why that matters.
+ * check without a screen; see the note at the top about why that matters.
  *
- * The tray is a rectangle on the floor seen from a tilt, so it projects to a
- * trapezoid, and both of its dimensions have to fit: the width against the
- * horizontal half-angle, and the depth against the vertical one after the tilt
- * has foreshortened it. Whichever needs the camera further away wins.
+ * ── Why this is solved rather than derived ────────────────────────────
+ *
+ * It used to be two lines of trigonometry: the tray's width against the
+ * horizontal half-angle, its depth against the vertical one after the tilt had
+ * foreshortened it, further of the two wins. That is exact for a *rectangle
+ * lying flat*, and the thing being framed is not one — it is a box with height,
+ * seen from a tilt, so its near-top corners are much closer to the camera than
+ * its far-bottom ones and project much further out. No closed form for that is
+ * worth writing down, and the one that was there quietly under-framed by a
+ * fifth (see `HEADROOM`).
+ *
+ * So the box's corners are projected, and the camera is pushed back until the
+ * worst of them lands on the edge of the frame. The projection is scaled by
+ * `1/distance` to first order and the iteration converges in a few steps; it
+ * is capped anyway, because a framing that has not converged is still a
+ * framing and a resize that never returns is not.
  */
 export function frameTray(w: number, h: number, aspect: number): { distance: number; height: number; back: number } {
-  const vertical = (FOV * Math.PI) / 180 / 2;
-  const horizontal = Math.atan(Math.tan(vertical) * Math.max(aspect, 0.0001));
-  const forWidth = w / 2 / Math.tan(horizontal);
-  // Foreshortened by the tilt: a tray seen from directly overhead needs its
-  // full depth in frame, one seen edge-on needs none of it.
-  const forDepth = (h / 2) * Math.sin(PITCH) / Math.tan(vertical);
-  const distance = Math.max(forWidth, forDepth) * MARGIN;
+  const tv = Math.tan((FOV * Math.PI) / 360);
+  const th = tv * Math.max(aspect, 0.0001);
+  const hw = w / 2 + ROOM;
+  const hh = h / 2 + ROOM;
+
+  // The corners, plus the middles of the edges — a tilted box's worst point is
+  // not always a corner, and nine points a level is cheap.
+  const box: Array<[number, number, number]> = [];
+  for (const x of [-hw, 0, hw]) for (const z of [-hh, 0, hh]) for (const y of [0, HEADROOM]) box.push([x, y, z]);
+
+  // Start from the flat-rectangle answer, which is always too close, and walk
+  // out from there.
+  let distance = Math.max(hw / th, (hh * Math.sin(PITCH)) / tv);
+  for (let i = 0; i < 24; i++) {
+    const eyeY = Math.sin(PITCH) * distance;
+    const eyeZ = Math.cos(PITCH) * distance;
+    // The camera's own axes: it sits above and in front, looking at the origin,
+    // and has no roll — so `right` is +x and `up` is whatever is left.
+    const fwd = [0, -Math.sin(PITCH), -Math.cos(PITCH)];
+    const up = [0, Math.cos(PITCH), -Math.sin(PITCH)];
+    let worst = 0;
+    for (const [px, py, pz] of box) {
+      const dy = py - eyeY;
+      const dz = pz - eyeZ;
+      const depth = dy * fwd[1] + dz * fwd[2];
+      if (depth <= 0.001) {
+        worst = Math.max(worst, 2);
+        continue;
+      }
+      worst = Math.max(worst, Math.abs(px / depth / th), Math.abs((dy * up[1] + dz * up[2]) / depth / tv));
+    }
+    if (Math.abs(worst - 1) < 0.0005) break;
+    distance *= worst;
+  }
+  distance *= MARGIN;
+
   return {
     distance,
     height: Math.sin(PITCH) * distance,
@@ -102,6 +168,16 @@ export function aimCamera(
   aspect: number,
 ): ReturnType<typeof frameTray> {
   camera.aspect = aspect;
+  /*
+    And the lens, here rather than only at construction.
+
+    `scene.test.ts` builds its own camera to check the framing, and three's
+    default field of view is 50° — more than twice this one. So the test was
+    measuring a camera nobody ships, and passed comfortably while the real one
+    cropped the dice. Setting it here means a camera this function has aimed is
+    the camera the app draws through, whoever made it.
+  */
+  camera.fov = FOV;
   const framed = frameTray(w, h, aspect);
   camera.position.set(0, framed.height, framed.back);
   camera.lookAt(0, 0, 0);
