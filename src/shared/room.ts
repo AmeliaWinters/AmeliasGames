@@ -22,6 +22,12 @@ export interface SeatRecord {
  * score beside them. That is the same failure as a misread field and takes the
  * same cure.
  *
+ * 12: Word Chain words carry how long they took. A chain restored from before
+ * this deploy has links with no `ms` on them, and every average the end-of-game
+ * stats are built from would come out `NaN` beside a word that looks perfectly
+ * fine — the failure is invisible until the game ends, which is the worst kind
+ * to leave restorable.
+ *
  * 11: the wheel is thrown rather than dialled. `travel` was wedges of pointer
  * travel, always forwards; it is now signed wedges of *rotation*, positive
  * clockwise, with the pointer running the other way round it — see
@@ -43,7 +49,7 @@ export interface SeatRecord {
  * the browser rather than a 2.5D solver on the server. Every one of those on
  * its own would need this bump.
  */
-export const SNAPSHOT_VERSION = 11;
+export const SNAPSHOT_VERSION = 12;
 
 /** Everything needed to rebuild a room — this is what gets persisted. */
 export interface RoomSnapshot {

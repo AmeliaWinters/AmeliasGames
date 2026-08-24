@@ -4929,6 +4929,106 @@ button.readout-die:not(:disabled) {
   font-style: normal;
 }
 
+/* How long the chain is, live above it and again once it has ended. One rule
+   for both, because it is one fact and it should not change size on the way to
+   becoming final. Muted and small: a game with no score should not grow a
+   scoreboard, and this is a thing to notice rather than to play towards.
+   Tabular figures so the number does not jitter the line as it climbs. */
+.wc-count {
+  margin: 0;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* The end-of-game numbers. Under the reveal, and quieter than it: the reveal
+   is the reason to play and this is the thing you read afterwards. */
+.wc-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+
+.wc-stats-head {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wc-stat-seats,
+.wc-highlights {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wc-stat-seat {
+  padding: 8px 10px;
+  background: var(--surface);
+}
+
+.wc-stat-who {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Four numbers, two by two at every width.
+
+   A wrapping flex row was the first draft and it is wrong on a phone: the four
+   fit at 320 as 2+2 and at 390 as 3+1, so the one screen size that reads as an
+   afterthought is the commonest one. Two fixed columns cannot orphan. Capped
+   rather than filling, because a board wider than a phone would otherwise
+   stretch two columns to 300px each and leave every label stranded a long way
+   from the number above it. */
+.wc-stat-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  max-width: 20em;
+}
+
+.wc-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.wc-stat-value {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Small, and muted rather than faded -- the same rule the per-word rank is
+   held to a few hundred lines up. `--muted` on `--surface` measures 5.6:1 in
+   stage and 6.0:1 in daylight; an opacity on top of it would fail AA. */
+.wc-stat-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* One sentence each, so they read rather than tabulate. The word itself is the
+   thing being pointed at, so it takes the ink. */
+.wc-highlight {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.wc-highlight strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.wc-highlight span[lang] {
+  color: var(--ink);
+}
+
 /* The letter carrying to the next word, said once and largely. */
 .wc-carry {
   display: flex;

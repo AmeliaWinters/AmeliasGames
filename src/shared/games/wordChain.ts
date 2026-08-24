@@ -16,6 +16,7 @@ import {
   TURN_MS,
   canAct,
   isFinished,
+  turnMsFor,
   usedKeys,
 } from './wordChainDisplay.js';
 
@@ -26,21 +27,30 @@ import type { ChainLang, ChainLink, ChainMode, WcMove, WcState } from './wordCha
 export {
   LANGS,
   LANG_NAME,
+  LIST_SIZE,
   MIN_ANSWERS,
   MIN_LENGTH,
+  MIN_TURN_MS,
   TURN_MS,
+  TURN_STEP_MS,
+  TURN_STEP_WORDS,
   canAct,
+  chainStats,
   clockCall,
   formatClock,
   isFinished,
   msLeftFor,
   outOfTime,
+  turnMsFor,
   usedKeys,
 } from './wordChainDisplay.js';
 export type {
+  ChainHighlight,
   ChainLang,
   ChainLink,
   ChainMode,
+  ChainStats,
+  SeatStat,
   WcMove,
   WcPhase,
   WcState,
@@ -58,7 +68,7 @@ export type {
  * thing: a minute of failing to think of a word is the moment you are most
  * likely to remember the answer.
  *
- * Five things here are worth knowing before changing anything:
+ * Six things here are worth knowing before changing anything:
  *
  * 1. **Japanese links on romaji letters, not on kana.** Real shiritori chains
  *    the last *mora* to the first, and a word ending in the kana `n` loses
@@ -99,6 +109,17 @@ export type {
  *    the reveal is the point of the game and a player who has already given up
  *    on the minute should not have to sit through the rest of it to see the
  *    word. Only `gaveUp` tells them apart, and only the copy reads it.
+ *
+ * 6. **The minute shrinks as the chain grows.** Every three words on the chain
+ *    take a second off the answer, down to a floor of ten — `turnMsFor` is
+ *    the whole rule, and `TURN_STEP_WORDS` and `MIN_TURN_MS` carry the
+ *    reasoning. Two players who can keep going forever should not be able to,
+ *    and the chain is the only thing this game counts, so it is the only
+ *    honest thing to tighten against. Nothing on the state records it: the
+ *    allowance is a function of `chain.length`, so any turn's clock can be
+ *    recovered afterwards from the word's place in the chain, which is what
+ *    the end screen needs to say a word landed with four seconds to spare.
+ *    The only clock that never shrinks is setup's — see `start`.
  */
 
 const SEATS = 2;
@@ -116,7 +137,7 @@ const handsOn = (entry: ChainEntry, mode: ChainMode): string => chainKey(entry, 
 /** Which chain this game is: see `ChainMode`, and point 4 above. */
 const modeOf = (state: WcState): ChainMode => (state.strict ? 'strict' : 'loose');
 
-function linkFrom(entry: ChainEntry, lang: ChainLang, seat: number): ChainLink {
+function linkFrom(entry: ChainEntry, lang: ChainLang, seat: number, ms: number): ChainLink {
   return {
     word: entry.word,
     key: entry.key,
@@ -126,7 +147,30 @@ function linkFrom(entry: ChainEntry, lang: ChainLang, seat: number): ChainLink {
     script: entry.script,
     lemma: entry.lemma,
     rank: entry.rank,
+    ms,
   };
+}
+
+/**
+ * How long the seat on the clock has taken, as of `now`.
+ *
+ * Read back out of the deadline rather than kept as a start time, because the
+ * deadline is the thing the whole game already agrees on — the board counts
+ * down to it and `expire` fires on it — and a second field recording when the
+ * turn began could drift from it.
+ *
+ * Clamped to the turn's own allowance at both ends, which is not always a
+ * minute — see `turnMsFor`, and take the chain length from the state *before*
+ * the word being timed is appended, which is what this is handed.
+ *
+ * `now` is the server's, but a restored
+ * room or a missing clock can hand this arithmetic a number from anywhere, and
+ * a word that took minus four seconds would poison every average built on it.
+ */
+function tookUntil(state: WcState, now: number): number {
+  if (state.deadline === null) return 0;
+  const had = turnMsFor(state.chain.length);
+  return Math.min(had, Math.max(0, had - (state.deadline - now)));
 }
 
 /**
@@ -147,7 +191,8 @@ function tooThin(
 
 /**
  * The state the seat on the clock is handed: whose turn, what letter, how many
- * words are behind it, and a fresh minute.
+ * words are behind it, and a fresh clock — shorter than the last one every
+ * third word.
  *
  * One place, because the count and the letter have to agree — a `required` set
  * without recounting would leave the board telling a player there are 1,501
@@ -166,7 +211,10 @@ function handTo(
     at: seat,
     required,
     available: lang == null ? null : countStarting(lang, required, used, modeOf(state)),
-    deadline: now + TURN_MS,
+    // Shorter the further the chain has run — see `turnMsFor`. Measured off
+    // the chain this state already carries, so the seat answering the fourth
+    // word is the first to get less than the minute.
+    deadline: now + turnMsFor(state.chain.length),
   };
 }
 
@@ -187,7 +235,9 @@ function concede(state: WcState, seat: number, gaveUp: boolean): WcState {
     gaveUp,
     available: null,
     deadline: null,
-    reveal: reveal ? linkFrom(reveal, lang, seat) : null,
+    // Zero, because nobody spent any time on it: the reveal is a word out of
+    // the list, not a turn that was played.
+    reveal: reveal ? linkFrom(reveal, lang, seat, 0) : null,
   };
 }
 
@@ -316,7 +366,7 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     return {
       ok: true,
       state: handTo(
-        { ...state, chain: [...state.chain, linkFrom(entry, lang, seat)] },
+        { ...state, chain: [...state.chain, linkFrom(entry, lang, seat, tookUntil(state, at))] },
         next,
         letter,
         after,

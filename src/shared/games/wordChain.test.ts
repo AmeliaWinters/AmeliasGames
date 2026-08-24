@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   LANG_NAME,
+  LIST_SIZE,
   MIN_ANSWERS,
   MIN_LENGTH,
+  MIN_TURN_MS,
   TURN_MS,
+  TURN_STEP_MS,
+  TURN_STEP_WORDS,
   canAct,
+  chainStats,
+  turnMsFor,
   wordChain,
   type ChainLang,
   type WcMove,
@@ -48,6 +54,28 @@ function refuse(state: WcState, move: WcMove, seat = state.at, now = 2_000): str
   const result = wordChain.applyMove(state, move, seat, rng, now);
   if (result.ok) throw new Error('that move was allowed');
   return result.error;
+}
+
+/**
+ * A chain of `n` words that were never played, for reaching the far end of the
+ * ramp without saying a hundred and fifty real ones.
+ *
+ * The keys carry a hyphen, which no folded key ever does -- every one of them
+ * is letters -- so nothing in this filler can collide with a word a test then
+ * plays and turn it into an "already been said".
+ */
+function padded(n: number): WcState['chain'] {
+  return Array.from({ length: n }, (_, i) => ({
+    word: `pad${i}`,
+    key: `pad-${i}`,
+    lang: 'en' as ChainLang,
+    seat: i % 2,
+    gloss: '',
+    script: '',
+    lemma: '',
+    ms: 0,
+    rank: i + 1,
+  }));
 }
 
 describe('choosing languages', () => {
@@ -639,5 +667,233 @@ describe('giving up', () => {
     expect(canAct(given.state, 0)).toBe(false);
     expect(canAct(given.state, 1)).toBe(false);
     expect(wordChain.expire?.(given.state, TURN_MS * 9) ?? null).toBeNull();
+  });
+});
+
+/**
+ * How long each word took, which is the one thing about a game of this that
+ * cannot be reconstructed afterwards: the clock is a single `deadline` that
+ * every accepted word overwrites, so a turn not measured as it ends is gone.
+ */
+describe('the time a word took', () => {
+  it('is the part of the minute that had gone when it was said', () => {
+    const start = 1_000;
+    const state = say(playing('en', 'pl', start), 'apple', start + 12_000);
+    expect(state.chain[0].ms).toBe(12_000);
+  });
+
+  it('is measured from the turn, not from the game', () => {
+    const start = 1_000;
+    const first = say(playing('en', 'pl', start), 'apple', start + 12_000);
+    // The second player's minute began when the first word landed, so a word
+    // said four seconds later took four seconds and not sixteen.
+    const second = say(first, 'efekt', start + 16_000);
+    expect(second.chain[1].ms).toBe(4_000);
+  });
+
+  /**
+   * A refusal costs seconds and leaves the clock alone, so the time a word
+   * took includes every wrong guess before it. That is the honest number: the
+   * minute is what the player spent, not what the accepted word cost them.
+   */
+  it('includes the time spent on words that were refused', () => {
+    const start = 1_000;
+    let state = playing('en', 'pl', start);
+    refuse(state, { type: 'say', word: 'qqqqq' }, 0, start + 8_000);
+    state = say(state, 'apple', start + 20_000);
+    expect(state.chain[0].ms).toBe(20_000);
+  });
+
+  it('never lands outside the minute, whatever clock it is handed', () => {
+    const start = 1_000;
+    // A clock behind the one the deadline was set from -- restored rooms and
+    // adapters both make this possible, and a negative would poison every
+    // average built on it.
+    const early = say(playing('en', 'pl', start), 'apple', start - 5_000);
+    expect(early.chain[0].ms).toBe(0);
+  });
+
+  it('is zero on the reveal, which nobody played', () => {
+    const state = say(playing('en', 'pl', 0), 'apple', 0);
+    expect((wordChain.expire?.(state, TURN_MS) ?? null)?.reveal?.ms).toBe(0);
+  });
+});
+
+/**
+ * The clock tightening as the chain grows. Two players who can both keep going
+ * forever have to be stopped by something, and this is it.
+ */
+describe('the shrinking minute', () => {
+  it('gives the whole minute away until the chain has three words', () => {
+    for (let said = 0; said < TURN_STEP_WORDS; said += 1) {
+      expect(turnMsFor(said)).toBe(TURN_MS);
+    }
+    expect(turnMsFor(TURN_STEP_WORDS)).toBe(TURN_MS - TURN_STEP_MS);
+  });
+
+  it('takes a second off every three words, and then stops taking', () => {
+    expect(turnMsFor(3 * TURN_STEP_WORDS)).toBe(TURN_MS - 3 * TURN_STEP_MS);
+    // A word that is part-way through a step buys nothing yet, which is the
+    // off-by-one this whole ramp is most likely to get wrong.
+    expect(turnMsFor(3 * TURN_STEP_WORDS + 1)).toBe(TURN_MS - 3 * TURN_STEP_MS);
+
+    // The floor, and one step before it, so a mistake in either direction
+    // shows up as a number rather than as a game nobody can play.
+    const lastStep = ((TURN_MS - MIN_TURN_MS) / TURN_STEP_MS) * TURN_STEP_WORDS;
+    expect(lastStep).toBe(150);
+    expect(turnMsFor(lastStep - TURN_STEP_WORDS)).toBe(MIN_TURN_MS + TURN_STEP_MS);
+    expect(turnMsFor(lastStep)).toBe(MIN_TURN_MS);
+    expect(turnMsFor(lastStep + 10_000)).toBe(MIN_TURN_MS);
+  });
+
+  it('never goes under the floor, or negative, however long the chain', () => {
+    for (const said of [0, 1, 7, 300, 5_000, 1e9]) {
+      expect(turnMsFor(said)).toBeGreaterThanOrEqual(MIN_TURN_MS);
+      expect(turnMsFor(said)).toBeLessThanOrEqual(TURN_MS);
+    }
+  });
+
+  it('hands the fourth word a shorter clock than the first three', () => {
+    const start = 1_000;
+    let state = playing('en', 'en', start);
+    let at = start;
+    // Six real words, each answered the instant it is asked for, so the only
+    // thing moving between the deadlines is the length of the chain.
+    for (const word of ['apple', 'every', 'yellow', 'water', 'red', 'door']) {
+      at += 1_000;
+      state = say(state, word, at);
+      expect(state.deadline).toBe(at + turnMsFor(state.chain.length));
+      // Two steps down over six words, and the second and third words of each
+      // step cost nothing -- the assertion above is generic, this is the shape
+      // of the thing it is generic over.
+      const steps = Math.floor(state.chain.length / TURN_STEP_WORDS);
+      expect(state.deadline).toBe(at + TURN_MS - steps * TURN_STEP_MS);
+    }
+    expect(state.deadline).toBe(at + TURN_MS - 2 * TURN_STEP_MS);
+  });
+
+  /**
+   * The clock is still the losing condition, and it is the shortened one that
+   * has to fire -- a game that tightens the deadline but expires on the old
+   * minute has not tightened anything.
+   */
+  it('ends the game on the shortened clock, not on the minute', () => {
+    const start = 0;
+    let state = playing('en', 'en', start);
+    // A chain long enough to have lost a third of the minute, said instantly
+    // so the deadline below is the whole of what the seat was given.
+    const had = turnMsFor(60);
+    expect(had).toBe(TURN_MS - 20 * TURN_STEP_MS);
+    state = { ...state, chain: padded(60), deadline: start + had };
+    expect(wordChain.expire?.(state, start + had - 1) ?? null).toBeNull();
+    expect((wordChain.expire?.(state, start + had) ?? null)?.phase).toBe('over');
+  });
+
+  it('measures a word against the clock it was actually given', () => {
+    const start = 0;
+    let state = playing('en', 'en', start);
+    state = { ...state, chain: padded(60), deadline: start + turnMsFor(60) };
+    // Nine seconds into a forty-second turn. Measured against the minute it
+    // would read as twenty-nine, and every average on the end screen would be
+    // wrong by the whole of the ramp for the rest of the game.
+    state = say(state, 'apple', start + 9_000);
+    expect(state.chain[state.chain.length - 1].ms).toBe(9_000);
+  });
+
+  it('still gives setup the full minute, since nobody can lose it', () => {
+    const state = opened(7_000);
+    expect(state.deadline).toBe(7_000 + TURN_MS);
+  });
+});
+
+/**
+ * The end-of-game stats. Worth pinning rather than eyeballing: a mean over the
+ * wrong denominator and a "rarest" that is really "rarest in the biggest list"
+ * both look perfectly reasonable on the screen.
+ */
+describe('the end-of-game stats', () => {
+  it('holds the list sizes the board divides by', () => {
+    // The board may not reach a word list, so it carries three integers
+    // instead. If a rebuild moves a list, this is where it is caught -- every
+    // percentage on the end screen is quietly wrong otherwise.
+    expect(LIST_SIZE).toEqual(chainListSizes());
+  });
+
+  it('averages each seat over its own words, not over the chain', () => {
+    const start = 1_000;
+    let state = say(playing('en', 'pl', start), 'apple', start + 10_000);
+    state = say(state, 'efekt', start + 10_000 + 20_000);
+    const stats = chainStats(state);
+    expect(stats.seats.map((s) => s.said)).toEqual([1, 1]);
+    expect(stats.seats[0].ms).toBe(10_000);
+    expect(stats.seats[1].ms).toBe(20_000);
+    expect(stats.seats[0].letters).toBe(5);
+  });
+
+  it('counts a letter as a letter, however many bytes it took', () => {
+    // `żółty` is five letters and eight UTF-16 code units. A mean word length
+    // measured in `.length` would report Polish as the wordier language.
+    const state = say(playing('pl', 'en'), 'zolty');
+    expect(state.chain[0].word).toBe('żółty');
+    expect(chainStats(state).seats[0].letters).toBe(5);
+  });
+
+  it('measures how common a word was against its own language', () => {
+    const state = say(playing('en', 'pl'), 'apple');
+    const link = state.chain[0];
+    expect(chainStats(state).seats[0].percentile).toBeCloseTo(link.rank / LIST_SIZE.en, 10);
+  });
+
+  /**
+   * The comparison the percentile exists to make honest. The Japanese list is
+   * half the size of the English one, so the same rank is a much rarer word in
+   * English -- a table of mean ranks would say the opposite.
+   */
+  it('does not call the smaller list the rarer vocabulary', () => {
+    expect(LIST_SIZE.ja).toBeLessThan(LIST_SIZE.en);
+    const fake: WcState = {
+      ...playing('en', 'ja'),
+      chain: [
+        { word: 'a', key: 'a', lang: 'en', seat: 0, gloss: '', script: '', lemma: '', rank: 6_000, ms: 0 },
+        { word: 'b', key: 'b', lang: 'ja', seat: 1, gloss: '', script: '', lemma: '', rank: 6_000, ms: 0 },
+      ],
+    };
+    const stats = chainStats(fake);
+    expect(stats.seats[1].percentile).toBeGreaterThan(stats.seats[0].percentile);
+    expect(stats.rarest?.link.lang).toBe('ja');
+  });
+
+  it('picks the slowest word, the rarest and the longest, and says where each was', () => {
+    const start = 1_000;
+    let state = say(playing('en', 'en', start), 'apple', start + 5_000);
+    state = say(state, 'elephant', start + 5_000 + 50_000);
+    const stats = chainStats(state);
+    expect(stats.closest?.turn).toBe(2);
+    expect(stats.closest?.link.word).toBe('elephant');
+    expect(stats.longest?.link.word).toBe('elephant');
+    expect(stats.rarest?.link.rank).toBe(
+      Math.max(...state.chain.map((link) => link.rank)),
+    );
+  });
+
+  it('keeps the earlier word when two tie, so the same chain always reads the same', () => {
+    const start = 1_000;
+    let state = say(playing('en', 'en', start), 'apple', start + 5_000);
+    state = say(state, 'eagle', start + 5_000 + 5_000);
+    // Both five letters, both five seconds.
+    expect(state.chain[0].ms).toBe(state.chain[1].ms);
+    const stats = chainStats(state);
+    expect(stats.closest?.turn).toBe(1);
+    expect(stats.longest?.turn).toBe(1);
+  });
+
+  it('has a row for a seat that never said anything, and it is empty rather than wrong', () => {
+    const state = playing('en', 'pl');
+    const stats = chainStats(state);
+    expect(stats.seats).toHaveLength(2);
+    expect(stats.seats[0].said).toBe(0);
+    expect(stats.seats[0].letters).toBe(0);
+    expect(stats.seats[0].percentile).toBe(0);
+    expect(stats.closest).toBeNull();
   });
 });
