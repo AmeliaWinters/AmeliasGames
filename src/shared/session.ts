@@ -49,6 +49,27 @@ export interface Hello {
   code: string;
   create: boolean;
   gameId: string;
+  /**
+   * The account claim as it arrived, still unverified.
+   *
+   * Carried rather than checked, because checking it is asynchronous —
+   * `crypto.subtle.verify` — and everything in this module is deliberately
+   * synchronous so that the Durable Object and the dev server can share it
+   * verbatim. So the shape is read here and the truth of it is established by
+   * `verifyClaim` in the adapters, one await before `admit`. The split still
+   * falls where the await does.
+   *
+   * `undefined` for a guest, which is the ordinary case and always will be.
+   */
+  claim?: unknown;
+  /**
+   * The account this hello *proved*, filled in by the adapter after
+   * `verifyClaim`. Never set by anything that has only read the wire.
+   *
+   * On the same object as `claim` so that a reader cannot mistake one for the
+   * other: the field with the id in it is the one that has been checked.
+   */
+  accountId?: string;
 }
 
 /**
@@ -117,6 +138,12 @@ export function readHello(
       name: String(msg.name ?? '').trim().slice(0, MAX_NAME) || 'Player',
       create: msg.create === true,
       gameId: String(msg.gameId ?? ''),
+      // Passed through untouched, and deliberately not validated here beyond
+      // existing. A claim that is malformed, forged or simply broken is not a
+      // reason to turn somebody away from a game of Connect Four; it is a
+      // reason to seat them as a guest, and `verifyClaim` returning null is how
+      // that gets said.
+      claim: msg.account,
     },
   };
 }

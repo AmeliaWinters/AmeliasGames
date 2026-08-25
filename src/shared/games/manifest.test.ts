@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GAMES, manifestIsComplete } from './index.js';
-import { GAME_MANIFEST, clampSeats, gameEntry, gameList } from './manifest.js';
+import { GAME_MANIFEST, SHELVES, clampSeats, gameEntry, gameList, shelvedGames } from './manifest.js';
 
 describe('the manifest', () => {
   it('agrees with every definition it names', () => {
@@ -55,6 +55,65 @@ describe('the manifest', () => {
       ).toBeLessThanOrEqual(BUDGET);
       // A sentence, because it is read as one beneath a name in caps.
       expect(game.blurb, game.id).toMatch(/^[A-Z].*\.$/s);
+    }
+  });
+
+
+  /**
+   * The shelves, held to covering the shelf exactly once.
+   *
+   * The lobby draws three sections and a tally over each, and both come from
+   * `shelvedGames`. A game on a shelf nobody stands is a game that has quietly
+   * left the lobby -- it still has a card, a hue and a motif, and no screen
+   * shows it. That is invisible from the code and obvious to the one person
+   * who went looking for Yahtzee.
+   */
+  it('stands every game on exactly one shelf that the lobby draws', () => {
+    const shelved = shelvedGames().flatMap((shelf) => shelf.games.map((game) => game.id));
+    expect(shelved.sort()).toEqual(gameList().map((game) => game.id).sort());
+    expect(new Set(shelved).size).toBe(shelved.length);
+    for (const game of gameList()) {
+      expect(SHELVES.map((shelf) => shelf.id), game.id).toContain(game.shelf);
+    }
+  });
+
+  it('leaves no shelf empty, so no heading stands over nothing', () => {
+    for (const shelf of shelvedGames()) {
+      expect(shelf.games.length, shelf.label).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * The featured game comes out of the shelves in here rather than in the
+   * lobby, which is the whole reason a tally can be trusted: the heading counts
+   * the same array the cards under it are drawn from.
+   */
+  it('takes the featured game off its shelf and out of the count', () => {
+    const before = shelvedGames();
+    const after = shelvedGames(GAME_MANIFEST.wheel.id);
+    const shelf = (list: typeof before, id: string) => list.find((s) => s.id === id)!;
+    expect(shelf(after, 'words').games.length).toBe(shelf(before, 'words').games.length - 1);
+    expect(shelf(after, 'words').games.map((g) => g.id)).not.toContain('wheel');
+    // And nothing else moves: a game leaving one shelf is not a game joining
+    // another.
+    expect(shelf(after, 'dice').games).toEqual(shelf(before, 'dice').games);
+  });
+
+  /**
+   * The length estimates. Nothing here can check whether "~15 min" is true --
+   * a reducer knows its rules, not how long two people take over them -- so
+   * this checks the two things that are checkable: that it is a whole number
+   * of minutes, and that it is inside the range this line was written for.
+   *
+   * The ceiling matters more than it looks. The card prints "~120 min" in the
+   * same 0.7rem slot as "~5 min", and a game that honestly runs two hours is
+   * one this lobby is not describing properly with a tilde and a number.
+   */
+  it('gives every game a length somebody could read off the card', () => {
+    for (const game of gameList()) {
+      expect(Number.isInteger(game.minutes), `${game.id}: ${game.minutes}`).toBe(true);
+      expect(game.minutes, game.id).toBeGreaterThanOrEqual(1);
+      expect(game.minutes, game.id).toBeLessThanOrEqual(60);
     }
   });
 

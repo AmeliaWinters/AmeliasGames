@@ -1,10 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomEngine, isRoomCode } from '../shared/room.js';
 // The protocol above the engine: reading a frame, validating a hello, which
 // room a hello gets, running an action without throwing. Shared with the
 // worker, because two copies of those rules can drift.
-import { admit, applyAction, isAction, readFrame, readHello } from '../shared/session.js';
+import { admit, applyAction, isAction, readFrame, readHello, type Hello } from '../shared/session.js';
+import { verifyClaim } from '../shared/account.js';
 import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
+import { harvestKey } from '../shared/harvest.js';
+import { applyHarvest, loadProfile, viewOf, type HarvestPost } from '../shared/players.js';
+import type { Profile, ProfileView } from '../shared/profile.js';
 import type { Refusal } from '../shared/session.js';
 
 // Deliberately not PORT: dev launchers inject PORT for the web server, and we
@@ -21,9 +26,84 @@ interface Room {
   emptySince: number | null;
   /** Pending wake-up for a timed game. Null when the game is not on a clock. */
   timer: ReturnType<typeof setTimeout> | null;
+  /**
+   * A random id for this room's lifetime, and how many games have been dealt
+   * in it. The worker keeps both in Durable Object storage; here they live on
+   * the room, which is the same bargain the sockets and `emptySince` already
+   * make. See `dealt` in `src/worker/index.ts` for why the id is not the code.
+   */
+  run: string;
+  games: number;
+  /**
+   * The key the game currently on the table will be filed under, or null once
+   * it has been. Set at the deal, not at the whistle: minting it at the end
+   * would mean a failed write retrying under a different key, which is how a
+   * player's experience quietly doubles.
+   */
+  pending: string | null;
 }
 
 const rooms = new Map<string, Room>();
+
+/**
+ * The player store, which in production is one Durable Object per account.
+ *
+ * A `Map`, for the same reason `rooms` is one: this process is a development
+ * server, it restarts whenever anything under `src/shared/` is touched, and it
+ * has no storage of its own. The decisions are shared with the worker in
+ * `players.ts`; only the holding is different, which is the split this whole
+ * codebase is built on.
+ *
+ * It does mean a local profile does not survive `tsx watch` noticing an edit.
+ * That is worth knowing before wondering where a streak went, and it is not
+ * worth a file: the real store is the deployed one.
+ */
+const profiles = new Map<string, Profile>();
+
+/** Read one, creating it if this account has never finished a game. */
+export function profileOf(accountId: string, now: number = Date.now()): Profile {
+  return loadProfile(profiles.get(accountId), accountId, now);
+}
+
+export function profileViewOf(accountId: string, now: number = Date.now()): ProfileView {
+  return viewOf(profileOf(accountId, now), now);
+}
+
+/**
+ * File a finished game with everybody who was signed in for it.
+ *
+ * The worker's twin does this over stubs and can fail; here it is a `Map` and
+ * cannot, so `pending` is cleared unconditionally. The idempotency key is
+ * still honoured, because it is `applyRecord` that honours it and that is
+ * shared — a dev server that quietly double-counted would be the worst place
+ * to discover the rule was only enforced in production.
+ */
+function harvest(room: Room): void {
+  if (room.pending === null) return;
+  const accounts = room.engine.accounts();
+  const record = accounts.length === 0 ? null : room.engine.record();
+  const now = Date.now();
+
+  if (record !== null) {
+    for (const { seat, accountId } of accounts) {
+      const post: HarvestPost = {
+        record,
+        seat,
+        key: room.pending,
+        now,
+        name: room.engine.viewFor(seat, new Set(), now).players[seat]?.name ?? '',
+      };
+      profiles.set(accountId, applyHarvest(profileOf(accountId, now), post));
+      // The end of a game is the moment to show somebody what it taught them,
+      // so the number moves while they are still looking at the end screen.
+      // Pushed to every signed-in seat in the room rather than to whoever
+      // happened to play the last move: a game ends for everybody at once.
+      const watching = room.sockets.get(seat);
+      if (watching) send(watching, { t: 'profile', profile: profileViewOf(accountId, now) });
+    }
+  }
+  room.pending = null;
+}
 
 /**
  * Sockets that connected but never said hello, with the time they arrived. The
@@ -72,14 +152,85 @@ function armDeadline(room: Room): void {
   if (at === null) return;
   room.timer = setTimeout(() => {
     room.timer = null;
-    if (room.engine.tick()) broadcast(room);
+    if (room.engine.tick()) {
+      // Same order as the worker's alarm: settle, file, then tell anybody who
+      // is still watching.
+      if (room.engine.isOver()) harvest(room);
+      broadcast(room);
+    }
   }, Math.max(0, at - Date.now()));
   room.timer.unref?.();
 }
 
 function handleConnection(socket: WebSocket, routingCode: string | null): void {
-  let joined: { room: Room; seat: number } | null = null;
+  let joined: { room: Room; seat: number; accountId?: string } | null = null;
   pending.set(socket, Date.now());
+
+  /**
+   * Seat a hello whose account claim has already been settled.
+   *
+   * Split out of the message handler because verification is asynchronous and
+   * everything else here is not: the claim goes off to `verifyClaim` and the
+   * seating happens when it comes back, whichever way it came back. Keeping it
+   * one function means a guest and a signed-in player are seated by the same
+   * code, which is the only way to be sure the guest path never rots.
+   */
+  const seatPlayer = (hello: Hello): void => {
+    // The socket may have gone during the verify, and a second hello may have
+    // arrived and been seated first. Both are ordinary on a flaky connection.
+    if (joined || socket.readyState !== WebSocket.OPEN) return;
+
+    // The engine, or nothing: the only I/O this adapter does to find one. In
+    // production the same step is a read from Durable Object storage.
+    const found = admit(rooms.get(hello.code)?.engine ?? null, hello);
+    if (!found.ok) return fail(socket, found);
+
+    let room = rooms.get(hello.code);
+    if (!room) {
+      room = {
+        engine: found.engine,
+        sockets: new Map(),
+        emptySince: Date.now(),
+        timer: null,
+        run: randomUUID().slice(0, 8),
+        games: 0,
+        pending: null,
+      };
+      rooms.set(hello.code, room);
+    }
+
+    const result = room.engine.join(hello.playerId, hello.name, hello.accountId);
+    if (!result.ok) return fail(socket, { kind: result.kind, error: result.error });
+
+    // A second tab for the same player takes over the seat rather than
+    // leaving a zombie socket on updates. 4000 tells that client the close
+    // was deliberate, so it stops retrying.
+    const previous = room.sockets.get(result.seat);
+    if (previous && previous !== socket) previous.close(4000, 'Reconnected elsewhere');
+
+    room.sockets.set(result.seat, socket);
+    room.emptySince = null;
+    joined = { room, seat: result.seat, accountId: hello.accountId };
+    pending.delete(socket);
+
+    // The clock may have run out while the room sat empty, so settle it
+    // before answering rather than welcoming a player into a game that is
+    // over and does not know it.
+    room.engine.tick();
+    // A game that ended while nobody was here still has to be filed. Gated
+    // on `pending`, so this is also the retry for a harvest that failed.
+    if (room.engine.isOver()) harvest(room);
+    send(socket, {
+      t: 'welcome',
+      seat: result.seat,
+      room: room.engine.viewFor(result.seat, connectedSeats(room)),
+    });
+    // Sent unasked-for, because the lobby's "18 words due" is the whole reason
+    // anybody comes back and it should be on the screen before they have
+    // pressed anything.
+    if (hello.accountId) send(socket, { t: 'profile', profile: profileViewOf(hello.accountId) });
+    broadcast(room);
+  };
 
   socket.on('message', (raw) => {
     const frame = readFrame(String(raw));
@@ -103,41 +254,23 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
       if (!greeting.ok) return fail(socket, greeting);
       const { hello } = greeting;
 
-      // The engine, or nothing: the only I/O this adapter does to find one. In
-      // production the same step is a read from Durable Object storage.
-      const found = admit(rooms.get(hello.code)?.engine ?? null, hello);
-      if (!found.ok) return fail(socket, found);
-
-      let room = rooms.get(hello.code);
-      if (!room) {
-        room = { engine: found.engine, sockets: new Map(), emptySince: Date.now(), timer: null };
-        rooms.set(hello.code, room);
-      }
-
-      const result = room.engine.join(hello.playerId, hello.name);
-      if (!result.ok) return fail(socket, { kind: result.kind, error: result.error });
-
-      // A second tab for the same player takes over the seat rather than
-      // leaving a zombie socket on updates. 4000 tells that client the close
-      // was deliberate, so it stops retrying.
-      const previous = room.sockets.get(result.seat);
-      if (previous && previous !== socket) previous.close(4000, 'Reconnected elsewhere');
-
-      room.sockets.set(result.seat, socket);
-      room.emptySince = null;
-      joined = { room, seat: result.seat };
-      pending.delete(socket);
-
-      // The clock may have run out while the room sat empty, so settle it
-      // before answering rather than welcoming a player into a game that is
-      // over and does not know it.
-      room.engine.tick();
-      send(socket, {
-        t: 'welcome',
-        seat: result.seat,
-        room: room.engine.viewFor(result.seat, connectedSeats(room)),
+      // The one await on this path, and the reason `Hello` carries an
+      // unverified claim rather than a checked account: `session.ts` is
+      // synchronous so both adapters can share it, and `crypto.subtle.verify`
+      // cannot be. A claim that does not check out is seated as a guest and
+      // never refused — somebody whose key has gone wrong should still get
+      // their game of Connect Four.
+      void verifyClaim(hello.claim, hello.code).then((accountId) => {
+        seatPlayer({ ...hello, accountId: accountId ?? undefined });
       });
-      broadcast(room);
+      return;
+    }
+
+    if (msg.t === 'profile') {
+      // No id on the message, so this can only ever answer for the account
+      // this socket proved on the way in. There is nobody else to ask about.
+      if (!joined?.accountId) return;
+      send(socket, { t: 'profile', profile: profileViewOf(joined.accountId) });
       return;
     }
 
@@ -147,6 +280,15 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
     if (isAction(msg)) {
       const result = applyAction(room.engine, seat, msg);
       if (!result.ok) return fail(socket, { kind: 'rejected', error: result.error });
+      // `start`, `rematch` and `switch` are the only three ways a game is
+      // dealt, and the engine refuses all three otherwise.
+      if (msg.t !== 'move') {
+        room.games += 1;
+        room.pending = harvestKey(room.run, room.games);
+      }
+      // `harvest` pushes each signed-in seat its own updated profile, so
+      // nothing more is needed here.
+      if (room.engine.isOver()) harvest(room);
       broadcast(room);
     }
   });

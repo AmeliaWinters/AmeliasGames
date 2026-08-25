@@ -1,7 +1,10 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
+import type { Learned, SeatOutcome } from '../harvest.js';
+import type { Grade } from '../review.js';
+import { wasFast } from '../review.js';
 import { GAME_MANIFEST } from './manifest.js';
 import { named } from '../refusal.js';
-import { chainLookup } from './chainDictionary.js';
+import { chainLookup, fold } from './chainDictionary.js';
 import { vocabOptions, vocabQuestion } from './vocabDictionary.js';
 import type { VocabQuestion } from './vocabDictionary.js';
 import {
@@ -857,4 +860,107 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       },
     };
   },
+
+  /**
+   * What the clues taught the table.
+   *
+   * This game already grades its own questions along the two axes a scheduler
+   * needs, and it does so for reasons of its own that have nothing to do with
+   * the ledger: `PICK_SCALE` halves a recognition round because choosing one
+   * meaning out of four is a one-in-four guess at worst, and `HINT_SCALE`
+   * halves a hinted answer because the choice has to cost something. Both
+   * distinctions cost the reducer real complexity. The only thing this method
+   * has to get right is not throwing them away.
+   *
+   * So the mapping is the one the game already argues for:
+   *
+   * - **typed it, unhinted** is production, the thing the game exists to
+   *   teach, and it climbs. `produced-fast` against *that seat's own window* —
+   *   fifteen seconds for somebody fluent, thirty for a beginner — because a
+   *   fixed threshold would report the level a player declared rather than
+   *   whether the word was there.
+   * - **typed it, hinted** climbs too, and this is the row worth defending.
+   *   `HINT_ALLOWANCE` makes the argument outright: first letter plus length
+   *   resolves a word already on the tip of the tongue, so the player did the
+   *   retrieval themselves and arrived, which is what makes a word stick. A
+   *   hint is not a reveal. It just does not climb as far — see
+   *   `HINTED_CEILING`.
+   * - **picked it out of four** holds its rung. Enough to keep a word where it
+   *   is, not enough to carry it onto a ninety-day interval.
+   * - **wrong** and **gave up** go back down, and stay apart, because
+   *   `VocabHow` went to the trouble of keeping them apart: a player who
+   *   guessed had the wrong word in their head, a player who passed had none
+   *   and knew it.
+   * - **timed out** produces *nothing at all*. Not a miss, not a sighting, no
+   *   row. It is the seat that sat there — a phone that locked, somebody who
+   *   put the game down — and grading it as failure would let one distracted
+   *   evening bury a hundred words they actually know. It is the absence of an
+   *   answer, not a bad one.
+   *
+   * Reads `history` plus the round still on the table, because a game that
+   * ends on the target does so in `advance`, which has already filed the round
+   * it settled — but a game that ends any other way may still be holding one,
+   * and the last word of a game is not the one to drop.
+   */
+  record(state, seats) {
+    const rounds = [...state.history, ...(state.round === null ? [] : [state.round])];
+    const outcomes: SeatOutcome[] = [];
+
+    for (let seat = 0; seat < seats; seat++) {
+      const learned: Learned[] = [];
+
+      for (const round of rounds) {
+        const answer = round.answer;
+        // A round still running on a client has no answer, and a round drawn
+        // from a language that was never chosen has no word. Neither can reach
+        // here on the server, and both would file a row with no word in it.
+        if (answer === null || state.lang === null) continue;
+        const attempt = round.tries.find((t) => t.seat === seat);
+        if (attempt === undefined || attempt.how === 'timeout') continue;
+
+        learned.push({
+          lang: state.lang,
+          // The folded lemma, for the same reason Word Chain uses one: the row
+          // is a verb, not six of its inflections. Folded here because `fold`
+          // lives with the word lists and the ledger may never reach them.
+          key: fold(answer.lemma || answer.word),
+          word: answer.word,
+          script: answer.script,
+          lemma: answer.lemma,
+          // The clue is the English meaning, which is exactly what a gloss is.
+          // On a `pick` round it is still the correct option, so it is still
+          // the right string; the redaction that hides it is a `view()`
+          // concern and the server is never looking at a redacted state.
+          gloss: round.clue,
+          rank: answer.rank,
+          grade: gradeOf(attempt, round.ask, windowMs(state, seat)),
+          ms: attempt.ms,
+        });
+      }
+
+      outcomes.push({
+        seat,
+        result:
+          state.winner === null ? 'drew' : state.winner === seat ? 'won' : 'lost',
+        learned,
+      });
+    }
+
+    return { gameId: vocab.id, seats: outcomes };
+  },
 };
+
+/**
+ * One try, as a grade. See `record` for the argument behind each row.
+ *
+ * `timeout` never reaches here: `record` drops it before asking, because the
+ * answer would have to be "nothing" and a grade that means "do not grade this"
+ * is a grade every caller has to remember to check for.
+ */
+function gradeOf(attempt: VocabTry, ask: VocabAsk, window: number): Grade {
+  if (attempt.how === 'wrong') return 'wrong';
+  if (attempt.how === 'gave-up') return 'gave-up';
+  if (ask === 'pick') return 'recognised';
+  if (attempt.hinted) return 'hinted';
+  return wasFast(attempt.ms, window) ? 'produced-fast' : 'produced';
+}

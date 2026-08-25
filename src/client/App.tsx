@@ -6,6 +6,7 @@ import {
   canSeat,
   gameEntry,
   gameList,
+  shelvedGames,
   type GameEntry,
 } from "../shared/games/manifest.js";
 import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
@@ -189,7 +190,7 @@ const ULTIMATE_MOTIF: Array<{ marks: Mark[]; won: 0 | 1 | null; line: number[] }
  */
 function WheelArc() {
   return (
-    <svg viewBox="0 0 220 88">
+    <svg viewBox="0 0 220 88" preserveAspectRatio="xMidYMid slice">
       {/* The wheel is drawn about its own origin and moved to its centre, which
           sits a good way below the bottom edge. */}
       <g transform="translate(110 110)">
@@ -218,16 +219,25 @@ function WheelArc() {
  * one thing about this board people misremember, since the corners have no
  * spokes and only the midpoints of the edges do.
  *
- * Laid out against the 218 x 87 well at 34 units to a board unit, with the
- * outer corner at (20, 18). Points come from `pointXY`, which is the reducer's
+ * Laid out against the 218 x 87 well at 38 units to a board unit, with the
+ * outer corner off the frame at (-6, -8).
+ *
+ * Both numbers moved once the shelf started drawing this card at three sizes.
+ * At 34 units to a board unit the outer ring was 204 wide inside a 218 well,
+ * so the corner this motif is named for sat *inside* the frame with a margin
+ * of air above and to the left of it, while the board ran 129px off the
+ * bottom: a board that has been cut off, which is the opposite of a crop. At
+ * 38 the outer ring is 228 wide -- wider than the well it is in -- and the
+ * corner is outside the frame, so what is left in the frame is the nest of
+ * rings a Morris board is, cut on all four edges. Points come from `pointXY`, which is the reducer's
  * own geometry, so the men stand exactly where the rules say the points are.
  *
  * The position: two men each in the corner being shown, no mill among them.
  * The rest of both hands is off the card, which is the point of a crop.
  */
-const MORRIS_UNIT = 34;
+const MORRIS_UNIT = 38;
 /** Where board (0, 0), the centre of the board, falls in the well. */
-const MORRIS_CENTRE = { x: 20 + 3 * MORRIS_UNIT, y: 18 + 3 * MORRIS_UNIT };
+const MORRIS_CENTRE = { x: -6 + 3 * MORRIS_UNIT, y: -8 + 3 * MORRIS_UNIT };
 
 function morrisAt(point: number): { cx: number; cy: number } {
   const { x, y } = pointXY(point);
@@ -242,7 +252,7 @@ function MorrisCorner() {
   ]);
   const empty = deal.empty.map(({ ring, spot }) => pointAt(ring, spot));
   return (
-    <svg viewBox="0 0 218 87">
+    <svg viewBox="0 0 218 87" preserveAspectRatio="xMidYMid slice">
       {[3, 2, 1].map((reach) => (
         <rect
           key={reach}
@@ -762,6 +772,13 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
         sound={sound}
         onToggleSound={toggleSound}
         lastGameId={gameId}
+        // Naming yourself is not starting anything: the chip in the bar can be
+        // pressed by somebody who only wants to correct their own spelling, and
+        // that has to be remembered without opening a room to do it.
+        onName={(chosenName) => {
+          saveName(chosenName);
+          setName(chosenName);
+        }}
         onStart={(chosenName, joinCode, chosenGame) => {
           saveName(chosenName);
           setName(chosenName);
@@ -1104,33 +1121,137 @@ function SoundButton({ on, onToggle }: { on: boolean; onToggle(): void }) {
  */
 function TableCard({
   table,
-  featured,
   onStart,
 }: {
   table: GameEntry;
-  featured?: boolean;
   onStart(gameId: string): void;
 }) {
   return (
-    <button
-      className={featured ? "game featured" : "game"}
-      data-game={table.id}
-      onClick={() => onStart(table.id)}
-    >
+    <button className="game" data-game={table.id} onClick={() => onStart(table.id)}>
       <CardArt gameId={table.id} />
-      {/* The seats are for the eye, which is counting them against the number
-          of people in the room. The words are for anyone listening, who is
-          not. */}
-      <span className="count" aria-hidden="true">
-        {seatPips(table)}
-      </span>
       <span className="name">{table.name}</span>
-      <span className="sr-only">{seatLabel(table)}</span>
       <span className="blurb">{table.blurb}</span>
-      {featured && <span className="resume">Last played</span>}
+      <TableFacts table={table} />
     </button>
   );
 }
+
+/**
+ * The table you left, laid out the way a table is: wide.
+ *
+ * The featured card used to be an ordinary card at twice the size, which meant
+ * a portrait crop stretched across two columns with its name underneath. A
+ * card that is going to be the biggest thing on the screen may as well be the
+ * shape of the thing it is showing, so the motif takes one side and the words
+ * take the other -- and it gains the one control the shelf does not have: a
+ * verb. "Play again" is a different offer from "Connect Four", and it is the
+ * offer this card is actually making.
+ *
+ * The art stays a 5:2 well at phone width, stacked above the words, because
+ * that is the crop all thirteen motifs were composed against and a hero is not
+ * worth re-drawing them for. Past 560px it takes the right-hand half instead;
+ * `picker.css` says what that costs the two motifs drawn in SVG.
+ */
+function HeroCard({
+  table,
+  onStart,
+}: {
+  table: GameEntry;
+  onStart(gameId: string): void;
+}) {
+  return (
+    <button className="game featured" data-game={table.id} onClick={() => onStart(table.id)}>
+      <CardArt gameId={table.id} />
+      <span className="face">
+        <span className="resume">Last played</span>
+        <span className="name">{table.name}</span>
+        <span className="blurb">{table.blurb}</span>
+        <TableFacts table={table} />
+        <span className="cta">Play again</span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Who can play, and how long it takes, on one line under the blurb.
+ *
+ * The seats used to be a chip stamped on the corner of the motif, which was
+ * the only place they fitted while the card had nothing else to say. They have
+ * company now -- see `minutes` in the manifest -- and two facts about the same
+ * game belong on one line in the card body, where neither of them is lying on
+ * top of a crop of a board.
+ *
+ * Both are drawn rather than written, and both are hidden from anyone
+ * listening, because a row of pips and a tilde are shapes. The sentence
+ * underneath is the same two facts, said once, in the order they are read.
+ */
+function TableFacts({ table }: { table: GameEntry }) {
+  return (
+    <span className="facts">
+      <span className="count" aria-hidden="true">
+        {seatPips(table)}
+      </span>
+      <span className="mins" aria-hidden="true">
+        ~{table.minutes} min
+      </span>
+      <span className="sr-only">
+        {seatLabel(table)}, about {table.minutes} minutes
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Four letters, drawn as four boxes, over one real input.
+ *
+ * The boxes are the whole of why the code came out of the form: somebody is
+ * holding four letters that were read out to them across a room, and a 90px
+ * text field says "fill this in" where the thing in their hand says "ABCD".
+ *
+ * One input underneath, not four. Four fields each holding a character is the
+ * pattern most one-time-code entries on the web use, and it is the one that
+ * breaks paste, breaks backspace at a boundary, and hands a screen reader four
+ * unlabelled fields to announce. So the boxes are decoration -- `aria-hidden`,
+ * drawn from the value -- and the input is a plain four-character field lying
+ * transparently over them, which pastes, corrects and announces the way a
+ * field does, because it is one.
+ */
+function CodeCells({
+  value,
+  field,
+  onChange,
+}: {
+  value: string;
+  field: React.RefObject<HTMLInputElement>;
+  onChange(next: string): void;
+}) {
+  return (
+    <div className="cells">
+      {Array.from({ length: CODE_LENGTH }, (_, i) => (
+        <i key={i} className={i === value.length ? "cell caret" : "cell"} aria-hidden="true">
+          {value[i] ?? ""}
+        </i>
+      ))}
+      <input
+        ref={field}
+        className="cells-field"
+        value={value}
+        onChange={(e) => onChange(normalizeRoomCode(e.target.value))}
+        maxLength={CODE_LENGTH}
+        aria-label="Room code"
+        aria-describedby="code-hint"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
+/** Which of the two panels under the bar is open, if either. */
+type Panel = null | "name" | "code";
 
 function Setup({
   initialName,
@@ -1140,6 +1261,7 @@ function Setup({
   sound,
   onToggleSound,
   lastGameId,
+  onName,
   onStart,
 }: {
   initialName: string;
@@ -1149,131 +1271,256 @@ function Setup({
   sound: boolean;
   onToggleSound(): void;
   lastGameId: string;
+  onName(name: string): void;
   onStart(name: string, code: string | null, gameId: string | null): void;
 }) {
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState(pendingCode ?? "");
+  /*
+    The screen opens with nothing on it but the shelf.
+
+    The name and the code used to be the first two things on this page, which
+    put a form in front of the only thing anybody came here for. Both are still
+    here and neither has moved far: they are one press away in the bar, and the
+    press is only ever needed by somebody who has something to type. Arriving
+    on a link that did not open is the one case that is known in advance, so
+    that one opens the code panel itself rather than sending a person holding a
+    code off to look for where to put it.
+  */
+  const [panel, setPanel] = useState<Panel>(pendingCode ? "code" : null);
+  /*
+    The table somebody pressed before this app knew what to call them.
+
+    A seat cannot be taken anonymously -- the server wants a name in `hello`,
+    and the people already at the table want to know who just sat down -- so a
+    first-time visitor pressing a card is asked, once, on the spot. Holding the
+    game here is what makes that one question rather than two: the answer
+    starts the game they already chose instead of returning them to the shelf
+    to choose it again.
+  */
+  const [pending, setPending] = useState<string | null>(null);
+  /*
+    Whether the code panel is asking for a name as well, decided when it opens
+    and not while it is open.
+
+    Asking for it is right: somebody arriving on a code they were sent may
+    never have been here before, and the room needs to be able to say who just
+    joined. Asking for it *live* is not. Written as "show the field while there
+    is no name", the field vanished on the first letter typed into it, taking
+    the cursor with it. One answer per opening of the panel.
+  */
+  const [askName, setAskName] = useState(!initialName.trim());
   const nameField = useRef<HTMLInputElement>(null);
+  const codeField = useRef<HTMLInputElement>(null);
   const trimmed = name.trim();
 
   /*
-    The shelf, with the game you last sat down to on top of it.
+    A panel that opens without the cursor in it is a panel somebody has to find
+    their way into after asking for it.
 
-    Thirteen cards in manifest order gave the art nothing to be bigger than:
-    two columns, seven rows, every card the size of every other, and Connect
-    Four preselected forever however long it had been since anyone played it.
-    One card at twice the size is the whole of the hierarchy this screen needs,
-    and "the one you played last" is the only ranking the app can honestly
-    claim to know.
+    Which field gets the cursor is the question the panel still has left. Off an
+    invite link the code is already filled in, so the cursor belongs in the name
+    beside it rather than at the end of four letters nobody has to type.
+  */
+  useEffect(() => {
+    if (panel === "name") nameField.current?.focus();
+    if (panel === "code") {
+      const answered = code.length === CODE_LENGTH;
+      (answered && askName ? nameField : codeField).current?.focus();
+    }
+    // The panel opening is the event. Watching `code` here would move the
+    // cursor out of the field somebody is typing into on their fourth letter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel]);
+
+  /*
+    The shelf, with the game you last sat down to standing above it.
 
     Falling back to the head of the list covers a first visit and a stored id
     from a game that has since been removed. Both are "no game on top", and
     neither is worth an empty frame.
+
+    The three shelves come from `shelvedGames`, which also takes the featured
+    game out of them -- in the manifest rather than here, so the tally in a
+    shelf's heading is counted from the same list the cards under it are drawn
+    from.
   */
   const tables = gameList();
   const featured = tables.find((game) => game.id === lastGameId) ?? tables[0];
-  const rest = tables.filter((game) => game.id !== featured.id);
+  const shelves = shelvedGames(featured.id);
 
-  // A table cannot be sat down at anonymously, and the field that fixes that
-  // is one screen up. Sending the cursor there says so faster than a message
-  // would, and it is the same remedy either way.
+  const togglePanel = (which: Exclude<Panel, null>) => {
+    const next = panel === which ? null : which;
+    if (next === "code") setAskName(!trimmed);
+    setPanel(next);
+    setPending(null);
+  };
+
   const start = (gameId: string) => {
     if (!trimmed) {
-      nameField.current?.focus();
+      setPending(gameId);
+      setPanel("name");
       return;
     }
     play("tap");
     onStart(trimmed, null, gameId);
   };
 
+  const submitName = () => {
+    if (!trimmed) {
+      nameField.current?.focus();
+      return;
+    }
+    onName(trimmed);
+    const table = pending;
+    setPending(null);
+    setPanel(null);
+    if (table) {
+      play("tap");
+      onStart(trimmed, null, table);
+    }
+  };
+
+  const join = () => {
+    if (!trimmed || code.length !== CODE_LENGTH) return;
+    onStart(trimmed, code, null);
+  };
+
+  // Escape closes whichever panel is open, which is what Escape does to
+  // anything that opened over the page.
+  const onEscape = (e: React.KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    setPanel(null);
+    setPending(null);
+  };
+
+  const pendingName = pending ? gameEntry(pending)?.name : undefined;
+
   return (
     <main className="app setup">
-      {/* Two wrappers that do nothing at phone width but stack, and become the
-          two columns of the desktop layout, see the `@media` block in
-          `base.css`. Real flex columns rather than `display: contents`, so the
-          spacing inside them does not depend on a property the oldest WebView
-          this ships to may not have. */}
-      <div className="setup-intro">
+      {/* The whole of the old left-hand column, folded onto one line: who you
+          are, and the one control somebody arriving with a code came for. */}
+      <header className="lobby-bar">
         <h1 className="wordmark">
           <Wordmark name="Rebellia Games" />
         </h1>
-        <p className="tagline">Two to eight players, one link. No ads, no accounts, no catch.</p>
+        <button
+          type="button"
+          className="whoami"
+          aria-expanded={panel === "name"}
+          onClick={() => togglePanel("name")}
+        >
+          <span className="av" aria-hidden="true">
+            {(trimmed || "?").slice(0, 1).toUpperCase()}
+          </span>
+          <span className="who">{trimmed || "Add your name"}</span>
+        </button>
+        <button
+          type="button"
+          className="havecode"
+          aria-expanded={panel === "code"}
+          onClick={() => togglePanel("code")}
+        >
+          Have a code?
+        </button>
+      </header>
 
-        <label>
-          Your name
-          <input
-            ref={nameField}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Amelia"
-            maxLength={20}
-            autoFocus
-          />
-        </label>
-
-        {/* The code, immediately under the name, and above the thirteen cards
-          rather than below them.
-
-          Everyone who arrives here with a code in their hand is the second
-          player: someone read it out, or sent a link that did not open. They
-          are not choosing a game -- their game was chosen for them -- so every
-          card between the name field and this row was a card they had to
-          scroll past to answer a question they had already answered. Measured
-          at 375px it was 1395px down a 1636px page: a full screen and most of
-          another, to reach the one control they came for.
-
-          Starting a game keeps the whole run below, in the order it was in.
-          The two are one field apart, so nobody hunting the other one has far
-          to look. */}
-        <div className="joinbar">
+      {panel === "name" && (
+        <form
+          className="panel"
+          onKeyDown={onEscape}
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitName();
+          }}
+        >
           <label>
-            Room code
+            {/* Naming the table they pressed, because they pressed it a second
+                ago and this question arrived on top of it. */}
+            {pendingName ? `Sitting down at ${pendingName}. Your name` : "Your name"}
             <input
-              value={code}
-              onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
-              placeholder="ABCD"
-              className="code-input"
-              maxLength={CODE_LENGTH}
-              aria-describedby="code-hint"
+              ref={nameField}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Amelia"
+              maxLength={20}
             />
           </label>
-          <button
-            disabled={!trimmed || code.length !== CODE_LENGTH}
-            onClick={() => onStart(trimmed, code, null)}
-          >
+          <button className="primary" disabled={!trimmed}>
+            {pendingName ? "Deal me in" : "Save"}
+          </button>
+        </form>
+      )}
+
+      {panel === "code" && (
+        <form
+          className="panel code-panel"
+          onKeyDown={onEscape}
+          onSubmit={(e) => {
+            e.preventDefault();
+            join();
+          }}
+        >
+          <h2>Type the four letters they read you</h2>
+          <CodeCells value={code} field={codeField} onChange={setCode} />
+          {/* Only for somebody who has not been here before. Everybody else has
+              a name in the bar, and asking again for it in front of a code they
+              were sent is the form this screen just got rid of. */}
+          {askName && (
+            <label>
+              Your name
+              <input
+                ref={nameField}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Amelia"
+                maxLength={20}
+              />
+            </label>
+          )}
+          <button className="primary" disabled={!trimmed || code.length !== CODE_LENGTH}>
             Join
           </button>
-        </div>
-        <p className="hint" id="code-hint">
-          {CODE_LENGTH} letters, off the link or read out to you.
-        </p>
+          <p className="hint" id="code-hint">
+            {CODE_LENGTH} letters, off the link or read out to you.
+          </p>
+        </form>
+      )}
+
+      <p className="tagline">Two to eight players, one link. No ads, no accounts, no catch.</p>
+
+      {/* One element around the shelf, which `base.css` reads: the two recovery
+          screens wear `.app.setup` too, and the desktop layout is for the lobby
+          rather than for a wordmark and a button. */}
+      <div className="shelves">
+        <HeroCard table={featured} onStart={start} />
+
+        {shelves.map((shelf) => (
+          <section key={shelf.id} className="shelf" aria-labelledby={`shelf-${shelf.id}`}>
+            <h2 className="shelf-head" id={`shelf-${shelf.id}`}>
+              {shelf.label}
+              {/* For the eye, which is deciding whether this shelf is the one
+                  worth reading. Anybody listening has the section's heading and
+                  then the cards themselves, which is a better count than a
+                  number read out ahead of them. */}
+              <span className="tally" aria-hidden="true">
+                {shelf.games.length}
+              </span>
+            </h2>
+            <div className="games">
+              {shelf.games.map((game) => (
+                <TableCard key={game.id} table={game} onStart={start} />
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
-
-      {/* The divider is the shelf's heading rather than a rule with words in
-          it, so the label the eye reads and the label a screen reader
-          announces are the same string. */}
-      <section className="setup-tables" aria-labelledby="tables-heading">
-        <h2 className="divider" id="tables-heading">
-          <span>or pick a table</span>
-        </h2>
-
-        <div className="games">
-          <TableCard table={featured} featured onStart={start} />
-          {rest.map((game) => (
-            <TableCard key={game.id} table={game} onStart={start} />
-          ))}
-        </div>
-      </section>
 
       <div className="preferences">
         <button className="swap" onClick={onSwapPalette}>
           {swapLabel}
         </button>
-        <button
-          className="swap"
-          aria-pressed={sound}
-          onClick={onToggleSound}
-        >
+        <button className="swap" aria-pressed={sound} onClick={onToggleSound}>
           Sound {sound ? "on" : "off"}
         </button>
       </div>

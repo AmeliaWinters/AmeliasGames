@@ -43,7 +43,7 @@ import {
 } from './vocab.js';
 import { vocabOptions, vocabPoolSize, vocabQuestion } from './vocabDictionary.js';
 import type { VocabQuestion } from './vocabDictionary.js';
-import { chainLookup } from './chainDictionary.js';
+import { chainLookup, fold } from './chainDictionary.js';
 
 const rng = () => 0.5;
 
@@ -1431,5 +1431,116 @@ describe('the contract', () => {
     const state = playing('pl');
     expect(canAct(state, 0, 1_000 + DEFAULT_WINDOW - 1)).toBe(true);
     expect(canAct(state, 0, 1_000 + DEFAULT_WINDOW)).toBe(false);
+  });
+});
+
+/**
+ * What the clues hand the ledger.
+ *
+ * This game already grades its own questions along the two axes a scheduler
+ * needs, and for reasons of its own: `PICK_SCALE` halves a recognition round,
+ * `HINT_SCALE` halves a hinted answer. The only thing `record` has to get
+ * right is not throwing those distinctions away.
+ */
+describe('what it records', () => {
+  const outcome = (state: VocabState, seat: number) =>
+    vocab.record?.(state, state.scores.length)?.seats.find((s) => s.seat === seat);
+
+  /** One `say` round, answered correctly by seat 0 and passed by seat 1. */
+  function answered(now = 2_000): VocabState {
+    let state = playing('pl', 'normal', 2, 1_000, inOrder);
+    const word = answerOf(state);
+    state = accept(state, { type: 'guess', word }, 0, now);
+    return accept(state, { type: 'pass' }, 1, now);
+  }
+
+  it('names the game and answers for every seat', () => {
+    const rec = vocab.record?.(answered(), 2);
+    expect(rec?.gameId).toBe('vocab');
+    expect(rec?.seats.map((s) => s.seat)).toEqual([0, 1]);
+  });
+
+  it('grades a typed answer as production, and reads speed against your own window', () => {
+    // Two seconds out of twenty-two is comfortably inside the fast fraction.
+    const said = outcome(answered(1_000 + 2_000), 0)?.learned[0];
+    expect(said?.grade).toBe('produced-fast');
+    expect(said?.lang).toBe('pl');
+
+    // The same answer, arriving late in the same window.
+    const slow = outcome(answered(1_000 + 20_000), 0)?.learned[0];
+    expect(slow?.grade).toBe('produced');
+  });
+
+  it('keeps giving up apart from being wrong', () => {
+    expect(outcome(answered(), 1)?.learned[0].grade).toBe('gave-up');
+
+    let state = playing('pl', 'normal', 2, 1_000, inOrder);
+    state = accept(state, { type: 'guess', word: wrongWord(state, 'pl') }, 1, 2_000);
+    expect(outcome(state, 1)?.learned[0].grade).toBe('wrong');
+  });
+
+  /**
+   * The seat that sat there is a phone that locked or somebody who put the
+   * game down. Grading it as failure would let one distracted evening bury a
+   * hundred words they actually know, so it produces no row at all.
+   */
+  it('produces nothing whatever for a seat that timed out', () => {
+    let state = playing('pl', 'normal', 2, 1_000, inOrder);
+    state = tick(state, 1_000 + ROUND_MS);
+    expect(state.round?.tries.every((t) => t.how === 'timeout')).toBe(true);
+    expect(outcome(state, 0)?.learned).toEqual([]);
+    expect(outcome(state, 1)?.learned).toEqual([]);
+  });
+
+  it('grades a recognition round as recognition, not production', () => {
+    const first = playing('pl', 'normal', 2, 1_000, inOrder);
+    const { state: at, now } = atRound(first, PICK_EVERY - 1);
+    expect(at.round?.ask).toBe('pick');
+
+    const right = at.round?.options.indexOf(at.round.clue) ?? -1;
+    const state = accept(at, { type: 'choose', option: right }, 0, now + 1_000);
+    // Answered in one second flat, and still not production: choosing one
+    // meaning of four is a one-in-four guess at worst.
+    expect(outcome(state, 0)?.learned.at(-1)?.grade).toBe('recognised');
+  });
+
+  it('grades a hinted answer as hinted, which is neither production nor a miss', () => {
+    let state = playing('pl', 'normal', 2, 1_000, inOrder);
+    state = accept(state, { type: 'hint' }, 0, 2_000);
+    state = accept(state, { type: 'guess', word: answerOf(state) }, 0, 3_000);
+    expect(outcome(state, 0)?.learned[0].grade).toBe('hinted');
+  });
+
+  it('files a word under its folded lemma rather than the form asked about', () => {
+    const state = answered();
+    const answer = state.history[0]?.answer ?? state.round?.answer;
+    const said = outcome(state, 0)?.learned[0];
+    expect(said?.key).toBe(fold(answer?.lemma || answer?.word || ''));
+    expect(said?.word).toBe(answer?.word);
+  });
+
+  /**
+   * The clue is the English meaning, which is exactly what a gloss is. The
+   * ledger cannot look one up -- the client has no dictionary and never may --
+   * so it has to arrive on the record.
+   */
+  it('carries the clue as the gloss, and the rank beside it', () => {
+    const said = outcome(answered(), 0)?.learned[0];
+    expect(said?.gloss).toBeTruthy();
+    expect(said?.rank).toBeGreaterThan(0);
+  });
+
+  it('reads every round of a finished game, not only the last', () => {
+    const first = playing('pl', 'normal', 2, 1_000, inOrder);
+    const { state } = atRound(first, 3);
+    // Three rounds went past unanswered, so nothing was learned -- but the
+    // record still walks all of them rather than stopping at the newest.
+    expect(state.history).toHaveLength(3);
+    expect(outcome(state, 0)?.learned).toEqual([]);
+  });
+
+  it('reports a shared lead as a draw for everybody', () => {
+    const state: VocabState = { ...answered(), phase: 'over', winner: null };
+    expect(vocab.record?.(state, 2)?.seats.every((s) => s.result === 'drew')).toBe(true);
   });
 });

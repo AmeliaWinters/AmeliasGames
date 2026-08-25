@@ -21,7 +21,6 @@ import {
 import type {
   BsMove,
   BsState,
-  LoggedShot,
   Ship,
   ShipKind,
 } from "../../shared/games/battleshipDisplay.js";
@@ -35,6 +34,16 @@ type Props = BoardProps<BsState, BsMove>;
 const ROWS = Array.from({ length: BOARD_SIZE }, (_, i) => i);
 
 type Cell = [number, number];
+
+/** Where the ship in hand would land, and whether she may. */
+interface Preview {
+  kind: ShipKind;
+  size: number;
+  row: number;
+  col: number;
+  horizontal: boolean;
+  ok: boolean;
+}
 
 function sameCell(a: Cell | null, b: Cell | null): boolean {
   return a !== null && b !== null && a[0] === b[0] && a[1] === b[1];
@@ -86,16 +95,89 @@ interface Pointer {
 }
 
 /**
+ * The fleet on a sea, as hulls rather than as coloured squares.
+ *
+ * A second ten by ten grid laid over the first with the same tracks and the
+ * same gap, so a ship is placed with `grid-row` and `grid-column` and nothing
+ * here does pixel arithmetic. It is inert and `aria-hidden`: every square
+ * underneath is still the button, still hit-tested, still what a screen reader
+ * reads. The overlay is a picture of what those squares already say.
+ *
+ * Hidden ships draw nothing, which is the whole redaction story on this side:
+ * `view()` blanks an enemy ship's position, `isHidden` says so, and a hull
+ * with nowhere to be is simply not rendered.
+ */
+function Hulls({
+  fleet,
+  sinking,
+  preview,
+}: {
+  fleet: Ship[];
+  sinking: ShipKind | null;
+  /** The ship in hand, where she would land. Drawn as a hull rather than as
+   *  tinted squares, because three lit squares are three lit squares and the
+   *  question being answered is "is that where I want the cruiser". */
+  preview?: Preview | null;
+}) {
+  return (
+    <>
+      {preview && (
+        <div
+          className={`bs-hull ${preview.kind} ${preview.horizontal ? "h" : "v"} ghosting${
+            preview.ok ? "" : " bad"
+          }`}
+          style={{
+            gridRow: preview.horizontal
+              ? preview.row + 1
+              : `${preview.row + 1} / span ${preview.size}`,
+            gridColumn: preview.horizontal
+              ? `${preview.col + 1} / span ${preview.size}`
+              : preview.col + 1,
+          }}
+        />
+      )}
+      {fleet
+        .filter((ship) => !isHidden(ship))
+        .map((ship) => {
+          const size = ship.hits.length;
+          return (
+            <div
+              key={ship.kind}
+              className={[
+                "bs-hull",
+                ship.kind,
+                ship.horizontal ? "h" : "v",
+                isSunk(ship) ? "wreck" : "",
+                ship.kind === sinking ? "going" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              style={{
+                gridRow: ship.horizontal
+                  ? ship.row + 1
+                  : `${ship.row + 1} / span ${size}`,
+                gridColumn: ship.horizontal
+                  ? `${ship.col + 1} / span ${size}`
+                  : ship.col + 1,
+              }}
+            />
+          );
+        })}
+    </>
+  );
+}
+
+/**
  * The board's two grids are the same ten-by-ten thing seen from either side,
  * so they are one component. What differs is what a square knows about itself,
  * which the caller supplies as a class and a label.
  *
- * Three things live here rather than in either caller, because both callers
- * need all three and a second copy of any of them would drift:
+ * Four things live here rather than in either caller, because both callers
+ * need all four and a second copy of any of them would drift:
  *
- * - **The coordinate gutters.** A1 talk is how the game is played out loud and
- *   how the shot log names a square; a grid you have to count across is a grid
- *   whose log you cannot read.
+ * - **The coordinate gutters.** A1 talk is how the game is played out loud,
+ *   and it is also how a square is named while it is being aimed at, which is
+ *   the job below.
  * - **A roving cursor.** Two hundred squares on this screen, and every one of
  *   them used to be a tab stop, so reaching the far corner of the second sea by
  *   keyboard meant nearly two hundred presses. One stop per grid now, and the
@@ -103,6 +185,9 @@ interface Pointer {
  *   reachable, just not in the tab order.
  * - **Pointer tracking.** Dragging a ship and sweeping the guns both want "the
  *   square under the finger, continuously", which is one piece of geometry.
+ * - **The overlay.** Hulls and the aim's crosshair are drawn on the same
+ *   layer, because both are things laid over the squares rather than in them,
+ *   and both want the grid's own tracks to sit on.
  */
 function Sea({
   label,
@@ -114,6 +199,11 @@ function Sea({
   playable,
   pointer,
   className,
+  fleet,
+  sinking,
+  preview,
+  aim,
+  onRotate,
 }: {
   label: string;
   cellClass(row: number, col: number): string;
@@ -125,6 +215,14 @@ function Sea({
   playable(row: number, col: number): boolean;
   pointer?: Pointer;
   className?: string;
+  /** Whose hulls to draw over the water. Empty for a sea with nothing shown. */
+  fleet: Ship[];
+  sinking: ShipKind | null;
+  preview?: Preview | null;
+  /** Where the guns are pointed: lights both gutters and draws the crosshair. */
+  aim?: Cell | null;
+  /** A wheel over the water turns the ship in hand. Harbour only. */
+  onRotate?: () => void;
 }) {
   const grid = useRef<HTMLDivElement | null>(null);
   // Focus follows the cursor only when a key moved it, which is what `chase`
@@ -139,6 +237,22 @@ function Sea({
       ?.focus();
   }, [chase, cursor]);
 
+  // Native, and not React's `onWheel`, for one reason: React attaches its
+  // wheel listener at the root as passive, so `preventDefault` there is
+  // ignored and the page scrolls out from under the board while the ship
+  // turns. Scoped to the grid, so a wheel anywhere else on the page still
+  // scrolls the page.
+  useEffect(() => {
+    const element = grid.current;
+    if (!element || !onRotate) return;
+    const turn = (event: WheelEvent) => {
+      event.preventDefault();
+      onRotate();
+    };
+    element.addEventListener("wheel", turn, { passive: false });
+    return () => element.removeEventListener("wheel", turn);
+  }, [onRotate]);
+
   function onKeyDown(event: React.KeyboardEvent) {
     const delta = ARROWS[event.key];
     if (!delta || !cursor || !onCursor) return;
@@ -147,60 +261,92 @@ function Sea({
     setChase((n) => n + 1);
   }
 
+  // The crosshair is positioned in the overlay's own percentages rather than
+  // beside the grid. Hung off the wrapper, whose left edge is the rank gutter,
+  // the horizontal line ran straight through the rank letter and read as a
+  // strikethrough on it.
+  const centre = (index: number) => `${(index + 0.5) * 10}%`;
+
   return (
     <div className={`bs-sea${className ? ` ${className}` : ""}`}>
       <div className="bs-files" aria-hidden="true">
         <span />
         {ROWS.map((col) => (
-          <span key={col}>{col + 1}</span>
+          <span key={col} className={aim && aim[1] === col ? "lit" : undefined}>
+            {col + 1}
+          </span>
         ))}
       </div>
-      <div
-        className="bs-grid"
-        role="grid"
-        aria-label={label}
-        ref={grid}
-        onKeyDown={onKeyDown}
-        onPointerMove={(event) => {
-          if (!pointer) return;
-          const cell = cellUnder(event.clientX, event.clientY);
-          if (cell) pointer.onMoveTo(cell);
-        }}
-        onPointerUp={() => pointer?.onUp()}
-        onPointerCancel={() => pointer?.onUp()}
-      >
-        {ROWS.map((row) => (
-          <div className="bs-sea-row" role="row" key={row}>
-            <span className="bs-rank" aria-hidden="true">
-              {String.fromCharCode(65 + row)}
-            </span>
-            {ROWS.map((col) => (
-              <button
-                type="button"
-                role="gridcell"
-                key={col}
-                data-cell=""
-                data-row={row}
-                data-col={col}
-                className={`bs-cell surface ${cellClass(row, col)}`}
-                disabled={!playable(row, col)}
-                tabIndex={sameCell(cursor, [row, col]) ? 0 : -1}
-                aria-label={cellLabel(row, col)}
-                onClick={() => onActivate(row, col)}
-                onPointerDown={(event) => {
-                  if (!pointer) return;
-                  // Captured on the grid, not on the square: the finger leaves
-                  // the square it started on within a few pixels of a drag,
-                  // and the moves stop arriving the moment it does.
-                  grid.current?.setPointerCapture(event.pointerId);
-                  pointer.onDown([row, col]);
-                }}
-                onMouseEnter={() => onCursor?.([row, col])}
-                onFocus={() => onCursor?.([row, col])}
+      <div className="bs-gridwrap">
+        <div
+          className="bs-grid"
+          role="grid"
+          aria-label={label}
+          ref={grid}
+          onKeyDown={onKeyDown}
+          onPointerMove={(event) => {
+            if (!pointer) return;
+            const cell = cellUnder(event.clientX, event.clientY);
+            if (cell) pointer.onMoveTo(cell);
+          }}
+          onPointerUp={() => pointer?.onUp()}
+          onPointerCancel={() => pointer?.onUp()}
+        >
+          {ROWS.map((row) => (
+            <div className="bs-sea-row" role="row" key={row}>
+              <span
+                className={`bs-rank${aim && aim[0] === row ? " lit" : ""}`}
+                aria-hidden="true"
+              >
+                {String.fromCharCode(65 + row)}
+              </span>
+              {ROWS.map((col) => (
+                <button
+                  type="button"
+                  role="gridcell"
+                  key={col}
+                  data-cell=""
+                  data-row={row}
+                  data-col={col}
+                  className={`bs-cell surface ${cellClass(row, col)}`}
+                  disabled={!playable(row, col)}
+                  tabIndex={sameCell(cursor, [row, col]) ? 0 : -1}
+                  aria-label={cellLabel(row, col)}
+                  onClick={() => onActivate(row, col)}
+                  onPointerDown={(event) => {
+                    if (!pointer) return;
+                    // Captured on the grid, not on the square: the finger
+                    // leaves the square it started on within a few pixels of a
+                    // drag, and the moves stop arriving the moment it does.
+                    grid.current?.setPointerCapture(event.pointerId);
+                    pointer.onDown([row, col]);
+                  }}
+                  onMouseEnter={() => onCursor?.([row, col])}
+                  onFocus={() => onCursor?.([row, col])}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="bs-hulls" aria-hidden="true">
+          <Hulls fleet={fleet} sinking={sinking} preview={preview} />
+          {aim && (
+            <>
+              <div
+                className="bs-cross h"
+                style={{ left: 0, width: centre(aim[1]), top: centre(aim[0]) }}
               />
-            ))}
-          </div>
-        ))}
+              <div
+                className="bs-cross v"
+                style={{
+                  left: centre(aim[1]),
+                  top: -9,
+                  height: `calc(${centre(aim[0])} + 9px)`,
+                }}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -212,10 +358,11 @@ function Sea({
  * a grid of a hundred squares is exactly the chore a scoreboard exists to
  * spare them.
  *
- * The pips are damage, and for an enemy fleet they stay dark until a ship goes
- * down and fills them all at once. `view()` wipes the damage on anything still
- * afloat, because which ship a hit belonged to is what the player is supposed
- * to be working out.
+ * The same hull as on the water, flooding red from the bow as she takes
+ * damage, so the ship in the list and the ship on the sea are one ship. For an
+ * enemy fleet the damage stays at nothing until she goes down and then fills
+ * at once, because `view()` wipes the damage on anything still afloat: which
+ * ship a hit belonged to is what the player is supposed to be working out.
  */
 function Roster({
   fleet,
@@ -224,8 +371,8 @@ function Roster({
 }: {
   fleet: Ship[];
   label: string;
-  /** The class going down right now, so her row strikes through in step with
-   *  the wreck appearing on the grid rather than a frame ahead of it. */
+  /** The class going down right now, so her row flashes in step with the
+   *  wreck appearing on the grid rather than a frame ahead of it. */
   sinking: ShipKind | null;
 }) {
   return (
@@ -233,6 +380,7 @@ function Roster({
       {FLEET.map((cls) => {
         const ship = fleet.find((s) => s.kind === cls.kind);
         const sunk = ship !== undefined && isSunk(ship);
+        const hits = ship?.hits.filter(Boolean).length ?? 0;
         return (
           <li
             key={cls.kind}
@@ -241,58 +389,20 @@ function Roster({
               .join(" ")}
           >
             <span className="bs-ship-name">{cls.name}</span>
-            <span className="bs-pips" aria-hidden="true">
-              {Array.from({ length: cls.size }, (_, i) => (
-                <i key={i} className={ship?.hits[i] ? "hit" : ""} />
-              ))}
+            <span
+              className={`bs-glyph ${cls.kind}`}
+              aria-hidden="true"
+              style={{ "--dmg": `${(100 * hits) / cls.size}%` } as React.CSSProperties}
+            />
+            {/* The glyph is a picture and the strike-through is a colour, so
+                the one word that carries all of it is said out loud too. */}
+            <span className="sr-only">
+              {sunk ? "sunk" : `${cls.size} squares, afloat`}
             </span>
-            <span className="bs-ship-note">{sunk ? "sunk" : `${cls.size}`}</span>
           </li>
         );
       })}
     </ul>
-  );
-}
-
-/**
- * Every shot of the game, newest first.
- *
- * Worth the room it takes because the grid is a poor record of a hunt: it says
- * a square was hit, never when, and "those three hits were all one turn" is
- * exactly the reasoning a player is doing between shots. Newest first so the
- * thing that just happened is at the top where the eye already is, and so the
- * list grows downwards without moving what you are reading.
- */
-function Log({ log, nameFor }: { log: LoggedShot[]; nameFor(seat: number): string }) {
-  if (log.length === 0) return null;
-  return (
-    <section className="bs-log">
-      <h3 className="bs-panel-head">
-        <span>Shots</span>
-        <span className="bs-count">{log.length}</span>
-      </h3>
-      <ol className="bs-log-list">
-        {log
-          .slice()
-          .reverse()
-          .map((shot) => (
-            <li
-              key={shot.ordinal}
-              className={`bs-log-row ${shot.hit ? "hit" : "miss"}${shot.sunk ? " sank" : ""}`}
-            >
-              <span className="bs-log-who">{nameFor(shot.seat)}</span>
-              <span className="bs-log-where">{squareName(shot.row, shot.col)}</span>
-              <span className="bs-log-what">
-                {shot.sunk
-                  ? `sank the ${shipClass(shot.sunk)?.name}`
-                  : shot.hit
-                    ? "hit"
-                    : "miss"}
-              </span>
-            </li>
-          ))}
-      </ol>
-    </section>
   );
 }
 
@@ -322,7 +432,20 @@ function Harbour({
   // anchoring every drag at the bow makes a long ship jump forward under the
   // finger the moment it moves.
   const [grab, setGrab] = useState(0);
-  const dragging = useRef(false);
+  // Two gestures, and they are not the same one.
+  //
+  // `carry` is a ship lifted off the board: she keeps the orientation and the
+  // grab offset she had, and she follows the finger.
+  //
+  // `grow` is a ship drawn out of open water: the square you pressed is her
+  // bow and it does not move, and the direction you drag is which way she
+  // lies. That is the whole of the rotate control, for anyone who never finds
+  // the buttons -- drag her across and she lies across, drag her down and she
+  // stands. It replaced a button whose label named the state it was already
+  // in, which meant half the people who pressed it turned the ship the wrong
+  // way to find out what it did.
+  const drag = useRef<"carry" | "grow" | null>(null);
+  const anchor = useRef<Cell | null>(null);
   // Set on pointer-down and read by the click that follows it, because a
   // keyboard Enter reaches `onActivate` with no pointer sequence in front of
   // it and is the one activation that still has to commit the placement.
@@ -359,6 +482,23 @@ function Harbour({
       ? placementError(fleet, inHand, bow[0], bow[1], horizontal)
       : null;
   const ghostOk = inHand !== null && bow !== null && ghostWhy === null;
+  // The hull under the finger, drawn only while every one of her squares is on
+  // the board. Hung off the tenth column she would open implicit grid tracks in
+  // the overlay and squash the ten real ones, which reads as the whole fleet
+  // shifting sideways the moment a carrier is nudged past the edge.
+  const preview: Preview | null =
+    inHand !== null &&
+    bow !== null &&
+    ghost.every(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE)
+      ? {
+          kind: inHand,
+          size: shipClass(inHand)?.size ?? 0,
+          row: bow[0],
+          col: bow[1],
+          horizontal,
+          ok: ghostOk,
+        }
+      : null;
 
   const drop = useCallback(() => {
     if (inHand === null || bow === null || !ghostOk) return;
@@ -366,6 +506,8 @@ function Harbour({
     setHover(null);
     setGrab(0);
   }, [inHand, bow, ghostOk, horizontal, onMove]);
+
+  const rotate = useCallback(() => setHorizontal((current) => !current), []);
 
   function pickUp(cell: Cell, ship: Ship) {
     // Lifted, not deleted: she comes off the board and into the hand, held at
@@ -378,12 +520,34 @@ function Harbour({
     setHover(cell);
   }
 
+  /**
+   * A ship drawn out of the water, one pointer move at a time.
+   *
+   * The bow stays on the square the drag started, and the axis with the most
+   * travel in it wins, so a wobble across a diagonal does not flip her back
+   * and forth. Dragging up or left is the same ship the other way round, which
+   * is what `grab` is for: hold her by the stern and the shared `bow`
+   * derivation above puts the bow where it belongs, with no second opinion
+   * about where the ship is.
+   */
+  function grow(cell: Cell) {
+    const start = anchor.current;
+    if (start === null || inHand === null) return;
+    const dr = cell[0] - start[0];
+    const dc = cell[1] - start[1];
+    if (dr === 0 && dc === 0) return;
+    const across = Math.abs(dc) >= Math.abs(dr);
+    const backwards = across ? dc < 0 : dr < 0;
+    const size = shipClass(inHand)?.size ?? 1;
+    setHorizontal(across);
+    setGrab(backwards ? size - 1 : 0);
+    setHover(start);
+  }
+
   function cellClass(row: number, col: number): string {
-    const ship = shipAt(fleet, row, col);
     const shadowed = ghost.some(([r, c]) => r === row && c === col);
-    return [ship ? "ship" : "", shadowed ? (ghostOk ? "ghost" : "ghost bad") : ""]
-      .filter(Boolean)
-      .join(" ");
+    if (!shadowed) return "";
+    return ghostOk ? "ghost" : "ghost bad";
   }
 
   function cellLabel(row: number, col: number): string {
@@ -401,13 +565,13 @@ function Harbour({
       // cannot reach, because the finger holding the ship is the finger that
       // would have to press it.
       onKeyDown={(event) => {
-        if (event.key === "r" || event.key === "R") setHorizontal((current) => !current);
+        if (event.key === "r" || event.key === "R") rotate();
       }}
     >
       <p className="bs-brief">
-        Set out your fleet. Drag a ship onto the water, or tap to drop the one in
-        hand. Tap a ship to take her back; <kbd>R</kbd> or the button turns her.
-        By keyboard: arrows to aim, <kbd>Enter</kbd> to drop.
+        Press a square and drag her out: the way you drag is the way she lies.
+        Tap a ship to take her back. <kbd>R</kbd>, the wheel or the buttons turn
+        her; by keyboard, the arrows aim and <kbd>Enter</kbd> drops.
       </p>
 
       <div className="bs-hand">
@@ -431,6 +595,7 @@ function Harbour({
                 setGrab(0);
               }}
             >
+              <span className={`bs-glyph ${cls.kind}`} aria-hidden="true" />
               {cls.name}
               <span className="bs-pick-size">{cls.size}</span>
             </button>
@@ -439,23 +604,29 @@ function Harbour({
       </div>
 
       <div className="bs-tools">
-        <button
-          type="button"
-          className="bs-tool"
-          disabled={ready}
-          aria-pressed={!horizontal}
-          onClick={() => setHorizontal((current) => !current)}
-        >
-          {horizontal ? "Lying across" : "Standing down"}
-        </button>
-        <button
-          type="button"
-          className="bs-tool"
-          disabled={ready}
-          onClick={() => onMove({ type: "scatter" })}
-        >
-          Scatter the rest
-        </button>
+        <div className="bs-turn" role="group" aria-label="Which way she lies">
+          <button
+            type="button"
+            className="bs-tool"
+            disabled={ready}
+            aria-pressed={horizontal}
+            aria-label="Lying across"
+            onClick={() => setHorizontal(true)}
+          >
+            <i className="across" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="bs-tool"
+            disabled={ready}
+            aria-pressed={!horizontal}
+            aria-label="Standing upright"
+            onClick={() => setHorizontal(false)}
+          >
+            <i className="upright" aria-hidden="true" />
+          </button>
+        </div>
+        <span className="bs-hint">Or drag her the way you want her to lie.</span>
       </div>
 
       <Sea
@@ -463,35 +634,46 @@ function Harbour({
         className="bs-sea-wide"
         cellClass={cellClass}
         cellLabel={cellLabel}
+        fleet={fleet}
+        sinking={null}
+        preview={preview}
+        onRotate={ready ? undefined : rotate}
         playable={(row, col) => !ready && (shipAt(fleet, row, col) !== null || inHand !== null)}
         cursor={ready ? null : cursor}
         onCursor={(cell) => {
           setCursor(cell);
           // A cursor moved by key or by mouse aims the ship at the square
           // itself. Only a drag carries a grab offset, and only until it ends.
-          if (!dragging.current) setGrab(0);
+          if (!drag.current) setGrab(0);
           setHover(cell);
         }}
         pointer={{
           onDown: (cell) => {
-            dragging.current = true;
             byPointer.current = true;
             const ship = shipAt(fleet, cell[0], cell[1]);
             if (ship) {
+              drag.current = "carry";
               pickUp(cell, ship);
               return;
             }
+            drag.current = "grow";
+            anchor.current = cell;
             setGrab(0);
             setHover(cell);
           },
           onMoveTo: (cell) => {
-            if (!dragging.current) return;
-            setCursor(cell);
-            setHover(cell);
+            if (drag.current === "carry") {
+              setCursor(cell);
+              setHover(cell);
+            } else if (drag.current === "grow") {
+              setCursor(cell);
+              grow(cell);
+            }
           },
           onUp: () => {
-            if (!dragging.current) return;
-            dragging.current = false;
+            if (!drag.current) return;
+            drag.current = null;
+            anchor.current = null;
             drop();
           },
         }}
@@ -601,9 +783,12 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
   // Where the guns are pointed, which is not the same as where they have
   // fired. A shot cannot be taken back and costs the turn that fired it, and
   // the squares are small, small enough on a phone that a thumb covers three of
-  // them, so a press aims and a second press on the same square fires. The
-  // named button says the square out loud, which is also the only way a
-  // keyboard player can be certain before committing.
+  // them, so a press aims and a second press on the same square fires.
+  //
+  // What makes that safe without a confirm button under the board is that the
+  // aim is drawn *outside* the grid as well as in it: the rank and the file
+  // light in the gutters and a line runs out to them, so the square being
+  // committed to is named where there is room to read it.
   const [aim, setAim] = useState<Cell | null>(null);
   const [cursor, setCursor] = useState<Cell>([0, 0]);
 
@@ -664,14 +849,8 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
 
   function targetClass(row: number, col: number): string {
     const shot = shotAt(yourShots, row, col);
-    // A wreck is only ever a ship `view()` chose to reveal: sunk, or the game
-    // is over. Either way it is ours to draw.
-    const wreck = shipAt(theirFleet, row, col);
-    const revealed = wreck !== null && !isHidden(wreck);
     return [
       shot ? (shot.hit ? "hit" : "miss") : "",
-      revealed ? "wreck" : "",
-      revealed && wreck.kind === sinking ? "going" : "",
       sameCell(aim, [row, col]) ? "aimed" : "",
       seat !== null && isLatest(row, col, seat) ? "latest" : "",
     ]
@@ -679,17 +858,63 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
       .join(" ");
   }
 
+  // What the next tap does, in the one line that used to be a line and a
+  // button. The square is named in full before it is committed to, which is
+  // what the button was for.
+  const orders = myShot ? (
+    aim ? (
+      <span>
+        <b>Locked</b> on <span className="bs-coord">{squareName(aim[0], aim[1])}</span>, tap
+        again to fire
+      </span>
+    ) : yourShots.at(-1)?.hit ? (
+      // A hit keeps the guns, so a player mid-streak is told why they still
+      // have them, or a second shot looks like a bug.
+      <span>
+        <b>A hit.</b> Fire again.
+      </span>
+    ) : (
+      <span>
+        <b>Your shot.</b> Pick a square.
+      </span>
+    )
+  ) : (
+    // Their last shot, which is the one thing the shot log was really for:
+    // "where did they just go" is asked every turn, and it does not need a
+    // scrolling panel under the board to answer.
+    <span>
+      {mine ? `${nameFor(them)} is firing` : "Watching"}
+      {theirShots.length > 0 && (
+        <>
+          {", last shot "}
+          <span className="bs-coord">
+            {squareName(theirShots[theirShots.length - 1].row, theirShots[theirShots.length - 1].col)}
+          </span>
+          {theirShots[theirShots.length - 1].hit ? ", a hit" : ", a miss"}
+        </>
+      )}
+    </span>
+  );
+
   return (
     <div className="board bs-board">
       <div className="bs-seas">
         <section className="bs-panel">
           <h3 className="bs-panel-head">
-            <span>{them === null ? "Their waters" : `${nameFor(them)}'s waters`}</span>
+            <span className="bs-who them">
+              {them === null ? "Their waters" : `${nameFor(them)}'s waters`}
+            </span>
             <span className="bs-count">{afloat(theirFleet).length} afloat</span>
           </h3>
           <Sea
             label={them === null ? "Their waters" : `${nameFor(them)}'s waters`}
             cellClass={targetClass}
+            // A hull is only ever drawn here once `view()` has revealed her:
+            // sunk, or the game is over. `Hulls` skips the hidden ones, so
+            // handing it the whole fleet reveals nothing.
+            fleet={theirFleet}
+            sinking={sinking}
+            aim={aim}
             cellLabel={(row, col) => {
               const shot = shotAt(yourShots, row, col);
               const where = squareName(row, col);
@@ -707,23 +932,29 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
             onCursor={(cell) => setCursor(cell)}
             onActivate={(row, col) => fireAt([row, col])}
           />
+          {/* Over the sea rather than under it. A line in the flow had to hold
+              its height all game so that its arrival did not shove everything
+              below it down, which left an empty bar under the board for the
+              whole game. Floating, it can simply not be there. */}
+          {sinking && (
+            <p className="bs-banner">The {shipClass(sinking)?.name} is sunk</p>
+          )}
           <Roster fleet={theirFleet} label="Their fleet" sinking={sinking} />
         </section>
 
         <section className="bs-panel">
           <h3 className="bs-panel-head">
-            <span>Your waters</span>
+            <span className="bs-who">Your waters</span>
             <span className="bs-count">{afloat(yourFleet).length} afloat</span>
           </h3>
           <Sea
             label="Your waters"
+            fleet={yourFleet}
+            sinking={sinking}
             cellClass={(row, col) => {
-              const ship = shipAt(yourFleet, row, col);
               const shot = shotAt(theirShots, row, col);
               return [
-                ship ? "ship" : "",
                 shot ? (shot.hit ? "hit" : "miss") : "",
-                ship && isSunk(ship) && ship.kind === sinking ? "going" : "",
                 them !== null && isLatest(row, col, them) ? "latest" : "",
               ]
                 .filter(Boolean)
@@ -750,38 +981,17 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
 
       {/* Announced as well as drawn. A screen reader gets hit and miss from
           the cell it just fired at, and would otherwise never hear the one
-          piece of news that is not attached to a square. */}
-      <p className="bs-sinking" role="status" aria-live="assertive">
+          piece of news that is not attached to a square. The banner above is
+          a picture of this line, and this is the line. */}
+      <p className="sr-only" role="status" aria-live="assertive">
         {sinking ? `The ${shipClass(sinking)?.name} is sunk` : ""}
       </p>
 
-      {mine && state.phase === "firing" && (
-        <div className="bs-orders">
-          <p className="bs-waiting" aria-live="polite">
-            {myShot
-              ? aim
-                ? `Aimed at ${squareName(aim[0], aim[1])}.`
-                : // A hit keeps the guns, so a player mid-streak is told why
-                  // they still have them, or a second shot looks like a bug.
-                  yourShots.at(-1)?.hit
-                  ? "A hit. Fire again."
-                  : "Your shot. Pick a square."
-              : `Waiting for ${nameFor(them)} to fire.`}
-          </p>
-          {myShot && (
-            <button
-              type="button"
-              className="bs-fire"
-              disabled={aim === null}
-              onClick={() => aim && fireAt(aim)}
-            >
-              {aim ? `Fire at ${squareName(aim[0], aim[1])}` : "Pick a square"}
-            </button>
-          )}
-        </div>
+      {state.phase === "firing" && (
+        <p className={`bs-orders${myShot ? "" : " waiting"}`} aria-live="polite">
+          {orders}
+        </p>
       )}
-
-      <Log log={log} nameFor={nameFor} />
     </div>
   );
 }

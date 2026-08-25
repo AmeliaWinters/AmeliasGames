@@ -9,12 +9,23 @@ import {
   isAction,
   readFrame,
   readHello,
+  type Hello,
   type Refusal,
 } from '../shared/session.js';
+import { verifyClaim } from '../shared/account.js';
 import { PING_FRAME, PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
+import type { ProfileView } from '../shared/profile.js';
+import { harvestKey } from '../shared/harvest.js';
+import { PLAYER_PATHS, type HarvestPost } from '../shared/players.js';
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
+  /**
+   * One object per account. Reached only from inside a room, never routed to
+   * from `fetch` — see the note on `Player`. A client that could post its own
+   * results could post any results.
+   */
+  PLAYERS: DurableObjectNamespace;
   ASSETS: Fetcher;
 }
 
@@ -37,6 +48,16 @@ interface SocketMeta {
   playerId: string;
   seat: number;
   since: number;
+  /**
+   * The account this socket proved on the way in, or absent for a guest.
+   *
+   * On the attachment rather than looked up from the engine, because it is
+   * what answers a `profile` message and hibernation destroys everything else:
+   * the seat survives here already for exactly the same reason. It is written
+   * only from a verified claim, so a socket cannot come back from hibernation
+   * holding an account it never proved.
+   */
+  accountId?: string;
 }
 
 function isSeated(meta: SocketMeta | null): boolean {
@@ -50,10 +71,12 @@ function isSeated(meta: SocketMeta | null): boolean {
  */
 export class GameRoom implements DurableObject {
   private state: DurableObjectState;
+  private env: Env;
   private engine: RoomEngine | null = null;
 
-  constructor(state: DurableObjectState) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state;
+    this.env = env;
     // Answer the client's heartbeat in the runtime, below this object. A
     // hibernating room costs nothing until somebody plays a move; if the ping
     // arrived as an ordinary message it would wake the object every twenty
@@ -105,6 +128,156 @@ export class GameRoom implements DurableObject {
     const deadline = this.engine.deadline();
     if (deadline !== null) await this.ensureAlarm(Math.max(0, deadline - Date.now()));
     await this.ensureAlarm(IDLE_TICK_MS);
+  }
+
+  /**
+   * Mark that a game has just been dealt, and reserve the key its results will
+   * be filed under.
+   *
+   * Called on `start`, `rematch` and `switch`, which are the only three ways a
+   * game is dealt — `move` never deals one, and `RoomEngine` refuses all three
+   * otherwise, so a successful one of those is exactly a deal.
+   *
+   * The key is minted **here**, at the deal, rather than at the end. That is
+   * what makes a retry safe: whatever happens between now and the final
+   * whistle, the results go out under this string, so a repeat is recognisable
+   * as a repeat at the far end (see `applyRecord`). Minting it at the end
+   * instead would mean a crashed write retrying under a *different* key, which
+   * is the failure that quietly doubles somebody's experience.
+   *
+   * `run` is a random id for this room's lifetime, not the room code, and the
+   * difference matters: codes are four letters and get reused, so a room
+   * `ABCD` in March and another `ABCD` in June would both file their first
+   * game as `ABCD#1` and the second would be dropped as a duplicate of the
+   * first.
+   *
+   * All of it lives in its own storage keys rather than in `RoomSnapshot`, the
+   * way `emptySince` already does: it is adapter bookkeeping, no reducer ever
+   * sees it, and putting it in the snapshot would mean a `SNAPSHOT_VERSION`
+   * bump that deletes every live room on deploy for the sake of a counter.
+   */
+  private async dealt(): Promise<void> {
+    let run = await this.state.storage.get<string>('run');
+    if (!run) {
+      run = crypto.randomUUID().slice(0, 8);
+      await this.state.storage.put('run', run);
+    }
+    const games = ((await this.state.storage.get<number>('games')) ?? 0) + 1;
+    await this.state.storage.put('games', games);
+    await this.state.storage.put('pending', harvestKey(run, games));
+  }
+
+  /**
+   * File a finished game with everybody who was signed in for it.
+   *
+   * Gated on `pending` rather than on catching the moment the game ended, and
+   * that is the whole design: `pending` is set when the game is dealt and
+   * cleared only when every account has taken its results, so this is safe to
+   * call as often as anything likes and **retries itself** on the next message
+   * or alarm if a player object was unreachable. Catching the transition
+   * instead would give exactly one attempt, and a room whose harvest failed
+   * would lose the game silently.
+   *
+   * Cleared only when *all* of them succeeded. A partial write is the one case
+   * worth being careful about, and the answer is to try the lot again: the
+   * accounts that already took it will recognise the key and do nothing.
+   */
+  /**
+   * Ask one player object something. The only way this class ever reaches one.
+   *
+   * Returns null rather than throwing on anything at all. A player object that
+   * cannot be reached must never take a room down with it: the game is the
+   * thing people are here for, and a profile that lands a few seconds late is
+   * not worth a dropped socket.
+   */
+  private async askPlayer(
+    accountId: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ profile: ProfileView } | null> {
+    try {
+      const stub = this.env.PLAYERS.get(this.env.PLAYERS.idFromName(accountId));
+      const response = await stub.fetch(
+        `https://player${path}?id=${encodeURIComponent(accountId)}`,
+        body === undefined
+          ? undefined
+          : {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+      );
+      if (!response.ok) return null;
+      return (await response.json()) as { profile: ProfileView };
+    } catch {
+      return null;
+    }
+  }
+
+  private async sendProfile(ws: WebSocket, accountId: string): Promise<void> {
+    const answer = await this.askPlayer(accountId, PLAYER_PATHS.profile);
+    if (answer) this.post(ws, { t: 'profile', profile: answer.profile });
+  }
+
+  /** The live socket for a seat, if anybody is sitting at it right now. */
+  private socketAt(seat: number): WebSocket | null {
+    for (const ws of this.state.getWebSockets()) {
+      const meta = ws.deserializeAttachment() as SocketMeta | null;
+      if (meta && meta.playerId !== '' && meta.seat === seat) return ws;
+    }
+    return null;
+  }
+
+  private async harvest(engine: RoomEngine): Promise<void> {
+    const pending = await this.state.storage.get<string>('pending');
+    if (!pending) return;
+
+    const accounts = engine.accounts();
+    // Nobody signed in. The commonest room in the app, and it should cost one
+    // storage read and no requests at all.
+    if (accounts.length === 0) {
+      await this.state.storage.delete('pending');
+      return;
+    }
+
+    const record = engine.record();
+    if (record === null) {
+      // Eleven of the thirteen games implement no `record`, so there is
+      // nothing to file beyond the fact that it happened — and that is exactly
+      // what an empty `learned` list says.
+      await this.state.storage.delete('pending');
+      return;
+    }
+
+    const now = Date.now();
+    const results = await Promise.all(
+      accounts.map(async ({ seat, accountId }) => {
+        const post: HarvestPost = {
+          record,
+          seat,
+          key: pending,
+          now,
+          name: engine.viewFor(seat, new Set(), now).players[seat]?.name ?? '',
+        };
+        // A player object that cannot be reached is a retry, not an error to
+        // report: nobody in the room did anything wrong, and telling them
+        // their game did not count would be worse than quietly filing it a few
+        // seconds later. `harvest` is gated on `pending`, so the next message
+        // or alarm comes back for it.
+        const answer = await this.askPlayer(accountId, PLAYER_PATHS.harvest, post);
+        if (answer === null) return false;
+
+        // The profile comes back from the write itself rather than being
+        // fetched again, which saves a second round trip to the same object at
+        // the one moment it is certainly awake. The end of a game is when
+        // somebody should see what it taught them.
+        const ws = this.socketAt(seat);
+        if (ws) this.post(ws, { t: 'profile', profile: answer.profile });
+        return true;
+      }),
+    );
+
+    if (results.every(Boolean)) await this.state.storage.delete('pending');
   }
 
   /** Arrange for `alarm()` to run within `delay`, without pushing it later. */
@@ -198,7 +371,11 @@ export class GameRoom implements DurableObject {
       const routingCode = (await this.state.storage.get<string>('code')) ?? null;
       const greeting = readHello(msg, routingCode);
       if (!greeting.ok) return this.fail(ws, greeting);
-      const { hello } = greeting;
+      // The account is settled before the room is, because `join` takes it. A
+      // claim that does not check out seats a guest and is never a refusal:
+      // somebody whose key has gone wrong should still get their game.
+      const accountId = (await verifyClaim(greeting.hello.claim, greeting.hello.code)) ?? undefined;
+      const hello: Hello = { ...greeting.hello, accountId };
 
       // The only I/O in finding a room. In the dev server the same step is a
       // `Map` lookup, which is why `admit` takes the engine rather than going
@@ -208,7 +385,7 @@ export class GameRoom implements DurableObject {
       const engine = found.engine;
       if (found.created) this.engine = engine;
 
-      const result = engine.join(hello.playerId, hello.name);
+      const result = engine.join(hello.playerId, hello.name, hello.accountId);
       if (!result.ok) return this.fail(ws, { kind: result.kind, error: result.error });
 
       // Drop any earlier socket for this same player so it stops receiving
@@ -220,7 +397,12 @@ export class GameRoom implements DurableObject {
         if (otherMeta?.playerId === hello.playerId) other.close(4000, 'Reconnected elsewhere');
       }
 
-      ws.serializeAttachment({ playerId: hello.playerId, seat: result.seat, since } satisfies SocketMeta);
+      ws.serializeAttachment({
+        playerId: hello.playerId,
+        seat: result.seat,
+        since,
+        accountId: hello.accountId,
+      } satisfies SocketMeta);
       await this.state.storage.delete('emptySince');
       await this.persist();
 
@@ -228,11 +410,19 @@ export class GameRoom implements DurableObject {
       // answering rather than welcoming someone into a game that is over and
       // does not know it.
       if (engine.tick()) await this.persist();
+      // And a game that ended while nobody was here still has to be filed.
+      // This is also the retry: `harvest` is gated on `pending`, so a write
+      // that failed last time is simply tried again now.
+      if (engine.isOver()) await this.harvest(engine);
       this.post(ws, {
         t: 'welcome',
         seat: result.seat,
         room: engine.viewFor(result.seat, this.connectedSeats()),
       });
+      // Sent unasked-for, because the lobby's "18 words due" is the whole
+      // reason anybody comes back and it should be on the screen before they
+      // have pressed anything.
+      if (hello.accountId) await this.sendProfile(ws, hello.accountId);
       this.broadcast();
       return;
     }
@@ -253,10 +443,21 @@ export class GameRoom implements DurableObject {
       });
     }
 
+    if (msg.t === 'profile') {
+      // No id on the message, so this can only ever answer for the account
+      // this socket proved on the way in. There is nobody else to ask about.
+      if (meta.accountId) await this.sendProfile(ws, meta.accountId);
+      return;
+    }
+
     if (isAction(msg)) {
       const result = applyAction(engine, meta.seat, msg);
       if (!result.ok) return this.fail(ws, { kind: 'rejected', error: result.error });
+      // `start`, `rematch` and `switch` are the three ways a game is dealt, and
+      // a successful one of them is exactly a deal. `move` never deals.
+      if (msg.t !== 'move') await this.dealt();
       await this.persist();
+      if (engine.isOver()) await this.harvest(engine);
       this.broadcast();
     }
   }
@@ -301,6 +502,11 @@ export class GameRoom implements DurableObject {
       await this.state.storage.put('room', engine.snapshot());
       this.broadcast();
     }
+    // Deliberately outside the `tick` guard. A timed game whose clock ran out
+    // in an empty room is settled by the tick above, but a harvest that failed
+    // on an earlier pass leaves `pending` set with nothing left to tick, and
+    // this alarm is the only thing that will ever come back for it.
+    if (engine?.isOver()) await this.harvest(engine);
 
     let pending = false;
     for (const ws of this.state.getWebSockets()) {
@@ -338,6 +544,10 @@ export class GameRoom implements DurableObject {
     }
   }
 }
+
+// Exported so `wrangler.toml` can name it. It is never routed to: rooms reach
+// it through their stub, which is the whole trust story. See `player.ts`.
+export { Player } from './player.js';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

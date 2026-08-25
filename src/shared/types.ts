@@ -15,6 +15,7 @@
  *
  * Every display module says only why *its* game needs the split beyond that.
  */
+import type { GameRecord } from './harvest.js';
 
 /** Returns a float in [0, 1), like Math.random. Injectable so tests are exact. */
 export type Rng = () => number;
@@ -95,4 +96,23 @@ export interface GameDefinition<S = unknown, M = unknown> {
    * it, and there may be no one connected at all.
    */
   expire?(state: S, now: number): S | null;
+
+  /**
+   * What this finished game says about the people who played it: who won, and
+   * for the two language games, every word anybody met.
+   *
+   * Only ever called on a state `isOver` says is finished, and pure like
+   * everything else here — the room calls it, the adapters post the result to
+   * the player objects, and no part of that is this method's business.
+   *
+   * **Optional, and on the contract rather than in a `switch` somewhere.**
+   * Eleven of the thirteen games implement nothing: a room can already see who
+   * won from `isOver` and the state it is holding, and a `record` that only
+   * restated that would be eleven functions earning nothing. The two that do
+   * implement it are the two whose whole point is the vocabulary passing
+   * through them, and it goes here so the compiler is what names the
+   * registration point — a `switch` over game ids in the harvest module would
+   * be a fourteenth place to remember, and nothing would hold it to account.
+   */
+  record?(state: S, seats: number): GameRecord;
 }

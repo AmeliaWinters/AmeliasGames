@@ -1275,3 +1275,100 @@ describe('the chase', () => {
     expect(chasing.available).toBe(countStarting('pl', '', usedKeys(chasing)));
   });
 });
+
+/**
+ * What the chain hands the ledger.
+ *
+ * The three events this game produces are not interchangeable and the whole
+ * value of the account system rests on their staying apart: a word you said is
+ * evidence, a word they said is not, and a word you were *shown* is the reason
+ * to play at all.
+ */
+describe('what it records', () => {
+  /** Seat 1 gives up answering an E in Polish, which ends the game. */
+  function finished(): WcState {
+    const state = say(playing('en', 'pl', 0), 'apple', 0);
+    const result = wordChain.applyMove(state, { type: 'give-up' }, 1, rng, 1_000);
+    if (!result.ok) throw new Error(result.error);
+    return result.state;
+  }
+
+  const outcome = (state: WcState, seat: number) =>
+    wordChain.record?.(state, 2)?.seats.find((s) => s.seat === seat);
+
+  it('names the game and answers for every seat', () => {
+    const rec = wordChain.record?.(finished(), 2);
+    expect(rec?.gameId).toBe('wordchain');
+    expect(rec?.seats.map((s) => s.seat)).toEqual([0, 1]);
+    expect(rec?.seats.map((s) => s.result)).toEqual(['won', 'lost']);
+  });
+
+  it('grades the word you said as production, and theirs as a sighting', () => {
+    const state = finished();
+    expect(outcome(state, 0)?.learned[0]).toMatchObject({ word: 'apple', lang: 'en' });
+    expect(outcome(state, 0)?.learned[0].grade).toMatch(/^produced/);
+    expect(outcome(state, 1)?.learned[0]).toMatchObject({ word: 'apple', grade: 'seen' });
+  });
+
+  /**
+   * The reveal, which is the point of the game: a minute of failing to think
+   * of a word is when you are most likely to remember it, so the word goes
+   * into the ledger for the person who could not find it.
+   */
+  it('gives the loser the word they could not find, as shown', () => {
+    const state = finished();
+    const shown = outcome(state, 1)?.learned.filter((l) => l.grade === 'shown') ?? [];
+    expect(shown).toHaveLength(1);
+    expect(shown[0].lang).toBe('pl');
+    expect(shown[0].word).toBe(missFor(state, 1)?.reveal?.word);
+    // The winner reads the same reveal on the same end screen, but it is not
+    // theirs to have failed at.
+    expect(outcome(state, 0)?.learned.some((l) => l.grade === 'shown')).toBe(false);
+  });
+
+  it('files a word under its lemma, folded, rather than under the form played', () => {
+    const state = finished();
+    const said = outcome(state, 0)?.learned[0];
+    const link = state.chain[0];
+    expect(said?.key).toBe(fold(link.lemma || link.word));
+    // `link.key` is the folded form of the word *as played*, which is what the
+    // chain links on. Using it would file every inflection under its own row.
+    expect(said?.word).toBe(link.word);
+  });
+
+  /**
+   * Measured against `turnMsFor(i)` rather than `TURN_MS`, because the minute
+   * shrinks a second a word: four seconds is fast at the start of a chain and
+   * ordinary at word fifty-five, and the ledger must not report the difference
+   * between those as a difference in the player.
+   */
+  it('reads speed against the allowance that turn actually had', () => {
+    const early: WcState = {
+      ...finished(),
+      chain: [{ ...padded(1)[0], seat: 0, ms: 4_000, lang: 'en', word: 'apple', key: 'apple' }],
+    };
+    expect(outcome(early, 0)?.learned[0].grade).toBe('produced-fast');
+
+    // The same four seconds, deep enough into a chain that the allowance has
+    // fallen to the floor.
+    const late: WcState = {
+      ...early,
+      chain: [
+        ...padded(80),
+        { ...padded(1)[0], seat: 0, ms: 4_000, lang: 'en', word: 'apple', key: 'apple' },
+      ],
+    };
+    expect(turnMsFor(80)).toBe(MIN_TURN_MS);
+    // Indexed by position in the chain, because `learned` carries the reveals
+    // after it and `.at(-1)` would be one of those.
+    expect(outcome(late, 0)?.learned[late.chain.length - 1].grade).toBe('produced');
+  });
+
+  it('carries the gloss and the rank, because the ledger cannot look them up', () => {
+    const said = outcome(finished(), 0)?.learned[0];
+    expect(said?.rank).toBeGreaterThan(0);
+    // The client has no dictionary and never may, so every word has to arrive
+    // carrying what the profile screen will draw.
+    expect(typeof said?.gloss).toBe('string');
+  });
+});

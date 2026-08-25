@@ -17,8 +17,24 @@ run_worker_first = ["/ws"]
 name = "ROOMS"
 class_name = "GameRoom"
 
+# One object per account, holding that player's profile and vocabulary ledger.
+# Reached only from inside a room -- there is no route to it in the worker's
+# fetch and there must never be one. A client that could post its own results
+# could post any results, and the interesting cheat is not "I won" but "I knew
+# that word".
+[[durable_objects.bindings]]
+name = "PLAYERS"
+class_name = "Player"
+
 [[migrations]]
 tag = "v1"
 # Must be new_sqlite_classes, not new_classes: SQLite-backed Durable Objects
 # are the ones included on the free plan.
 new_sqlite_classes = ["GameRoom"]
+
+# A new class needs its own tag. Adding it to v1 would be editing a migration
+# that has already run, which Cloudflare refuses, and the refusal arrives at
+# deploy time with every room already live.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Player"]

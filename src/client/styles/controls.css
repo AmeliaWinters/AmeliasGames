@@ -109,10 +109,207 @@ button.primary:focus-visible {
   outline-offset: 3px;
 }
 
-/* Opening screen */
+/* Opening screen
+   Nine per cent of the viewport used to stand above the wordmark, because the
+   screen under it was a form and a form wants air over it. The screen under it
+   is a shelf now: the first thing on it is a bar, the second is the game you
+   played last, and pushing both of those down the page to make the brand feel
+   important costs the visitor the thing they came for. */
 .setup {
-  padding-top: 9vh;
+  padding-top: 14px;
   gap: 11px;
+}
+
+/* The bar: the wordmark, who you are, and the way in for somebody holding a
+   code. Everything the old left-hand column held, on one line.
+
+   It is not sticky. A lobby is scrolled once, on purpose, and a bar that
+   follows the thumb down thirteen cards would be covering two of them the
+   whole way for the sake of a control almost nobody on this screen needs
+   twice. Both of its buttons open a panel directly beneath it, so the thing
+   they open is never off-screen when they are pressed. */
+.lobby-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+  /* The two buttons hold their size and the wordmark takes what is left, so a
+     long name never squeezes "Have a code?" onto two lines. */
+  flex-wrap: nowrap;
+}
+/* Small, because it is a mark on a bar rather than a title on a page. The
+   clamped 4rem version below still belongs to the two recovery screens, which
+   are a heading and a button and nothing else -- they have no `.lobby-bar`, so
+   this rule cannot reach them. */
+.lobby-bar .wordmark {
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+  /* The one thing on this line allowed to lose characters, and it loses them
+     last: the brand is the half of this bar the reader already knows. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Who you are: an avatar, a name, and a press to change either.
+
+   A chip rather than a field, because a name is typed once and read on every
+   visit after that. The field it replaced was the first control on the screen
+   and was already filled in for nine visits out of ten -- an answered question
+   sitting in front of the shelf, being asked again.
+
+   Nothing about it says "edit": it is a button, it says your name, and pressing
+   the thing that says your name to change your name is the whole of the
+   affordance. `aria-expanded` carries the rest, since what it opens is a panel
+   directly below it. */
+.whoami,
+.havecode {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink);
+  background: none;
+  border-color: var(--rule-hi);
+  border-radius: 999px;
+  padding: 6px 13px;
+  /* The floor every touch target here is held to. */
+  min-height: 44px;
+}
+.whoami {
+  padding-left: 6px;
+  max-width: 46vw;
+}
+.whoami .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The initial, in the channel colour, at the size a seat chip is drawn at
+   elsewhere: this is the same person the seat strip in a room is about to
+   name, and it should be recognisable as them before the game starts. */
+.whoami .av {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--ground);
+}
+/* Pressed open, both of them read as pressed: the panel underneath is the
+   other half of this control, and a bar button that opened something without
+   changing is a button people press twice. */
+.whoami[aria-expanded="true"],
+.havecode[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--ground);
+  border-color: var(--ink);
+}
+.whoami[aria-expanded="true"] .av {
+  background: var(--ground);
+  color: var(--ink);
+}
+
+/* What either bar button opens: one panel, under the bar, holding only the
+   question that was asked. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 14px;
+}
+.panel h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.panel .hint {
+  margin: 0;
+  text-align: center;
+}
+
+/* The code, at the size of the thing being held.
+   Four letters read out across a room went into a 90px field with a 0.68rem
+   label over it -- the smallest control on the screen for the one job its
+   owner came to do. Four boxes instead, big enough to check a letter at a
+   time against somebody reading them out.
+
+   The boxes are drawn from the value and the input lies transparently over
+   them; see `CodeCells` in `App.tsx` for why it is one field and not four. */
+.code-panel {
+  align-items: stretch;
+}
+.cells {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.cells .cell {
+  width: 54px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-style: normal;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  border: 2px dashed var(--rule-hi);
+  border-radius: var(--panel-radius);
+}
+/* The box the next letter lands in, solid where the empty ones are dashed.
+   A blinking caret would be the only thing on this screen that moves, and the
+   position is a state rather than an event, so it is drawn as one. */
+.cells .cell.caret {
+  border-style: solid;
+  border-color: var(--accent);
+}
+/* The real field, over the whole row: transparent text, so the boxes show what
+   was typed, and a full-size box so a thumb landing anywhere on the row puts
+   the cursor where it expects. */
+.cells-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 2rem;
+  text-align: center;
+  letter-spacing: 0.5em;
+}
+.cells-field:focus-visible {
+  outline: none;
+}
+/* The ring goes round the boxes, because the field cannot be seen. */
+.cells:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 .setup .wordmark {
@@ -131,24 +328,6 @@ button.primary:focus-visible {
 .tagline {
   margin: 0 0 14px;
   color: var(--muted);
-}
-
-/* The two halves of the opening screen: the form, and the shelf of games.
-   Nothing but two stacks at phone width, where they simply follow each other
-   down the one column. They exist so the desktop `@media` in `base.css` has
-   two things to put side by side.
-
-   Real flex columns rather than `display: contents`, which would have been
-   tidier and is the wrong bet here: the APK ships its own WebView, the same
-   one that has no `:has()`, and a browser that ignores `display: contents`
-   would collapse every gap inside both halves. Two nested columns cost one
-   element each and cannot fail that way. */
-.setup-intro,
-.setup-tables {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  min-width: 0;
 }
 
 label {
@@ -176,68 +355,6 @@ input::placeholder {
 input:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: -1px;
-}
-
-.code-input {
-  font-family: var(--mono);
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-}
-
-/* The code and the button that uses it, on one line.
-
-   A row rather than the full-width field-then-button the rest of this screen
-   is built from, and that is what buys the placement: joining costs four
-   letters, so it fits beside its own button and takes one line out of a screen
-   whose whole problem was length. Baseline-aligned at the bottom, because the
-   label sits above the field and the button has no label to sit under. */
-.joinbar {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.joinbar label {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-/* The field takes the row and the button takes what it needs, rather than the
-   two splitting it evenly: a four-letter code is typed with a thumb, and the
-   target it is typed into should be the big half. 44px is the floor every
-   touch target here is held to -- the padding alone comes out at 43. */
-.joinbar input {
-  width: 100%;
-  min-height: 44px;
-}
-.joinbar button {
-  flex: 0 0 auto;
-  /* The floor every touch target here is held to, and matching what the field
-     beside it comes out at so the row has one bottom edge. */
-  min-height: 44px;
-}
-/* The hint belongs to the field above it, not to the divider under it. */
-.joinbar + .hint {
-  margin-top: calc(-11px + 4px);
-}
-
-/* The shelf's heading, drawn as a rule with words in it. It is an `h2` rather
-   than a `div` so that the label the eye reads and the label a screen reader
-   announces for the section below are the same string -- which means the
-   heading defaults have to be undone here, since none of them are wanted. */
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 400;
-  margin: 5px 0;
-}
-.divider::before,
-.divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--rule);
 }
 
 .setup .swap {

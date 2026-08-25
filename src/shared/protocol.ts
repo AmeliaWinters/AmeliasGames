@@ -1,4 +1,5 @@
 /** Wire format shared by client and server. */
+import type { ProfileView } from './profile.js';
 
 /**
  * Bumped whenever a message shape changes incompatibly. A tab left open across
@@ -17,8 +18,15 @@
  * wire changed type; a board built before it simply reads the field it always
  * read, finds it empty, and draws a text box under a question that is not there.
  * A tab left open across the deploy has to refresh rather than play that.
+ *
+ * 8 adds accounts. `hello` may carry a signed claim to one, and the server may
+ * send a `profile` back. Neither is required and a room where nobody has an
+ * account plays exactly as it always has — but the version still moves, because
+ * an older client cannot be told about a profile it has no field for, and a
+ * newer client that quietly went unrecognised would sit there having earned
+ * nothing and never find out why.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message
@@ -114,6 +122,20 @@ export type ClientMessage =
       /** True when this client expects to be opening a brand-new room. */
       create: boolean;
       gameId: string;
+      /**
+       * A signed claim to an account, or absent for a guest.
+       *
+       * Absent is the ordinary case and must stay playable forever: the app
+       * advertises "no accounts" on every share card, and the whole charm of
+       * it is that a link is enough. A claim that fails to verify is treated
+       * as absent rather than as a refusal — somebody whose key has gone wrong
+       * should still get their game.
+       *
+       * Deliberately not typed as `AccountClaim`: this is the wire, where
+       * everything is `unknown` until it has been checked, and `verifyClaim`
+       * is what checks it.
+       */
+      account?: unknown;
     }
   | { t: 'move'; move: unknown }
   | { t: 'rematch' }
@@ -150,7 +172,16 @@ export type ClientMessage =
    * The table is whoever is sitting here, so a game that cannot seat this
    * many is refused rather than quietly dropping somebody.
    */
-  | { t: 'switch'; gameId: string };
+  | { t: 'switch'; gameId: string }
+  /**
+   * What have I got?
+   *
+   * Answered only for a socket that arrived with a claim that verified, so it
+   * cannot be used to read somebody else's: there is no id on it to name one.
+   * The client asks on joining, and the server also pushes an unasked-for
+   * answer when a game it played has just been filed — see `profile` below.
+   */
+  | { t: 'profile' };
 
 export type ServerMessage =
   | { t: 'welcome'; seat: number; room: RoomView }
@@ -164,7 +195,20 @@ export type ServerMessage =
    * does not drag it out of hibernation every twenty seconds for as long as
    * somebody holds a tab open.
    */
-  | { t: 'pong' };
+  | { t: 'pong' }
+  /**
+   * Your profile, as a summary.
+   *
+   * Sent in answer to `profile`, and again unasked-for the moment a finished
+   * game has been filed, which is the moment worth showing somebody what they
+   * earned. Pushed rather than requested because the alternative is the client
+   * polling for a change it cannot predict, and because a player who was
+   * looking at the end screen when the write landed should see the number move.
+   *
+   * A **summary**, never the ledger: five thousand words is around 600KB and
+   * this would carry it on every join. See `ProfileView`.
+   */
+  | { t: 'profile'; profile: ProfileView };
 
 /**
  * The heartbeat frames as bytes, because Cloudflare's auto-responder matches

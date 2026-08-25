@@ -1,4 +1,7 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
+import type { Learned, SeatOutcome } from '../harvest.js';
+import type { Grade } from '../review.js';
+import { wasFast } from '../review.js';
 import { GAME_MANIFEST } from './manifest.js';
 import { named } from '../refusal.js';
 import {
@@ -6,6 +9,7 @@ import {
   chainLookup,
   commonestStarting,
   countStarting,
+  fold,
   foldLetter,
 } from './chainDictionary.js';
 import type { ChainEntry } from './chainDictionary.js';
@@ -674,4 +678,105 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     }
     return `${who(state.at)}'s turn: ${asked}.`;
   },
+
+  /**
+   * What the chain taught the two of them.
+   *
+   * Three kinds of event come out of one game, and the third is the reason
+   * this method is worth having at all:
+   *
+   * 1. **A word you said** is production under a clock, which is the strongest
+   *    evidence this app can produce that you know something. `produced-fast`
+   *    when it landed inside two fifths of the allowance *that turn* had —
+   *    `turnMsFor(i)`, not `TURN_MS`, because the minute shrinks a second a
+   *    word and a five-second turn near the end of a long chain is a different
+   *    thing entirely. A word said in four seconds is fast at the start and
+   *    ordinary at word fifty-five, and the ledger should not report the
+   *    difference between those as a difference in the player.
+   *
+   * 2. **A word they said** is a sighting, and nothing more. It bumps `seen`
+   *    on a row that already exists and never creates one — see `applyRecord`.
+   *    Reading a word is not knowing it, and a ledger that counted it would
+   *    have both players "knowing" every word in a language neither was
+   *    playing.
+   *
+   * 3. **The word you could not find** is the best data in the whole app. This
+   *    game's entire argument (see the note at the top of this file) is that a
+   *    minute of failing to think of a word is when you are most likely to
+   *    remember it, and the reveal is what that minute is for. So a reveal
+   *    goes in as `shown`: introduced at the bottom of the ladder, back
+   *    tomorrow. It is the single behaviour that turns this from a game into a
+   *    course, and it costs one line.
+   *
+   * Only ever called once the game is over, so `loser` is set and both misses
+   * are in. A game with no loser cannot happen here — `phase` only becomes
+   * `over` through a path that names one — but it is read defensively anyway,
+   * because the cost of being wrong is a profile write and profiles are the
+   * one thing in this repo that does not get thrown away.
+   */
+  record(state, seats) {
+    const outcomes: SeatOutcome[] = [];
+
+    for (let seat = 0; seat < seats; seat++) {
+      const learned: Learned[] = [];
+
+      state.chain.forEach((link, i) => {
+        learned.push(
+          linkLearned(
+            link,
+            link.seat === seat
+              ? wasFast(link.ms, turnMsFor(i))
+                ? 'produced-fast'
+                : 'produced'
+              : 'seen',
+          ),
+        );
+      });
+
+      // Both misses are walked rather than only this seat's, because a seat
+      // reads its opponent's reveal too — it is on the same end screen — but
+      // only its own counts as having failed to find anything.
+      for (const miss of state.misses) {
+        if (miss.reveal === null) continue;
+        learned.push(linkLearned(miss.reveal, miss.seat === seat ? 'shown' : 'seen'));
+      }
+
+      outcomes.push({
+        seat,
+        result: state.loser === null ? 'drew' : state.loser === seat ? 'lost' : 'won',
+        learned,
+      });
+    }
+
+    return { gameId: wordChain.id, seats: outcomes };
+  },
 };
+
+/**
+ * One link, as the ledger wants it.
+ *
+ * The key is the folded **lemma** where the list knows one, and that is the
+ * whole of why this lives here rather than in `harvest.ts`: `fold` is in
+ * `chainDictionary.ts` with eighty thousand lines of word list behind it, and
+ * the ledger may never reach either. Polish files `jestem` and `być`
+ * separately and plays them separately, which is right for the chain and wrong
+ * for a vocabulary — six inflections of one verb is one verb learned, and a
+ * profile claiming six is lying to somebody deciding what to study.
+ *
+ * `link.key` is deliberately *not* reused for this even though it is already
+ * folded: it is the folded form of the word as played, which is the thing the
+ * chain links on, and using it would file every inflection under its own row.
+ */
+function linkLearned(link: ChainLink, grade: Grade): Learned {
+  return {
+    lang: link.lang,
+    key: fold(link.lemma || link.word),
+    word: link.word,
+    script: link.script,
+    lemma: link.lemma,
+    gloss: link.gloss,
+    rank: link.rank,
+    grade,
+    ms: link.ms,
+  };
+}

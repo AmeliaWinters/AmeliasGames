@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GameRoom } from './index.js';
+import { GameRoom, type Env } from './index.js';
+import type { HarvestPost } from '../shared/players.js';
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../shared/protocol.js';
 
 /**
@@ -94,6 +95,42 @@ class FakeState {
   }
 }
 
+/**
+ * The player objects, as a room can see them.
+ *
+ * A room reaches an account through a stub and posts JSON at it, so the double
+ * only has to be something with `idFromName` and `get`. What it records is
+ * every post that arrived, which is exactly the thing worth asserting about:
+ * the room is the authority on results, and these are the results it claimed.
+ *
+ * `fail` makes the next post throw, which is how the retry path gets tested —
+ * a harvest that could not be delivered has to come back on the next message
+ * rather than being lost.
+ */
+class FakePlayers {
+  readonly posts: Array<{ id: string; body: HarvestPost }> = [];
+  fail = false;
+
+  idFromName(name: string): string {
+    return name;
+  }
+
+  get(id: string) {
+    return {
+      fetch: async (url: string, init?: { body?: string }) => {
+        if (this.fail) throw new Error('player object unreachable');
+        this.posts.push({ id, body: JSON.parse(String(init?.body ?? '{}')) as HarvestPost });
+        return { ok: true } as Response;
+      },
+    };
+  }
+
+  /** Every post for one account, in order. */
+  for(id: string): HarvestPost[] {
+    return this.posts.filter((post) => post.id === id).map((post) => post.body);
+  }
+}
+
 function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): string {
   return JSON.stringify({
     t: 'hello',
@@ -110,16 +147,19 @@ function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): stri
 /** A room and its storage. `rebuild()` is a hibernation: same storage, new instance. */
 function newRoom() {
   const state = new FakeState();
-  let room = new GameRoom(state as unknown as DurableObjectState);
+  const players = new FakePlayers();
+  const env = { PLAYERS: players } as unknown as Env;
+  let room = new GameRoom(state as unknown as DurableObjectState, env);
   // The code normally lands in storage during fetch(), which we cannot call.
   state.store.set('code', 'TEST');
   return {
     state,
+    players,
     get room() {
       return room;
     },
     hibernate() {
-      room = new GameRoom(state as unknown as DurableObjectState);
+      room = new GameRoom(state as unknown as DurableObjectState, env);
     },
     socket: (since?: number) => new FakeSocket(state, since),
   };

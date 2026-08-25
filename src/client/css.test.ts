@@ -49,7 +49,6 @@ const CONTROLS = new Set([
   'primary', // start, roll, spin, submit -- every game's action button
   'bs-pick', // the ship you are holding: a named control beside the sea
   'bs-tool', // rotate and ready
-  'bs-fire', // the shot itself, beside the sea rather than in it
   'ld-step', // bid quantity stepper
   'ld-face', // bid face picker
   'ld-wide',
@@ -369,6 +368,86 @@ describe('the toast stack', () => {
     expect(css).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{\s*\.toast \{\s*animation:\s*none/,
     );
+  });
+});
+
+/**
+ * The hero's well, held to being a crop.
+ *
+ * Past 900px the featured card turns on its side and its well stops being 5:2:
+ * `aspect-ratio` comes off, and the art is told to fill the height of the row
+ * instead. Which works only while the row *has* a height. Without one,
+ * `height: 100%` resolves against nothing, the well takes the size of the
+ * pieces inside it, and the crop stops cropping -- measured at 1280 that was a
+ * Connect Four board 107px to a disc inside a hero 673px tall, which is the
+ * emblem every motif here was rewritten to stop being.
+ *
+ * Three declarations carry it and all three look removable. The failure is
+ * also invisible below 900px, which is where anybody would be looking.
+ */
+describe('the hero well', () => {
+  const wide = css
+    .slice(
+      css.indexOf('.app.setup:has(.shelves) .game.featured {'),
+      css.indexOf('/* Why this card is the big one'),
+    )
+    // Comments out, because these rules are half commentary and a declaration
+    // is being distinguished from a longhand of itself below.
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('gives the turned hero a definite height, so the well can crop', () => {
+    // `[;{]` and not a bare `height:`, so a `min-height` -- which loses to the
+    // content and would not make the row definite -- cannot pass this.
+    expect(wide).toMatch(/\.game\.featured\s*\{[^}]*[;{]\s*height:\s*\d+px/s);
+  });
+
+  it('drops the 5:2 ratio only where that height is there to replace it', () => {
+    const art = wide.slice(wide.indexOf('.game.featured .art'));
+    expect(art).toContain('aspect-ratio: auto');
+    expect(art).toContain('height: 100%');
+    // The bug this project has already shipped once: an unreset `min-height`
+    // beats `aspect-ratio`, and 44px of it comes from the button rule.
+    expect(art).toContain('min-height: 0');
+  });
+
+  /*
+    One scale for the whole motif, on the card that draws it at two sizes.
+
+    `cqw` answers with the width of the nearest *ancestor* container, and an
+    element's own `container-type` does not change that. So on the hero -- the
+    one card whose well is not its own width -- the well's grid was being laid
+    out against the card while the pieces standing in it were sized against the
+    well: tracks nearly twice the size of the pieces filling them, which is
+    eight loose squares where Battleships' sea should be.
+
+    Both now come from `--well-share`, which is also the width of the column
+    the well sits in. The two have to be the same number or the split comes
+    back, so the test is that one value feeds both.
+  */
+  it('draws the hero motif and its tracks at one scale', () => {
+    expect(wide).toMatch(/--well-share:\s*(\d+)\s*;/);
+    const share = wide.match(/--well-share:\s*(\d+)\s*;/)![1];
+    // The column the well occupies, and the unit the motif inside it is drawn
+    // in, both read the same custom property rather than restating the number.
+    expect(wide).toContain('var(--well-share) * 1%');
+    expect(wide).toMatch(/--m:\s*calc\(1cqw \* var\(--well-share\) \/ \d+\)/);
+    expect(Number(share)).toBeGreaterThan(0);
+    expect(Number(share)).toBeLessThan(100);
+  });
+
+  /*
+    An SVG in a box its viewBox does not match either crops or shrinks, and the
+    default is to shrink. Two motifs are drawn in SVG, and on the hero they are
+    the two that can fail rule 1 silently -- at one breakpoint, on one card.
+  */
+  it('makes every SVG motif crop rather than shrink', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const lobby = app.slice(0, app.indexOf('function roomUrl('));
+    const svgs = [...lobby.matchAll(/<svg[^>]*>/g)].map((m) => m[0]);
+    expect(svgs.length).toBeGreaterThan(0);
+    for (const svg of svgs) {
+      expect(svg, svg).toContain('preserveAspectRatio="xMidYMid slice"');
+    }
   });
 });
 

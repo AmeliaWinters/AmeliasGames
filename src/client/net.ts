@@ -9,6 +9,8 @@ import {
   type RoomView,
   type ServerMessage,
 } from '../shared/protocol.js';
+import type { ProfileView } from '../shared/profile.js';
+import { claimFor } from './account.js';
 
 /**
  * `connecting` is the first attempt, `closed` is a connection we had and lost.
@@ -107,6 +109,16 @@ function socketUrl(code: string): string {
 export interface UseRoom {
   room: RoomView | null;
   seat: number | null;
+  /**
+   * This account's summary, or null for a guest.
+   *
+   * Arrives unasked-for twice: once on being welcomed, so the lobby's "words
+   * due" is on the screen before anybody presses anything, and again the
+   * moment a finished game has been filed, which is when somebody should see
+   * what it taught them. `refreshProfile` is there for the third case, a
+   * screen opened long after either.
+   */
+  profile: ProfileView | null;
   status: ConnectionStatus;
   error: string | null;
   /** Why the last error happened, so the UI can frame it. */
@@ -126,6 +138,8 @@ export interface UseRoom {
   /** Deal the game to whoever is here. Seat 0 only, and the server enforces it. */
   startGame(): void;
   dismissError(): void;
+  /** Ask for the profile again. Silently does nothing for a guest. */
+  refreshProfile(): void;
 }
 
 export function useRoom(opts: {
@@ -142,6 +156,7 @@ export function useRoom(opts: {
   const [error, setError] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
   const [errorSeq, setErrorSeq] = useState(0);
+  const [profile, setProfile] = useState<ProfileView | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   /**
@@ -262,21 +277,36 @@ export function useRoom(opts: {
         retries = 0;
         heardRef.current = Date.now();
         setStatus('open');
-        const hello: ClientMessage = {
-          t: 'hello',
-          v: PROTOCOL_VERSION,
-          playerId: getPlayerId(),
-          name,
-          code,
-          create: createRef.current,
-          // Only a client opening a room gets to say what it is playing.
-          // Someone arriving on a link is joining whatever is already there,
-          // and their lobby still has its own default selected. Asserting it
-          // here is how a perfectly good invitation gets refused for "playing
-          // Connect Four" at a room that is not.
-          gameId: createRef.current ? gameId : '',
-        };
-        socket.send(JSON.stringify(hello));
+
+        /**
+         * Signing is asynchronous, so the hello is sent from a promise.
+         *
+         * The signature is per-room, so it cannot be prepared once and reused
+         * across reconnects to different rooms, and it has to be re-made here
+         * rather than held in state. `claimFor` resolves to undefined for a
+         * guest and for anything that went wrong, and the server treats those
+         * two the same way: seat them and play on. Nothing about having an
+         * account may stand between somebody and a game.
+         */
+        void claimFor(code).then((account) => {
+          if (cancelled || socket.readyState !== WebSocket.OPEN) return;
+          const hello: ClientMessage = {
+            t: 'hello',
+            v: PROTOCOL_VERSION,
+            playerId: getPlayerId(),
+            name,
+            code,
+            create: createRef.current,
+            // Only a client opening a room gets to say what it is playing.
+            // Someone arriving on a link is joining whatever is already there,
+            // and their lobby still has its own default selected. Asserting it
+            // here is how a perfectly good invitation gets refused for "playing
+            // Connect Four" at a room that is not.
+            gameId: createRef.current ? gameId : '',
+            account,
+          };
+          socket.send(JSON.stringify(hello));
+        });
       };
 
       socket.onmessage = (event) => {
@@ -314,6 +344,8 @@ export function useRoom(opts: {
           }
         } else if (msg.t === 'room') {
           setRoom(msg.room);
+        } else if (msg.t === 'profile') {
+          setProfile(msg.profile);
         } else if (msg.t === 'error') {
           setError(msg.message);
           setErrorKind(msg.kind);
@@ -384,6 +416,7 @@ export function useRoom(opts: {
   return {
     room,
     seat,
+    profile,
     status,
     error,
     errorKind,
@@ -399,5 +432,10 @@ export function useRoom(opts: {
       setError(null);
       setErrorKind(null);
     }, []),
+    // Sent unconditionally rather than gated on having an account here: the
+    // server answers only for a socket that proved one, so a guest's request
+    // is ignored at the far end and there is no second place holding an
+    // opinion about whether this client is signed in.
+    refreshProfile: useCallback(() => post({ t: 'profile' }), [post]),
   };
 }

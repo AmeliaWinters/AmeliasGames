@@ -1,0 +1,34 @@
+Ship sprites
+============
+
+Every .png file in this folder is cut from the "Sea Warfare set (Ships and
+more)" by Lowder2, released under Creative Commons Zero (CC0 1.0 Universal):
+
+    https://opengameart.org/content/sea-warfare-set-ships-and-more
+    https://creativecommons.org/publicdomain/zero/1.0/
+
+CC0 is a dedication to the public domain: free to use in personal, educational
+and commercial work, and crediting is not required. This file exists anyway,
+because "where did these come from" is a question worth being able to answer
+without going through the git history.
+
+What was done to them: the transparent margin was trimmed off each hull, and
+each was saved twice, once as drawn (`-v`, bow up, for a ship standing upright
+on the board) and once rotated a quarter turn clockwise (`-h`, bow right).
+The originals are unmodified otherwise; the palette is applied at draw time by
+a CSS filter, so these files carry the sprite's own colours.
+
+  carrier-*.png      Carrier/ShipCarrierHull.png       57 x 189 trimmed
+  battleship-*.png   Battleship/ShipBattleshipHull.png  29 x 207
+  cruiser-*.png      Cruiser/ShipCruiserHull.png        21 x 126
+  submarine-*.png    Submarine/ShipSubMarineHull.png    33 x 140
+  destroyer-*.png    Destroyer/ShipDestroyerHull.png    18 x 98
+
+The set also contains a patrol boat, a rescue ship, an F-35 and the guns cut
+off each hull. None of them are used here.
+
+Those trimmed sizes are load-bearing, and `battleship.css` explains why: each
+hull is drawn at her real beam rather than stretched to fill her lane, so the
+battleship reads narrower than the submarine the way she should. If a sprite
+is ever re-cut, the `--beam` values in that file have to be recomputed from
+the new dimensions, or the fleet goes back to being five bars.

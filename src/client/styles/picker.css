@@ -29,6 +29,49 @@
   gap: 12px;
 }
 
+/* Three shelves, because thirteen cards in one grid is a list rather than a
+   shelf: nothing about the fourth row tells you whether the game you want is
+   in it, so the only way to answer that is to read all thirteen names.
+
+   The heading is an `h2` naming its own section, so the words the eye reads
+   and the label a screen reader announces are the same string -- which means
+   the heading defaults have to be undone here, since none of them are wanted.
+   It replaces the "or pick a table" rule, which was one heading for the whole
+   shelf and said nothing that was not already obvious from thirteen cards. */
+.shelves {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-width: 0;
+}
+.shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.shelf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0 0;
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+/* How many are on this shelf, in the muted grey, because it is the answer to
+   "is it worth scrolling" and not part of the name. It sits after the label
+   rather than at the far right: at the right it lined up under nothing, and a
+   figure alone at the end of a rule reads as a count of something else. */
+.shelf-head .tally {
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
 .game {
   position: relative;
   min-width: 0;
@@ -177,52 +220,59 @@
   min-height: calc(2em + 13px);
 }
 /*
-  How many can play, stamped on the corner of the board.
+  Who can play and how long it takes, on one line under the blurb.
 
-  It shared the name's line for about an hour, end-aligned so the thirteen
-  figures made one column. At 375px that was fine and at 320px it was not: the
-  card is 140px there, the figure and its gap take 28 of the 118 inside it, and
-  "BACKGAMMON" is a single ten-character word that cannot wrap out of the way.
-  It clipped -- a regression against the layout this replaced, where the name
-  had the whole width.
+  The seats were a chip stamped on the corner of the well, and the reasoning
+  for that was sound while it lasted: the name could not share its line at
+  320px, and the corner was the one place a figure fitted at every width.
 
-  So the figure comes off the line entirely and goes where there is room at
-  every width: the corner of the well, opposite the featured card's own chip
-  and drawn like it. It still reads as a column down the grid, and better than
-  it did, because a uniform card height spaces the corners evenly where a
-  ragged name did not.
+  It has company now -- the manifest carries a length estimate, see `minutes`
+  -- and two facts about the same game read better side by side than one of
+  them does lying on a crop of a board. So both come off the art and into the
+  body, where neither needs the black scrim the chip had to bring with it to
+  be legible over a motif.
 
-  Its own background rather than a bare figure on the art: the motifs are crops
-  of a board mid-play and bleed to all four edges, so anything laid over one has
-  to bring the ground it is read against with it.
+  The row is the last line of the card and it is the same height on all
+  thirteen, which is what keeps the grid even now that the name and the blurb
+  are no longer the whole of the card's height.
 */
+.game .facts {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px 11px;
+  font-family: var(--display);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--card-ink-soft);
+  /* Two rows of pips, whether or not this game has more than four seats.
+     Word Duel's eight wrap onto a second row and its eleven neighbours' do
+     not, so without the reserve the one card with eight seats stands 3px
+     taller than the rest of its row -- the same unevenness the name and the
+     blurb each reserve a line against, arriving through the one part of the
+     card that had not been asked to. The reserve is the two-row case measured
+     with the padding in it, because `box-sizing: border-box` puts it there. */
+  min-height: 24px;
+}
+/* Seats around a table rather than one long row. Four across is a measured
+   cap, not a taste: eight in a row is 61px of a card that is 138px at 320,
+   which is the width the pip size below was solved to. */
 .game .count {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  /* Seats around a table rather than one long row. Four across is a measured
-     cap, not a taste: eight in a row made the chip 75px on a card that is
-     138px at 320, so more than half the well was under it and the widest two
-     motifs were being covered by the fact about them. Wrapped, the widest chip
-     is 43px -- the same as every four-seat card, so the thirteen corners still
-     read as one column. */
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   gap: 3px;
   max-width: 43px;
-  line-height: 1;
-  /* The chip sits on the well, not on the card body, and the well is the one
-     dark thing on a card that is otherwise its own colour. So it reads as a
-     stamp pressed into the art: the card's ink, on a scrim of the black the
-     well is already made of. `--surface` here would have been a grey panel
-     floating on thirteen different colours, which is the one thing this
-     screen no longer has anywhere else. */
-  color: var(--card-ink);
-  background: rgb(0 0 0 / 0.42);
-  padding: 5px 7px;
-  border-radius: 999px;
+}
+/* The tilde is the honest half of this: nobody can promise how long two people
+   will take over a game, and a range would be two numbers to read where one
+   and a tilde say the same thing. See `minutes` in the manifest for what these
+   are and what they are not. */
+.game .mins {
+  white-space: nowrap;
 }
 /*
   One seat. Filled means the game needs it, open means it is spare.
@@ -302,26 +352,27 @@
 
   Thirteen cards at one size in manifest order gave the art nothing to be
   bigger than, and left Connect Four preselected however long ago anyone last
-  played it. The game you last sat down to spans both columns with its motif at
-  twice the scale -- `--m` is what every motif is measured in, so doubling it
-  is the same composition and the same crop, enlarged, rather than a second
-  drawing that has to be kept in step with the first.
+  played it. The game you last sat down to stands above the shelves at the
+  width of the page, with its motif at the scale that width buys -- `--m`
+  follows the well's own width, so it is the same composition and the same
+  crop, enlarged, rather than a second drawing to keep in step with the first.
 
-  How much bigger is not a number written here; see `--m` below.
+  Landscape rather than a big card. A card twice the size is an advertisement;
+  this is a memory, and the shape of it is the shape of a table. The words take
+  one side and the motif the other, which is also what makes room for the one
+  control the shelf does not have: a verb. "Play again" is a different offer
+  from "Connect Four", and it is the offer this card is making.
+
+  The outline it used to wear is gone with every other border on a card. It was
+  `border-color: var(--accent)` plus an inset ring, both saying "this one" in a
+  language the shelf no longer speaks. It is the big one and it says so in
+  words; the size, the shape and the kicker are the whole of the hierarchy.
+  What it gets instead is a deeper lip and a longer shadow -- the same object,
+  standing further off the shelf.
 */
-/* The outline this used to wear is gone with every other border on a card.
-
-   It was `border-color: var(--accent)` plus an inset ring, and both were
-   saying "this one" in a language the shelf no longer speaks -- a ring in the
-   channel colour, on a card whose own colour is now the loudest thing about
-   it. Two edges in two different colours on the one card that is already twice
-   the size of its neighbours is not emphasis, it is noise.
-
-   It is the big one and it says so in words; the size and the chip are the
-   whole of the hierarchy. What it gets instead is a deeper lip and a longer
-   shadow -- the same object, standing further off the shelf. */
 .game.featured {
-  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   box-shadow:
     0 6px 0 var(--card-well),
     0 10px 22px rgb(0 0 0 / 0.36);
@@ -336,15 +387,27 @@
     transform: none;
   }
 }
+.game.featured .face {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 13px 4px 14px;
+}
 .game.featured .name {
   font-size: 1.9rem;
   /* Nothing to line up with across a row it is the only member of. */
   min-height: 0;
+  padding-bottom: 2px;
+}
+.game.featured .blurb {
+  font-size: 0.86rem;
+  min-height: 0;
 }
 /* The hero's seats are drawn a size up, the way its name and its line are. */
 .game.featured .count {
-  top: 9px;
-  right: 11px;
   gap: 4px;
   max-width: 55px;
 }
@@ -352,43 +415,115 @@
   width: 7px;
   height: 7px;
 }
-.game.featured .blurb {
-  font-size: 0.86rem;
-  min-height: 0;
+.game.featured .facts {
+  font-size: 0.74rem;
+  padding-bottom: 12px;
 }
-/* Why this card is the big one, said rather than implied -- a card that is
-   simply larger reads as an advertisement, and this one is a memory. It sits
-   on the motif because the motif has the room and the name does not. */
-.game .resume {
-  position: absolute;
-  top: 9px;
-  left: 11px;
+/*
+  The verb, in the card's ink on the card's own colour, inverted.
+
+  A filled pill rather than an outline, because it is the only thing on this
+  screen that is offering to do something specific rather than to open
+  something. The pair is `--card-ink` and `--card`, which is the 5.4:1 the
+  whole family is solved to, read the other way round -- so this needs no
+  measurement of its own and cannot drift away from one.
+
+  A span inside the button, not a button: the whole card is the target, and a
+  control inside a control is two tab stops for one act. It is drawn as a
+  button because that is what pressing the card does.
+*/
+.game.featured .cta {
   font-family: var(--display);
-  font-size: 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--card-ink);
+  color: var(--card);
+  border-radius: 999px;
+  padding: 10px 18px;
+  margin: 6px 0 0 12px;
+}
+/*
+  Past a phone, the hero turns on its side.
+
+  It turns at the width the page itself turns at, not before: until 900px the
+  lobby is a 480px column, and a hero split into two columns of that is a name
+  in 1.9rem type trying to wrap inside 220px beside a well the size of a
+  postcard. Below this the motif keeps the 5:2 well every composition was drawn
+  against and stacks above the words, which is the layout the featured card
+  already had. Above it the well takes the right-hand half and stops being 5:2,
+  which is why `WheelArc` and `MorrisCorner` are drawn with
+  `preserveAspectRatio="slice"`: an SVG in a box its viewBox does not match
+  either crops or shrinks, and a motif that shrinks is the emblem all thirteen
+  of these were rewritten to stop being.
+*/
+@media (min-width: 900px) {
+  /* Guarded by the same `:has()` the wide layout in `base.css` is guarded by,
+     and for the same reason: the APK's older WebView has neither `:has()` nor
+     container queries, so it keeps the 480px column at every width. A hero
+     that turned on its side inside a 480px column would be a 1.9rem name
+     wrapping in 220px beside a well the size of a postcard -- and a browser
+     that cannot widen the page must not be allowed to reshape the card on it.
+     Failing to match here leaves the stacked hero, which is the layout that
+     WebView was already showing. */
+  .app.setup:has(.shelves) .game.featured {
+    /* The share of the card the well takes, as a bare number, because two
+       rules need it and they must not disagree -- see `--m` below. */
+    --well-share: 54;
+    grid-template-columns: minmax(0, calc(100% - var(--well-share) * 1%)) minmax(0, calc(var(--well-share) * 1%));
+    /* A height, not a minimum, and it is load-bearing rather than tidy. The
+       well crops its motif by being a definite box: with `aspect-ratio` gone
+       and the row free to grow, `height: 100%` on the art resolves against
+       nothing and the well takes the size of the pieces inside it instead --
+       at 1280 that was a Connect Four board 107px a disc in a hero 673px tall.
+       One definite height puts the crop back in charge. */
+    height: 240px;
+  }
+  .app.setup:has(.shelves) .game.featured .face {
+    order: 1;
+    padding: 20px 8px 22px;
+  }
+  .app.setup:has(.shelves) .game.featured .art {
+    order: 2;
+    /* The well is whatever shape this half of the card is now. */
+    aspect-ratio: auto;
+    height: 100%;
+    min-height: 0;
+    /*
+      The motif unit, measured against the well and not the card.
+
+      `cqw` is the width of the nearest *ancestor* container, which is the card
+      -- an element's own `container-type` does not answer its own `cqw`, and
+      giving the well one only changed the answer for its children. That split
+      the motif in two: the well's grid was laid out at card scale while the
+      pieces standing in it were sized at well scale, so on this card every
+      composition was drawn on tracks nearly twice the size of the pieces
+      filling them. Battleships came out as eight loose squares adrift on the
+      sea they were supposed to be a crop of.
+
+      One token, one scale. The well is `--well-share` per cent of the card, so
+      that much of the card's width is the well's width, and the pieces and the
+      tracks under them agree again.
+    */
+    --m: calc(1cqw * var(--well-share) / 165);
+  }
+}
+/* Why this card is the big one, said rather than implied. It sits above the
+   name now rather than pinned to the corner of the motif: there is a column of
+   words to put it at the top of, and a label lying on a crop of a board needed
+   its own dark ground to be read against, which is one more thing on the card
+   than the sentence deserves. */
+.game .resume {
+  align-self: flex-start;
+  font-family: var(--display);
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  /* The one place a card still shows its channel colour, and now the only
-     thing on the shelf that does -- which is what makes it read as a label
-     stuck onto the card rather than as part of it. It has to be legible on
-     whatever hue it is stuck to, so it brings its own dark ground with it
-     rather than sitting the accent directly on the card: ember on ember is
-     the case that fails, and Connect Four is a card.
-
-     0.68 rather than the 0.55 that looked right: measured across the fourteen
-     hues and the four channels, 0.55 bottomed out at 4.30:1 on Morris, and
-     this is 0.6rem tracked caps -- the smallest type on the shelf, and the one
-     string here that has to be read rather than recognised. 0.68 takes the
-     worst case to 5.16. */
-  color: var(--accent);
-  background: rgb(0 0 0 / 0.68);
-  padding: 4px 8px;
-  border-radius: 999px;
+  color: var(--card-ink-soft);
+  padding: 0 12px 4px;
 }
-/* The channel colour used to be restated as a bar along the bottom edge. It
-   was saying nothing the card was not already saying -- the motif above is
-   drawn in the same accent, and the featured card outlines itself in it. A
-   rail under a card is decoration wearing the clothes of information. */
 
 /* Card motifs
    Built from each game's own pieces in CSS rather than drawn as artwork: the
@@ -441,10 +576,11 @@
 /*
   --m follows the card's width, so one composition serves every size of card.
 
-  It was a flat 1px, which was true of the only card there was. There are three
-  now -- 165px in the phone grid, 343px featured, 230px in the desktop grid --
-  and a fixed unit means the pieces stay phone-sized while the well grows
-  around them. Measured on the featured card that was a Connect Four board
+  It was a flat 1px, which was true of the only card there was. There are four
+  now -- 165px in the phone grid, 208px in the desktop grid, 343px in the
+  stacked hero and 588px in the hero once it has turned on its side -- and a
+  fixed unit means the pieces stay phone-sized while the well grows around
+  them. Measured on the featured card that was a Connect Four board
   434px wide floating in a 708px well with 137px of bare board either side: an
   emblem centred on a card, which is the exact thing every motif here was
   rewritten to stop being. Every one of them is built to bleed off at least two
@@ -483,7 +619,7 @@
 .art-wordle i,
 .art-battleship i,
 .art-wordhunt i {
-  box-shadow: inset 0 0 0 1px var(--motif-off);
+  box-shadow: inset 0 0 0 calc(1 * var(--m)) var(--motif-off);
 }
 
 /* The bottom three rows of a seven-column board, cut off on three edges: the
@@ -553,7 +689,7 @@
   background: var(--tray);
   /* --tray sits about 1.2:1 from --board in both palettes, as it does under
      Yahtzee's dice, so the edge is what makes it a bar rather than a gap. */
-  box-shadow: inset 0 0 0 1px var(--motif-off);
+  box-shadow: inset 0 0 0 calc(1 * var(--m)) var(--motif-off);
 }
 /* A clip-path cuts an inset ring off with everything else, so the unlit points
    take the motif colour as a fill -- the alternation is the whole shape here,
@@ -755,7 +891,7 @@
   top: calc(16 * var(--m));
   bottom: calc(-12 * var(--m));
   background: var(--tray);
-  border: 1px solid var(--motif-off);
+  border: calc(1 * var(--m)) solid var(--motif-off);
   border-radius: var(--board-radius);
 }
 .art-yahtzee .die {
@@ -774,6 +910,17 @@
   display: flex;
   flex-direction: column;
   gap: calc(6 * var(--m));
+  /*
+    Both hands cut by the frame, rather than one whole hand and a sliver.
+
+    Two rows of 46-unit dice come to 98 units in a 66-unit well, so something
+    has to be lost. Left to the grid's default the block sat on the ceiling:
+    the first hand entire, the second showing 17px of its top edge -- a row of
+    lids, which is what "the dice don't make sense" looks like. Centred, each
+    hand loses the same third and both still read as dice, which is the crop
+    this motif was always describing.
+  */
+  justify-content: center;
 }
 .art-liarsdice > span {
   display: flex;
@@ -869,7 +1016,7 @@
      that can carry itself against the board (3.91 Stage, 3.33 Daylight),
      since a motif has nothing bright sitting on top of it. */
   background: var(--hole);
-  box-shadow: inset 0 0 0 1px var(--motif-off);
+  box-shadow: inset 0 0 0 calc(1 * var(--m)) var(--motif-off);
 }
 /* Ember's five. */
 .art-letterpress > i:nth-child(5),
@@ -890,7 +1037,7 @@
 .art-letterpress > i:nth-child(14) {
   background: var(--seat-1);
   color: var(--action-text);
-  box-shadow: inset 0 0 0 2px var(--ring);
+  box-shadow: inset 0 0 0 calc(2 * var(--m)) var(--ring);
 }
 /* The locked one. Square corners and a frame of board eating into the tile --
    the board's own treatment, so the card and the table say "locked" the same
@@ -898,8 +1045,8 @@
 .art-letterpress > i:nth-child(2) {
   border-radius: calc(2 * var(--m));
   box-shadow:
-    inset 0 0 0 3px var(--board),
-    inset 0 0 0 5px var(--ring);
+    inset 0 0 0 calc(3 * var(--m)) var(--board),
+    inset 0 0 0 calc(5 * var(--m)) var(--ring);
 }
 
 /* Three nested corners of a morris board and the spoke between them, with four
@@ -1115,7 +1262,7 @@
      a page of type and rules holding it up -- and in a motif is nothing at
      all. So a score row here takes the unlit edge, the way Word Hunt's
      unclaimed tiles and the Yahtzee tray do. Rule 5 over rule 4, again. */
-  box-shadow: inset 0 0 0 1px var(--motif-off);
+  box-shadow: inset 0 0 0 calc(1 * var(--m)) var(--motif-off);
   /* The seat's colour on the leading edge, which is how .vr-score marks a row
      and how .wc-link marks a word. One convention, three places. */
   border-left: calc(3 * var(--m)) solid var(--seat-0);

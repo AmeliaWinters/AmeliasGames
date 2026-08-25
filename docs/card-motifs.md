@@ -220,6 +220,28 @@ times wider than it is tall will not hold a square board, and no motif should
 try: Word Hunt shows four columns and a bit under two rows of a sixteen-tile
 grid, and is better for it.
 
+**The hero is the one well that is not 5:2.** The card for the game you played
+last stands above the shelves, and past 900px it turns on its side: the words
+take the left of it and the well takes the right, at whatever shape that half
+of the card happens to be -- 588 x 240 on a 1280px screen, which is nearer 5:2
+laid on its side than 5:2. Nothing about a composition changes for it. `--m`
+is measured from the well rather than from the card (`.art` is its own
+container query container, see `picker.css`), so the pieces are drawn at the
+size that *well* asks for, and a crop drawn against a 218 x 87 box shows a
+different slice of the same table through a taller window. That is what a crop
+does.
+
+Two consequences worth knowing before drawing a fourteenth:
+
+- **An SVG motif has to say `preserveAspectRatio="xMidYMid slice"`.** A viewBox
+  in a box that does not match its ratio either crops or shrinks, and the
+  default is to shrink -- which is rule 1 failing silently, on one card, at one
+  breakpoint. Wheel of Fortune and Nine Men's Morris both carry it.
+- **A composition that only works at 5:2 is not finished.** The two-and-a-half
+  times wider rule above still describes the twelve cards on the shelves. The
+  hero asks the same crop to survive being nearly square, and the ones that do
+  are the ones that were bleeding off all four edges to begin with.
+
 ---
 
 ## Medium
@@ -290,8 +312,8 @@ in **Nine Men's Morris**.
 A crop of a table mid-play is the one kind of picture with no reason to be the
 same twice, and a shelf that is subtly never the same shelf costs one integer
 and no animation. The seed is taken at module load, not inside `motif()`: the
-lobby re-renders on every keystroke in the name field, and a deal taken per
-render would reshuffle the dice under somebody typing.
+lobby re-renders on every keystroke typed into the name panel, and a deal taken
+per render would reshuffle the dice under somebody typing.
 
 **Why those four and not the other nine.** A motif can be dealt when its data
 lives in `cardDeal.ts` and its legality can be *decided* there.

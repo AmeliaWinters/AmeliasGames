@@ -5,10 +5,27 @@ import { named } from './refusal.js';
 export { CODE_LENGTH, makeRoomCode, isRoomCode, normalizeRoomCode } from './roomCode.js';
 import type { GameDefinition, Rng } from './types.js';
 import type { RoomView } from './protocol.js';
+import type { GameRecord } from './harvest.js';
 
 export interface SeatRecord {
   playerId: string;
   name: string;
+  /**
+   * The account this seat is signed in to, or undefined for a guest.
+   *
+   * Optional, and it has to stay optional: the app advertises "no accounts" on
+   * every share card and the whole charm of it is that a link is enough. A
+   * room where nobody has one behaves exactly as it always has, and a guest
+   * sitting down beside somebody signed in costs that person nothing.
+   *
+   * **No `SNAPSHOT_VERSION` bump.** A stored room from before this field comes
+   * back with it undefined, which reads as "these seats are guests" — the
+   * honest answer, and the same answer the room would give if everybody had
+   * signed out. Nothing is misread and no reducer sees it; the cost is that a
+   * game already in progress across the deploy is not credited to anybody,
+   * which is a fair price for not deleting every live room to add a field.
+   */
+  accountId?: string;
 }
 
 /**
@@ -234,6 +251,44 @@ export class RoomEngine {
     return this.state !== null;
   }
 
+  /**
+   * Whether the game in this room is finished.
+   *
+   * Here rather than left to the adapters reading `viewFor(...).over`, because
+   * both of them now have to ask it *twice* around every action — once before
+   * and once after — to catch the moment a game ends, and building a whole
+   * `RoomView` per seat to answer a yes-or-no question is the wrong shape for
+   * a thing called on every message.
+   */
+  isOver(): boolean {
+    return this.started() && this.def.isOver(this.state);
+  }
+
+  /**
+   * What this finished game says about the people who played it, or null.
+   *
+   * Null for the eleven games that implement no `record`, and null for a game
+   * that is not over — a record of a game still being played would be a lie
+   * about who won, and there is no caller that wants one.
+   */
+  record(): GameRecord | null {
+    if (!this.isOver()) return null;
+    return this.def.record?.(this.state, this.seats.length) ?? null;
+  }
+
+  /**
+   * The seats that are signed in, and to what.
+   *
+   * Guests are simply absent from the list rather than present with a null, so
+   * the adapters loop over "people to pay" instead of looping over every seat
+   * and remembering to skip. The commonest room has nobody in this list.
+   */
+  accounts(): Array<{ seat: number; accountId: string }> {
+    return this.seats.flatMap((seat, i) =>
+      seat.accountId ? [{ seat: i, accountId: seat.accountId }] : [],
+    );
+  }
+
   /** How many people are sitting here. */
   get size(): number {
     return this.seats.length;
@@ -258,13 +313,18 @@ export class RoomEngine {
     return !this.started() && this.short() === 0;
   }
 
-  join(playerId: string, name: string): JoinResult {
+  join(playerId: string, name: string, accountId?: string): JoinResult {
     // An existing player always gets their own seat back, so a dropped
     // connection is recoverable rather than fatal. Checked before anything
     // else, so reconnecting into a game already under way still works.
     const existing = this.seatOf(playerId);
     if (existing !== -1) {
-      this.seats[existing] = { playerId, name };
+      // The account is taken from the newest hello rather than kept from the
+      // first, so somebody who signs in mid-game is credited for the rest of
+      // it. It cannot be used to *steal* a seat: the seat is found by
+      // `playerId`, which is this browser's own secret, and the account had to
+      // prove itself before `readHello` would pass it on.
+      this.seats[existing] = { playerId, name, accountId };
       return { ok: true, seat: existing, reclaimed: true };
     }
     // Arriving after the deal. Seating them anyway would hand the reducer a
@@ -284,7 +344,7 @@ export class RoomEngine {
         error: `Room ${this.code} is full. ${this.def.name} seats ${this.capacity}.`,
       };
     }
-    this.seats.push({ playerId, name });
+    this.seats.push({ playerId, name, accountId });
     return { ok: true, seat: this.seats.length - 1, reclaimed: false };
   }
 
