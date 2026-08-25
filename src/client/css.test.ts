@@ -49,6 +49,7 @@ const CONTROLS = new Set([
   'primary', // start, roll, spin, submit -- every game's action button
   'bs-pick', // the ship you are holding: a named control beside the sea
   'bs-tool', // rotate and ready
+  'bs-fire', // the shot itself, beside the sea rather than in it
   'ld-step', // bid quantity stepper
   'ld-face', // bid face picker
   'ld-wide',
