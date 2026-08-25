@@ -58,6 +58,7 @@ const CONTROLS = new Set([
   'lp-clear',
   'wd-input',
   'wd-submit',
+  'wc-submit', // the submit button beside Word Chain's entry field
   'vr-submit', // the answer button beside Vocab Race's entry field
   'vr-give-up', // "I don't know it", under the entry row
   'vr-hint-buy', // spending one of the three, beside it
@@ -110,7 +111,11 @@ function classNameValue(tag: string): string | null {
   const from = at + 'className='.length;
   if (tag[from] === '"' || tag[from] === "'") {
     const end = tag.indexOf(tag[from], from + 1);
-    return end === -1 ? null : tag.slice(from + 1, end);
+    // Quotes kept, so `harvest` below reads a plain string the same way it
+    // reads the strings inside an expression. Stripping them here made
+    // `harvest`'s quote-seeking regex find nothing, and every
+    // `className="plain-string"` button in every board was silently exempt.
+    return end === -1 ? null : tag.slice(from, end + 1);
   }
   if (tag[from] !== '{') return null;
   let depth = 0;
