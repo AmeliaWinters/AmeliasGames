@@ -34,6 +34,22 @@ import { XP_PER_GAME, XP_PER_WIN, isMiss, isProduction, schedule, xpFor } from '
 export type Result = 'won' | 'lost' | 'drew';
 
 /**
+ * What a seat got out of a game, where `null` means **the game does not say**.
+ *
+ * Eleven of the thirteen games implement no `record`, and the room genuinely
+ * cannot work out who won one: `GameDefinition` has `isOver` and a `status`
+ * string, and nothing anywhere that names a winner. So the room reports those
+ * games as played and declines to guess.
+ *
+ * Null rather than quietly calling them draws, which was the first version of
+ * this and is a lie that compounds: a profile would end up claiming somebody
+ * had drawn two hundred games of Connect Four. It still pays for having played
+ * — a profile must not look dead to somebody who mostly plays Backgammon —
+ * just not for having won.
+ */
+export type Outcome = Result | null;
+
+/**
  * One word, and what one seat did with it.
  *
  * Everything the ledger stores is on here, because the ledger cannot look
@@ -65,7 +81,7 @@ export interface Learned {
 
 export interface SeatOutcome {
   seat: number;
-  result: Result;
+  result: Outcome;
   /**
    * Every word this seat met, in the order they met them. One word may appear
    * more than once — a long chain can come back to the same lemma — and
@@ -180,7 +196,7 @@ function applyGrade(row: Known, event: Learned, now: number): { row: Known; xp: 
   return { row: next, xp: xpFor(event.grade, next.box) };
 }
 
-function bumpTally(games: GameTally[], gameId: string, result: Result, now: number): GameTally[] {
+function bumpTally(games: GameTally[], gameId: string, result: Outcome, now: number): GameTally[] {
   const found = games.find((game) => game.gameId === gameId);
   const base: GameTally = found ?? { gameId, played: 0, won: 0, drew: 0, lastAt: 0 };
   const next: GameTally = {

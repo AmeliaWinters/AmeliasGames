@@ -4,6 +4,7 @@ import { named } from './refusal.js';
 // the client can import roomCode.js directly and never pull in a reducer.
 export { CODE_LENGTH, makeRoomCode, isRoomCode, normalizeRoomCode } from './roomCode.js';
 import type { GameDefinition, Rng } from './types.js';
+import type { StudyLists } from './profile.js';
 import type { RoomView } from './protocol.js';
 import type { GameRecord } from './harvest.js';
 
@@ -187,6 +188,18 @@ export class RoomEngine {
   /** Null until `start` deals. See the class note. */
   private state: unknown;
   private seats: SeatRecord[];
+  /**
+   * What each seat is due to review, in seat order, as of the last time an
+   * adapter said. Handed to `setup` at every deal; see `GameDefinition.setup`.
+   *
+   * **Deliberately not in `RoomSnapshot`.** It is a cache of somebody else's
+   * data with a shelf life of about a minute, it is the adapter's job to
+   * refill before a deal, and a room that comes back from storage without it
+   * deals exactly the game it dealt before this existed. Persisting it would
+   * buy nothing and cost a `SNAPSHOT_VERSION` bump, which deletes every live
+   * room on deploy.
+   */
+  private study: StudyLists[] = [];
 
   private constructor(
     code: string,
@@ -265,15 +278,29 @@ export class RoomEngine {
   }
 
   /**
-   * What this finished game says about the people who played it, or null.
+   * What this finished game says about the people who played it, or null if it
+   * is not finished.
    *
-   * Null for the eleven games that implement no `record`, and null for a game
-   * that is not over — a record of a game still being played would be a lie
-   * about who won, and there is no caller that wants one.
+   * A game that implements no `record` still produces one: every seat, played,
+   * **result null**. That is not a formality. Eleven of the thirteen games are
+   * in that case, and if they reported nothing at all a profile would look
+   * completely dead to somebody who mostly plays Backgammon — which is exactly
+   * the failure the small per-game payment exists to prevent.
+   *
+   * The result is null rather than a guess, because the room genuinely cannot
+   * tell: the contract has `isOver` and a `status` string, and nothing anywhere
+   * that names a winner. Calling them all draws was the first version of this
+   * and it is a lie that compounds into a profile claiming two hundred drawn
+   * games of Connect Four. See `Outcome`.
    */
   record(): GameRecord | null {
     if (!this.isOver()) return null;
-    return this.def.record?.(this.state, this.seats.length) ?? null;
+    const told = this.def.record?.(this.state, this.seats.length);
+    if (told) return told;
+    return {
+      gameId: this.def.id,
+      seats: this.seats.map((_, seat) => ({ seat, result: null, learned: [] })),
+    };
   }
 
   /**
@@ -287,6 +314,24 @@ export class RoomEngine {
     return this.seats.flatMap((seat, i) =>
       seat.accountId ? [{ seat: i, accountId: seat.accountId }] : [],
     );
+  }
+
+  /**
+   * Tell the room what one seat is due to review, before it deals.
+   *
+   * Called by the adapters, which are the only things here that can reach a
+   * profile store, and called at the deal rather than at sign-in because
+   * "due" is a comparison against the clock: an answer cached when somebody
+   * joined is stale by the time anybody presses start.
+   *
+   * Sparse on purpose. A guest never gets one, an account with nothing due
+   * hands back an empty object, and a fetch that failed simply does not call
+   * this. All three arrive at `setup` as "no study list for that seat",
+   * which every game must already survive.
+   */
+  setStudy(seat: number, lists: StudyLists): void {
+    if (seat < 0) return;
+    this.study[seat] = lists;
   }
 
   /** How many people are sitting here. */
@@ -379,7 +424,7 @@ export class RoomEngine {
         error: `${this.def.name} needs ${more} more player${more === 1 ? '' : 's'}.`,
       };
     }
-    this.state = this.def.setup(this.seats.length, rng, now);
+    this.state = this.def.setup(this.seats.length, rng, now, this.study);
     this.tick(now);
     return { ok: true };
   }
@@ -450,7 +495,7 @@ export class RoomEngine {
     }
     // Whoever is actually here, which may not be who was here last time: a
     // rematch is dealt for the table as it stands.
-    this.state = this.def.setup(this.seats.length, rng, now);
+    this.state = this.def.setup(this.seats.length, rng, now, this.study);
     // The table is already sitting there, so a timed rematch starts running
     // the moment it is dealt.
     this.tick(now);
@@ -485,7 +530,7 @@ export class RoomEngine {
       };
     }
     this.def = next;
-    this.state = next.setup(this.seats.length, rng, now);
+    this.state = next.setup(this.seats.length, rng, now, this.study);
     this.tick(now);
     return { ok: true };
   }

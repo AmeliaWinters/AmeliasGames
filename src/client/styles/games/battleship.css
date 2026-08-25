@@ -69,10 +69,12 @@
    under the thumb is named *outside* the dense grid, where there is room to
    read it. That is what a confirm button was buying, bought better.
 
-   And the thing side-by-side buys: theirs is where you shoot and yours is
-   where you are being shot, and a hunt is played by reading one against the
-   other. Stacked, the second sea was a scroll away, which in practice meant
-   it was not read at all. */
+   Side by side was the earlier answer to "yours and theirs at once", and it
+   was paid for in the one scarce thing here: two ten by tens on a 390 phone is
+   a 12px square, and half of that screen is always the sea nobody is shooting
+   at. `solo` gives the whole width to the board being fired at, which doubles
+   the square. Only a spectator gets both, because neither sea is theirs and
+   there is no turn of their own for the view to follow. */
 .bs-seas {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -82,6 +84,13 @@
      squares are the scarce thing here. */
   gap: 6px;
   align-items: start;
+}
+
+/* One sea, and it takes the width. Capped, because a ten by ten stretched
+   across a tablet is a square the thumb has to travel to rather than a board. */
+.bs-seas.solo {
+  grid-template-columns: minmax(0, 460px);
+  justify-content: center;
 }
 
 .bs-panel {
@@ -312,6 +321,26 @@
   z-index: 4;
 }
 
+/* The shot landing, which is the half second the view now waits for before it
+   hands the guns over. It plays once, on arrival: `latest` moves to the new
+   square as the shot lands, so the class going on is the event and nothing
+   here has to be told when to start. The mark the square already draws, thrown
+   outwards from nothing, so a miss is a splash rather than a ring that was
+   suddenly there. */
+.bs-cell.latest.miss::before,
+.bs-cell.latest.hit::before {
+  animation: bs-splash 0.5s ease-out 1;
+}
+@keyframes bs-splash {
+  from {
+    transform: scale(0.15);
+    opacity: 0.2;
+  }
+  60% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+}
 /* Where the guns are pointed, which is not where they have fired. Corner
    brackets rather than a ring: the square underneath may already be water,
    and the aim has to read as something laid over the sea and liftable again,
@@ -838,7 +867,9 @@
 @media (prefers-reduced-motion: reduce) {
   .bs-hull.going,
   .bs-ship.going,
-  .bs-cell.aimed::before {
+  .bs-cell.aimed::before,
+  .bs-cell.latest.miss::before,
+  .bs-cell.latest.hit::before {
     animation: none;
   }
 }

@@ -274,6 +274,56 @@ export function dueCount(profile: Profile, now: number): number {
   return profile.words.reduce((n, word) => (word.dueAt <= now ? n + 1 : n), 0);
 }
 
+/**
+ * The words a player is due to review, folded keys only, by language.
+ *
+ * What a game is handed so it can put a word somebody already half-knows in
+ * front of them instead of a word off the top of a frequency list. See
+ * `revealFor` in `wordChain.ts`, which is the first thing to read one.
+ *
+ * Keys and nothing else, which is the whole reason this is cheap enough to
+ * send at every deal: the row is eighty bytes and the key is eight, and a game
+ * asking "should I show them this one" needs no more than the identity. The
+ * gloss, the script and the rank all come back out of the game's own
+ * dictionary, which is where they came from in the first place.
+ *
+ * By language because a key is only unique within one: `fold` is a lossy map
+ * onto twenty-six letters, and a Polish word and an English word colliding on
+ * one is ordinary rather than rare. A flat set would let a Polish learner be
+ * shown a word on the strength of an English row.
+ *
+ * Soonest due first, then commonest, and capped: a ledger that has been left
+ * alone for a month has every row in it due, and the point of the cap is that
+ * the top of a list ordered this way is the part worth sending.
+ */
+export type StudyLists = Partial<Record<LearnLang, string[]>>;
+
+/**
+ * How many keys one language may contribute.
+ *
+ * Two hundred is far past what a game reads (Word Chain looks at one word per
+ * lost minute, so at most two a game) and it is chosen against the other end:
+ * a set this size makes a due word likely to actually *be* answerable on the
+ * letter the chain happens to be asking for. A cap of twenty would mostly miss.
+ */
+export const STUDY_CAP = 200;
+
+/** The due keys for every language, ready to hand to a game. See `StudyLists`. */
+export function dueWords(profile: Profile, now: number, cap: number = STUDY_CAP): StudyLists {
+  const out: StudyLists = {};
+  for (const lang of LEARN_LANGS) {
+    const keys = profile.words
+      .filter((word) => word.lang === lang && word.dueAt <= now)
+      // Soonest first, and the commoner word ahead of the rarer one on a tie,
+      // which is the order the cap should cut from the bottom of.
+      .sort((a, b) => a.dueAt - b.dueAt || a.rank - b.rank)
+      .slice(0, cap)
+      .map((word) => word.key);
+    if (keys.length > 0) out[lang] = keys;
+  }
+  return out;
+}
+
 /** How many words are in the ledger at all, per language. */
 export function wordCount(profile: Profile, lang?: LearnLang): number {
   return lang === undefined

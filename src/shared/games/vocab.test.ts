@@ -9,6 +9,8 @@ import {
   LEVEL_WINDOW_MS,
   MODE_CAP,
   PICK_EVERY,
+  PHRASE_COUNT,
+  PHRASE_RARITY,
   PICK_OPTIONS,
   PICK_SCALE,
   RARITY_STEP,
@@ -42,6 +44,7 @@ import {
   type VocabTry,
 } from './vocab.js';
 import { vocabOptions, vocabPoolSize, vocabQuestion } from './vocabDictionary.js';
+import { phraseCount, phraseKeys } from './vocabPhrases.js';
 import type { VocabQuestion } from './vocabDictionary.js';
 import { chainLookup, fold } from './chainDictionary.js';
 
@@ -97,10 +100,10 @@ function answerOf(state: VocabState): string {
  * synonym the index knows about and quietly stop testing the thing it names.
  */
 function wrongWord(state: VocabState, lang: VocabLang): string {
-  const question = vocabQuestion(lang, state.round?.answer?.rank ?? 0);
+  const question = vocabQuestion(lang, state.mode, state.round?.answer?.rank ?? 0);
   if (question === null) throw new Error('no question on the state');
   for (let rank = 1; rank <= DECK_DEPTH; rank++) {
-    const other = vocabQuestion(lang, rank);
+    const other = vocabQuestion(lang, state.mode, rank);
     if (other === null) continue;
     const entry = chainLookup(lang, other.word);
     if (entry && !question.accepts.has(entry.key)) return other.word;
@@ -341,7 +344,7 @@ describe('the deck', () => {
    */
   it('keeps the capitals the word lists put there', () => {
     const clues = (lang: 'pl' | 'ja', cap: number): string[] =>
-      Array.from({ length: cap }, (_, i) => vocabQuestion(lang, i + 1)?.clue ?? '');
+      Array.from({ length: cap }, (_, i) => vocabQuestion(lang, 'hard', i + 1)?.clue ?? '');
 
     const polish = clues('pl', MODE_CAP.normal);
     // `wiem` is glossed `I know`, and the pronoun has to survive.
@@ -358,10 +361,10 @@ describe('the deck', () => {
    * them should fail here rather than quietly shorten a game.
    */
   it('has enough clues at both depths in both languages', () => {
-    expect(vocabPoolSize('pl', MODE_CAP.normal)).toBeGreaterThanOrEqual(80);
-    expect(vocabPoolSize('ja', MODE_CAP.normal)).toBeGreaterThanOrEqual(80);
-    expect(vocabPoolSize('pl', MODE_CAP.hard)).toBeGreaterThanOrEqual(800);
-    expect(vocabPoolSize('ja', MODE_CAP.hard)).toBeGreaterThanOrEqual(800);
+    expect(vocabPoolSize('pl', 'normal', MODE_CAP.normal)).toBeGreaterThanOrEqual(80);
+    expect(vocabPoolSize('ja', 'normal', MODE_CAP.normal)).toBeGreaterThanOrEqual(80);
+    expect(vocabPoolSize('pl', 'hard', MODE_CAP.hard)).toBeGreaterThanOrEqual(800);
+    expect(vocabPoolSize('ja', 'hard', MODE_CAP.hard)).toBeGreaterThanOrEqual(800);
   });
 });
 
@@ -453,7 +456,7 @@ describe('answering', () => {
    */
   it('takes any word in the language that means the same thing', () => {
     const state = playing('pl', 'hard', 2, 1_000, inOrder);
-    const question = vocabQuestion('pl', state.round?.answer?.rank ?? 0);
+    const question = vocabQuestion('pl', state.mode, state.round?.answer?.rank ?? 0);
     expect(question).not.toBeNull();
     expect(question!.accepts.size).toBeGreaterThan(1);
 
@@ -833,15 +836,15 @@ describe('asking it the other way round', () => {
 
     const byClue = new Map<string, VocabQuestion>();
     for (let rank = 1; rank <= cap; rank++) {
-      const question = vocabQuestion('pl', rank);
+      const question = vocabQuestion('pl', 'normal', rank);
       if (question !== null) byClue.set(question.clue, question);
     }
 
     let checked = 0;
     for (let rank = 1; rank <= cap; rank++) {
-      const question = vocabQuestion('pl', rank);
+      const question = vocabQuestion('pl', 'normal', rank);
       if (question === null) continue;
-      const options = vocabOptions('pl', rank, cap, order);
+      const options = vocabOptions('pl', 'normal', rank, cap, order);
       expect(options).toHaveLength(PICK_OPTIONS);
       expect(options).toContain(question.clue);
 
@@ -866,9 +869,9 @@ describe('asking it the other way round', () => {
     const order = Array.from({ length: DECK_DEPTH }, (_, i) => i + 1);
     const places = new Set<number>();
     for (let rank = 1; rank <= MODE_CAP.normal; rank++) {
-      const question = vocabQuestion('pl', rank);
+      const question = vocabQuestion('pl', 'normal', rank);
       if (question === null) continue;
-      places.add(vocabOptions('pl', rank, MODE_CAP.normal, order).indexOf(question.clue));
+      places.add(vocabOptions('pl', 'normal', rank, MODE_CAP.normal, order).indexOf(question.clue));
     }
     expect([...places].sort()).toEqual([0, 1, 2, 3]);
   });
@@ -956,6 +959,9 @@ describe('hints', () => {
     expect(maskWord('')).toBe('');
     // A diacritic is the one letter it is, not the two code units it might be.
     expect(maskWord('żółty')).toBe('ż _ _ _ _');
+    // Every word's first letter, not the phrase's, which is the difference
+    // between a hint and a rectangle. See `maskWord`.
+    expect(maskWord('do jutra')).toBe('d _   j _ _ _ _');
   });
 
   it('starts every seat with three and spends them one at a time', () => {
@@ -1358,7 +1364,7 @@ describe('what each client is told', () => {
     expect(vocab.status(state, ['Ala', 'Bo'])).toBe('Waiting for Ala to choose a language.');
     state = accept(state, { type: 'settings', lang: 'ja', mode: 'hard' }, HOST, 1_000);
     expect(vocab.status(state, ['Ala', 'Bo'])).toBe(
-      'Japanese, top 1000. Waiting for Ala to start.',
+      'Japanese, top 1,000. Waiting for Ala to start.',
     );
     expect(vocab.turn(state)).toBe(HOST);
   });
@@ -1542,5 +1548,184 @@ describe('what it records', () => {
   it('reports a shared lead as a draw for everybody', () => {
     const state: VocabState = { ...answered(), phase: 'over', winner: null };
     expect(vocab.record?.(state, 2)?.seats.every((s) => s.result === 'drew')).toBe(true);
+  });
+});
+
+/**
+ * A phrase game with the deck unshuffled, so a test can name the phrase it
+ * wants: rank `n` is the nth entry in `vocabPhrases.ts`.
+ */
+function phrasing(lang: VocabLang, rank: number): VocabState {
+  let state = playing(lang, 'phrases', 2, 1_000, inOrder);
+  while (state.round !== null && state.round.answer?.rank !== rank) {
+    if (state.history.length > PHRASE_COUNT) throw new Error('never dealt that phrase');
+    state = vocab.expire?.(state, state.deadline ?? 0) ?? state;
+    state = vocab.expire?.(state, state.deadline ?? 0) ?? state;
+  }
+  return state;
+}
+
+/**
+ * The third mode, which is a different corpus rather than a deeper slice of
+ * the same one.
+ *
+ * What is worth testing here is not the phrases themselves -- they are
+ * hand-written and a test can only repeat them -- but the three joints where
+ * the new list meets machinery built for the old one: the cap that is a list
+ * length rather than a depth, the marking that has no dictionary to appeal to,
+ * and the rank that no longer means frequency.
+ */
+describe('everyday phrases', () => {
+  /**
+   * The one number that spans the boundary. `MODE_CAP.phrases` is a rank cap
+   * used by the reducer, which may not reach the phrase list; the list is the
+   * thing that decides how many ranks there are. Nothing but this test keeps
+   * them in step, and a phrase added without the constant would silently
+   * become a phrase the game never asks.
+   */
+  it('caps the deck at exactly as many phrases as there are', () => {
+    expect(PHRASE_COUNT).toBe(phraseCount());
+    expect(MODE_CAP.phrases).toBe(PHRASE_COUNT);
+    expect(DECK_DEPTH).toBeGreaterThanOrEqual(PHRASE_COUNT);
+  });
+
+  it('has every phrase in both languages, and Japanese in its own script', () => {
+    for (const lang of VOCAB_LANGS) {
+      for (let rank = 1; rank <= PHRASE_COUNT; rank++) {
+        const question = vocabQuestion(lang, 'phrases', rank);
+        expect(question, `${lang} #${rank}`).not.toBeNull();
+        expect(question!.clue.length).toBeGreaterThan(0);
+        // Romaji and Polish only, because that is what the box takes.
+        expect(question!.word, `${lang} #${rank}`).toMatch(/^[a-ząćęłńóśźż ,'?-]+$/);
+        expect(question!.script.length > 0, `${lang} #${rank}`).toBe(lang === 'ja');
+      }
+    }
+    // Nothing past the end, which is what makes `draw`'s null branch the
+    // ordinary way a phrase game runs out of deck.
+    expect(vocabQuestion('pl', 'phrases', PHRASE_COUNT + 1)).toBeNull();
+    expect(vocabPoolSize('ja', 'phrases', MODE_CAP.phrases)).toBe(PHRASE_COUNT);
+  });
+
+  /**
+   * `draw` skips a clue it has already asked, so two phrases sharing an
+   * English sentence would quietly shorten every game by one round.
+   */
+  it('asks each English sentence once', () => {
+    const clues = Array.from(
+      { length: PHRASE_COUNT },
+      (_, i) => vocabQuestion('pl', 'phrases', i + 1)?.clue ?? '',
+    );
+    expect(new Set(clues).size).toBe(PHRASE_COUNT);
+  });
+
+  /** The forgiveness, listed. Each of these is a way somebody really types it. */
+  it.each([
+    ['jestem głodny', 'the phrase as it is written'],
+    ['jestem głodna', 'the other gender of the adjective'],
+    ['jestem glodna', 'no accents, which a phone keyboard has not got'],
+    ['Jestem Głodny!', 'capitals and punctuation'],
+    ['  jestem głodny  ', 'the spaces around it'],
+  ])('marks %s right (%s)', (typed) => {
+    const state = phrasing('pl', 14);
+    expect(state.round?.clue).toBe("I'm hungry");
+    const after = accept(state, { type: 'guess', word: typed }, 0, 2_000);
+    expect(tryOf(after.round, 0)?.how).toBe('right');
+  });
+
+  it('takes Japanese in romaji, loosely spelled, or in its own script', () => {
+    for (const typed of ['nemui', 'nemui desu', 'NEMUI', '眠い']) {
+      const state = phrasing('ja', 17);
+      expect(state.round?.clue).toBe("I'm sleepy");
+      const after = accept(state, { type: 'guess', word: typed }, 0, 2_000);
+      expect(tryOf(after.round, 0)?.how, typed).toBe('right');
+    }
+  });
+
+  /**
+   * The rule that is genuinely different from word mode, and the reason it is
+   * different is worth keeping in front of whoever changes it: there is no
+   * list a phrase could be absent from, so "not in the Polish list" is not an
+   * answer this mode can give. A wrong phrase is wrong. See `applyMove`.
+   */
+  it('marks a wrong phrase wrong rather than refusing it', () => {
+    const state = phrasing('pl', 14);
+    const after = accept(state, { type: 'guess', word: 'dobranoc' }, 0, 2_000);
+    expect(tryOf(after.round, 0)?.how).toBe('wrong');
+    // And so is something that is not Polish at all, which in word mode would
+    // have been handed back as a typo rather than counted against the seat.
+    const other = accept(phrasing('pl', 14), { type: 'guess', word: 'qqq zzz' }, 0, 2_000);
+    expect(tryOf(other.round, 0)?.how).toBe('wrong');
+  });
+
+  it('does not let one phrase answer another', () => {
+    const keys = (rank: number): ReadonlySet<string> =>
+      vocabQuestion('pl', 'phrases', rank)!.accepts;
+    for (const key of phraseKeys('dzień dobry', 'pl')) {
+      // "Good morning" is that phrase and "Hello" lists it as a second way of
+      // saying itself, both true, so this checks the keys are shared where the
+      // data says so and nowhere else.
+      expect(keys(2).has(key)).toBe(true);
+      expect(keys(14).has(key)).toBe(false);
+    }
+  });
+
+  /**
+   * The same unanswerable-question hazard `vocabOptions` was written against,
+   * and phrases make it likelier rather than less: several of them share an
+   * accepted form outright (*wakarimasen* answers both "I don't understand"
+   * and "I don't know"), so a round offering both would be a round with two
+   * right answers on the screen.
+   */
+  it('never offers two meanings the same phrase would satisfy', () => {
+    const order = Array.from({ length: DECK_DEPTH }, (_, i) => i + 1);
+    const byClue = new Map<string, VocabQuestion>();
+    for (let rank = 1; rank <= PHRASE_COUNT; rank++) {
+      const question = vocabQuestion('ja', 'phrases', rank);
+      if (question !== null) byClue.set(question.clue, question);
+    }
+    for (let rank = 1; rank <= PHRASE_COUNT; rank++) {
+      const question = vocabQuestion('ja', 'phrases', rank)!;
+      const options = vocabOptions('ja', 'phrases', rank, PHRASE_COUNT, order);
+      expect(options, question.clue).toHaveLength(PICK_OPTIONS);
+      expect(options).toContain(question.clue);
+      for (const option of options) {
+        if (option === question.clue) continue;
+        const other = byClue.get(option)!;
+        const shared = [...other.accepts].filter((key) => question.accepts.has(key));
+        expect(shared, `${question.clue} / ${option}`).toEqual([]);
+      }
+    }
+  });
+
+  /**
+   * A phrase's rank is where it was written down, so paying by decade would
+   * pay the first nine phrases half what the rest get for no reason anybody
+   * could name. See `PHRASE_RARITY`.
+   */
+  it('pays the same for every phrase, whatever its place in the list', () => {
+    const state = playing('pl', 'phrases', 2, 1_000, inOrder);
+    const flat = (rank: number): number =>
+      roundPoints(state, 0, rank, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false);
+    expect(flat(1)).toBe(flat(PHRASE_COUNT));
+    expect(flat(1)).toBe(Math.round(PHRASE_RARITY * LEVEL_SCALE[DEFAULT_LEVEL]));
+    // Word mode is untouched: there the decade is the whole point.
+    const words = playing('pl', 'hard', 2, 1_000, inOrder);
+    expect(roundPoints(words, 0, 900, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false)).toBeGreaterThan(
+      roundPoints(words, 0, 5, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false),
+    );
+  });
+
+  it('plays a phrase game through the clock like any other', () => {
+    let state = playing('pl', 'phrases', 2, 1_000);
+    expect(state.phase).toBe('asking');
+    for (let round = 0; round < 6; round++) {
+      const before = state.history.length;
+      state = vocab.expire?.(state, state.deadline ?? 0) ?? state;
+      expect(state.phase).toBe('reveal');
+      state = vocab.expire?.(state, state.deadline ?? 0) ?? state;
+      expect(state.phase).toBe('asking');
+      expect(state.history).toHaveLength(before + 1);
+      expect(state.round?.answer?.rank).toBeLessThanOrEqual(PHRASE_COUNT);
+    }
   });
 });

@@ -16,6 +16,7 @@
  * Every display module says only why *its* game needs the split beyond that.
  */
 import type { GameRecord } from './harvest.js';
+import type { StudyLists } from './profile.js';
 
 /** Returns a float in [0, 1), like Math.random. Injectable so tests are exact. */
 export type Rng = () => number;
@@ -30,9 +31,21 @@ export interface GameDefinition<S = unknown, M = unknown> {
   minPlayers: number;
   maxPlayers: number;
 
-  /** `now` is injected for the reason `rng` is: reading a clock here would make
-   * `setup` untestable. Most games ignore it. */
-  setup(playerCount: number, rng: Rng, now?: number): S;
+  /**
+   * `now` is injected for the reason `rng` is: reading a clock here would make
+   * `setup` untestable. Most games ignore it.
+   *
+   * `study` is what the seats at this table are due to review, one entry per
+   * seat, in seat order, empty for a guest and for anybody with nothing due.
+   * It arrives here rather than being looked up because a reducer has no I/O
+   * and a profile store is I/O: the room does the fetching and hands over the
+   * folded keys, which is the same bargain `record()` makes in the other
+   * direction. Eleven of the thirteen games ignore it, and a room that could
+   * not reach a profile passes nothing, which every game must survive. See
+   * `revealFor` in `wordChain.ts`, where having no study list is simply the
+   * behaviour this feature replaced.
+   */
+  setup(playerCount: number, rng: Rng, now?: number, study?: readonly StudyLists[]): S;
 
   /**
    * Validate and apply a move by `seat`. Never mutates `state`.

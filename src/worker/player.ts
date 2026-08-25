@@ -7,6 +7,7 @@ import {
   type HarvestPost,
 } from '../shared/players.js';
 import { MAX_NAME } from '../shared/session.js';
+import { dueWords } from '../shared/profile.js';
 import type { Profile } from '../shared/profile.js';
 
 /**
@@ -71,6 +72,12 @@ export class Player implements DurableObject {
 
     if (url.pathname === PLAYER_PATHS.profile) {
       return json({ profile: viewOf(await this.load(id, now), now) });
+    }
+
+    if (url.pathname === PLAYER_PATHS.study) {
+      // Keys only, and no write: a room asks this at every deal and it must
+      // stay the cheapest thing this object answers.
+      return json({ study: dueWords(await this.load(id, now), now) });
     }
 
     if (url.pathname === PLAYER_PATHS.export) {

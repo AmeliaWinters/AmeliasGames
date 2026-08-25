@@ -7,12 +7,14 @@ import { named } from '../refusal.js';
 import { chainLookup, fold } from './chainDictionary.js';
 import { vocabOptions, vocabQuestion } from './vocabDictionary.js';
 import type { VocabQuestion } from './vocabDictionary.js';
+import { phraseKeys } from './vocabPhrases.js';
 import {
   DECK_DEPTH,
   DEFAULT_LEVEL,
   HINT_ALLOWANCE,
   HOST,
   MODE_CAP,
+  MODE_LABEL,
   REVEAL_MS,
   SETUP_MS,
   TARGET,
@@ -28,6 +30,7 @@ import {
   hintOf,
   hintsLeft,
   isFinished,
+  isPhrases,
   leaders,
   maskWord,
   roundDeadline,
@@ -60,7 +63,10 @@ export {
   LEVEL_SCALE,
   LEVEL_WINDOW_MS,
   MODE_CAP,
+  MODE_LABEL,
   MODE_NAME,
+  PHRASE_COUNT,
+  PHRASE_RARITY,
   PICK_EVERY,
   PICK_OPTIONS,
   PICK_SCALE,
@@ -84,6 +90,7 @@ export {
   hintOf,
   hintsLeft,
   isFinished,
+  isPhrases,
   leadScore,
   leaders,
   levelOf,
@@ -301,10 +308,10 @@ function draw(
   for (let i = state.drawn; i < state.deck.length; i++) {
     const rank = state.deck[i];
     if (rank > cap) continue;
-    const question = vocabQuestion(lang, rank);
+    const question = vocabQuestion(lang, mode, rank);
     if (question === null || asked.has(question.clue)) continue;
     const wanted = askAt(state.history.length);
-    const options = wanted === 'pick' ? vocabOptions(lang, rank, cap, state.deck) : [];
+    const options = wanted === 'pick' ? vocabOptions(lang, mode, rank, cap, state.deck) : [];
     const ask = wanted === 'pick' && options.length === 0 ? 'say' : wanted;
     return { round: roundFrom(question, now, ask, options), drawn: i + 1 };
   }
@@ -565,6 +572,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     }
 
     const { lang, round } = state;
+    const phrasing = isPhrases(state.mode);
     // Both are guaranteed by `canAct`, which only lets a guess through during
     // `asking`, unreachable without a language or a round. Checked anyway,
     // because the alternative is two non-null assertions holding up a rule that
@@ -641,22 +649,48 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     }
 
     const typed = move.word.trim();
-    if (typed === '') return { ok: false, error: 'Type a word.' };
+    if (typed === '') return { ok: false, error: `Type ${phrasing ? 'the phrase' : 'a word'}.` };
+
+    const question = vocabQuestion(lang, state.mode, round.answer?.rank ?? 0);
+    if (question === null) return { ok: false, error: 'No clue on the table.' };
+
+    // The two modes disagree about what a typed answer even is, and that is the
+    // whole of the difference between them here.
+    //
+    // A **word** is looked up in the language's list first, and something the
+    // list has never heard of is refused rather than marked wrong: it is far
+    // more often a typo than a guess, and ending a round for a misspelling
+    // would be the dictionary playing. See point 2 above.
+    //
+    // A **phrase** has no such list to be absent from. There is nothing that
+    // could vouch for *zrobisz mi kawe* being Polish at all, so there is no
+    // honest way to tell a typo from a wrong guess, and inventing one would
+    // mean either refusing every near miss (unplayable) or refusing every
+    // wrong answer (free guessing, the thing point 2 exists to stop). So a
+    // phrase that is not one of the ways of saying this one is simply wrong,
+    // and the generosity is spent where it can be spent honestly instead: the
+    // accepted forms carry both Polish genders, the casual Japanese, the kana,
+    // and punctuation and accents are folded away. See `keysOf`.
+    if (phrasing) {
+      const right = phraseKeys(typed, lang).some((key) => question.accepts.has(key));
+      return {
+        ok: true,
+        state: recordTry(
+          state,
+          round,
+          attemptOf(state, round, seat, right ? 'right' : 'wrong', typed, at),
+          at,
+        ),
+      };
+    }
 
     const entry = chainLookup(lang, typed);
-    // Not a miss. This is the refusal a player is most likely to think is
-    // wrong, the lists holding common words only, and it is far more often a
-    // typo than a guess. Naming the language makes it arguable rather than
-    // baffling. See point 2 above.
     if (!entry) {
       return {
         ok: false,
         error: `${named(typed)} is not in the ${VOCAB_LANG_NAME[lang]} list.`,
       };
     }
-
-    const question = vocabQuestion(lang, round.answer?.rank ?? 0);
-    if (question === null) return { ok: false, error: 'No clue on the table.' };
 
     if (!question.accepts.has(entry.key)) {
       // A real word, and the wrong one: the round is over for this seat and
@@ -768,7 +802,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
 
     if (state.phase === 'setup') {
       if (state.lang === null) return `Waiting for ${who(HOST)} to choose a language.`;
-      return `${VOCAB_LANG_NAME[state.lang]}, top ${MODE_CAP[state.mode]}. Waiting for ${who(HOST)} to start.`;
+      return `${VOCAB_LANG_NAME[state.lang]}, ${MODE_LABEL[state.mode]}. Waiting for ${who(HOST)} to start.`;
     }
 
     const language = state.lang === null ? '' : VOCAB_LANG_NAME[state.lang];
@@ -796,7 +830,9 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       return `What does “${state.round.answer?.word ?? ''}” mean?`;
     }
 
-    return `Say the ${language} for “${state.round?.clue ?? ''}”.`;
+    return isPhrases(state.mode)
+      ? `Say “${state.round?.clue ?? ''}” in ${language}.`
+      : `Say the ${language} for “${state.round?.clue ?? ''}”.`;
   },
 
   /**

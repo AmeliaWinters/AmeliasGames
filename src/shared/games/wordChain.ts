@@ -27,6 +27,7 @@ import {
   saidBy,
   scoreFor,
   stoppedSeat,
+  studyFor,
   targetScore,
   turnMsFor,
   usedKeys,
@@ -68,6 +69,7 @@ export {
   saidBy,
   scoreFor,
   stoppedSeat,
+  studyFor,
   targetScore,
   turnMsFor,
   usedKeys,
@@ -328,6 +330,12 @@ function revealFor(state: WcState, seat: number, lang: ChainLang): ChainLink | n
     usedKeys(state),
     modeOf(state),
     blockedFor(state, seat),
+    // Only this seat's, and only in the language they were playing. A word
+    // their opponent owes a review on is nothing to do with the minute that
+    // has just gone, and a word due in a language nobody at this table chose
+    // would be matched on a folded key that means something else entirely.
+    // See `WcState.study` and `commonestStarting`.
+    new Set(studyFor(state, seat, lang)),
   );
   // Zero milliseconds, because nobody spent any time on it: the reveal is a
   // word out of the list, not a turn that was played.
@@ -405,7 +413,7 @@ function isLang(value: unknown): value is ChainLang {
 export const wordChain: GameDefinition<WcState, WcMove> = {
   ...GAME_MANIFEST.wordchain,
 
-  setup(): WcState {
+  setup(_playerCount, _rng, _now, study): WcState {
     return {
       phase: 'setup',
       langs: Array(SEATS).fill(null),
@@ -414,6 +422,13 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       chain: [],
       // One list per seat, both empty: nobody has ended a word on anything.
       cooldowns: Array.from({ length: SEATS }, () => []),
+      // Copied in seat by seat rather than taken whole, because the room hands
+      // over one entry per *seated player* and this game always holds two
+      // lists: a room dealt before somebody's profile arrived, or with a guest
+      // in seat one, would otherwise leave a hole `revealFor` had to check.
+      // A missing list and an empty one mean the same thing here, which is the
+      // point. See `WcState.study`.
+      study: Array.from({ length: SEATS }, (_, seat) => ({ ...study?.[seat] })),
       at: 0,
       required: '',
       // Nobody is thinking yet, so there is nothing to count. Set the moment
@@ -586,6 +601,12 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     return {
       ...state,
       cooldowns: state.cooldowns.map((cools, index) => (index === seat ? cools : [])),
+      // The other seat's is blanked for a different reason than the cooldowns
+      // are, and a stronger one: a cooldown is a fact about this game, and a
+      // study list is somebody's vocabulary. See `WcState.study`.
+      // `?? []` for the same reason `studyFor` has one: a room dealt before
+      // this field existed can still be restored from storage.
+      study: (state.study ?? []).map((keys, index) => (index === seat ? keys : {})),
     };
   },
 

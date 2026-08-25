@@ -314,6 +314,25 @@ export interface LetterCooldown {
   until: number;
 }
 
+/**
+ * The folded lemmas `seat` is due to review in `lang`. Empty when there are
+ * none, when the list is not this seat's to see, or when the state predates
+ * study lists entirely.
+ *
+ * That last case is the reason this is a function rather than two subscripts.
+ * `study` is a required field on a state the server deals, but a room restored
+ * from storage may have been dealt before the field existed, and the shape of
+ * a persisted state is what `SNAPSHOT_VERSION` covers. A bump deletes every
+ * live room on deploy, and it would be buying nothing here: the *meaning* of
+ * everything already stored is unchanged, and a chain that comes back without
+ * a study list simply reveals what it would have revealed before, which is the
+ * game as it played last week. So the absent case is read rather than
+ * versioned away, and it is read in one place.
+ */
+export function studyFor(state: WcState, seat: number, lang: ChainLang): readonly string[] {
+  return state.study?.[seat]?.[lang] ?? [];
+}
+
 /** How many words `seat` has contributed to the chain. */
 export function saidBy(state: WcState, seat: number): number {
   return state.chain.reduce((n, link) => (link.seat === seat ? n + 1 : n), 0);
@@ -447,6 +466,22 @@ export function hasBeaten(state: WcState, seat: number): boolean {
   return target !== null && scoreFor(state, seat) > target;
 }
 
+/**
+ * The folded lemmas one seat is due to review, by language.
+ *
+ * All three languages rather than the one they are playing, because a seat
+ * picks its language *during* the setup phase and the state is dealt before
+ * that: there is no language to filter by at the moment this arrives. See
+ * `WcState.study`.
+ *
+ * Structurally the `StudyLists` of `profile.ts`, and spelled out here
+ * instead of imported for the reason that file spells out its own languages
+ * rather than importing this one: a display module may not reach a reducer,
+ * a profile outlives the games that fill it, and the two lists are held
+ * against each other by `profile.test.ts`.
+ */
+export type ChainStudy = Partial<Record<ChainLang, string[]>>;
+
 export interface WcState {
   phase: WcPhase;
   /** Each seat's language, or null while they are still choosing. */
@@ -473,6 +508,25 @@ export interface WcState {
    * charged against `s`.
    */
   cooldowns: LetterCooldown[][];
+  /**
+   * The folded lemmas each seat is due to review, in seat order, as their
+   * profile stood when the game was dealt. Empty for a guest, for anybody with
+   * nothing due, and for every room whose adapter could not reach a profile
+   * store.
+   *
+   * Read in exactly one place, `revealFor` in the reducer, where it decides
+   * *which* word a player who lost a minute is shown: the commonest one they
+   * already owe a review on, rather than the commonest one full stop. It
+   * changes nothing else about the game and it is not a rule: a state with
+   * this empty is the game as it played before the ledger existed.
+   *
+   * A seat is only ever sent its own, and by the same argument the cooldowns
+   * are: `view` blanks the other, and an empty list is what "nothing due" and
+   * "not shown to you" both look like. It is the player's own vocabulary, and
+   * an opponent who could read it would know which words to spend the chain
+   * walking towards.
+   */
+  study: ChainStudy[];
   /** The seat the game is waiting on. Meaningless once `phase` is `over`. */
   at: number;
   /**

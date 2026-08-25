@@ -47,6 +47,16 @@ export const PLAYER_PATHS = {
   profile: '/profile',
   /** The whole ledger, for the export button. See `profile.ts`. */
   export: '/export',
+  /**
+   * The folded keys this account is due to review. See `StudyLists`.
+   *
+   * Read at every deal rather than at sign-in, because "due" is a comparison
+   * against the clock and an answer cached at hello is stale by the time
+   * anybody presses start. It is the one player path a *room* asks on its own
+   * behalf rather than on a socket's, which is why it returns keys and not a
+   * profile: a room has no business holding anybody's ledger.
+   */
+  study: '/study',
   rename: '/rename',
 } as const;
 

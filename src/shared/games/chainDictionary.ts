@@ -133,8 +133,12 @@ export function foldLetter(letter: string, mode: ChainMode): string {
  * Only ever used to *find* an entry. The entry's own `key` is what the chain
  * then links on, so a player who types a long vowel still hands the next
  * player the letter the canonical spelling ends with.
+ *
+ * Exported for Vocab Race's phrase deck, which needs the same forgiveness over
+ * a whole sentence and has no entry to look up: see `keysOf` in
+ * `vocabPhrases.ts`. Still never decides a letter.
  */
-function jaLoose(word: string): string {
+export function jaLoose(word: string): string {
   return fold(word)
     .replace(/sh/g, 's')
     .replace(/ch/g, 't')
@@ -247,6 +251,21 @@ export function chainLookup(lang: ChainLang, typed: string): ChainEntry | null {
  * of a cooldown on the letter they end in. The reveal is the whole point of
  * losing, and showing a player a word the game would have refused is worse than
  * showing them nothing.
+ *
+ * `due` is the folded lemmas this player is already scheduled to review, and it
+ * outranks frequency. A player who has met a word before, been graded on it and
+ * come back round to it is in a quite different position from one meeting a
+ * word cold: the reveal is the app's best teaching moment (see `record` in
+ * `wordChain.ts`) and spending it on a word already in their ledger is what
+ * turns two unconnected games into one course. Frequency still orders the
+ * choice *within* the due words, so what comes back is the commonest word they
+ * owe a review on, not an arbitrary one.
+ *
+ * Matched on the folded **lemma**, because that is what the ledger files a row
+ * under: Polish keeps `jestem` and `być` apart on the board and together in a
+ * profile, and matching `entry.key` here would miss every inflection of every
+ * word anybody has ever learned. See `linkLearned` in `wordChain.ts`, which is
+ * the other half of the same rule.
  */
 export function commonestStarting(
   lang: ChainLang,
@@ -254,9 +273,14 @@ export function commonestStarting(
   used: ReadonlySet<string>,
   mode: ChainMode = 'loose',
   blockedEndings: ReadonlySet<string> = EMPTY,
+  due: ReadonlySet<string> = EMPTY,
 ): ChainEntry | null {
   const l = lists ?? build();
   const first = foldLetter(letter, mode);
+  // Three ranks, best first, and one scan: a word they owe a review on and can
+  // be shown the meaning of, then any glossed word, then anything at all.
+  // English carries no glosses, so the last of these is not a corner case.
+  let glossed: ChainEntry | null = null;
   let fallback: ChainEntry | null = null;
   for (const entry of l.ordered[lang]) {
     // `used` is folded whatever the mode: a word already said is already said,
@@ -266,10 +290,18 @@ export function commonestStarting(
     // Unlike `used`, this is matched on the *mode's* key: a cooldown on `ś` in
     // a strict game must not swallow every word ending in a plain `s`.
     if (blockedEndings.size > 0 && blockedEndings.has(chainKey(entry, mode).slice(-1))) continue;
-    if (entry.gloss) return entry;
+    if (entry.gloss) {
+      // Nothing to look for means the first glossed word is the answer, and
+      // the scan stops here exactly as it always did. With a due set the scan
+      // has to run the letter out before it can say there was no due word in
+      // it, which is one pass over one language, once, on a lost minute.
+      if (due.size === 0) return entry;
+      if (due.has(fold(entry.lemma || entry.word))) return entry;
+      glossed ??= entry;
+    }
     fallback ??= entry;
   }
-  return fallback;
+  return glossed ?? fallback;
 }
 
 /**

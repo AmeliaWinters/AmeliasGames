@@ -25,6 +25,7 @@ import {
 import {
   chainListSizes,
   chainLookup,
+  chainRanked,
   commonestStarting,
   countStarting,
   fold,
@@ -255,6 +256,133 @@ describe('a word that leaves nothing to answer', () => {
     const state = say(playing('en', 'pl'), 'well');
     expect(state.required).toBe('l');
     expect(commonestStarting('pl', 'l', new Set())).not.toBeNull();
+  });
+});
+
+/**
+ * The reveal, when the player who lost the minute has a ledger.
+ *
+ * The one thing the study list changes, and the reason it exists: a player who
+ * has met a word before and come back round to it learns more from being shown
+ * *that* word than from being shown the commonest one on the letter. Everything
+ * here is written against the list rather than against a word spelled out in
+ * the test, because a rebuild of `chainWords.ts` moves every rank and a
+ * hardcoded `elektryczny` would fail for the wrong reason. See
+ * `commonestStarting`.
+ */
+describe('a reveal aimed at what you are due to review', () => {
+  /** Both seats decided, seat 1 carrying `due` in Polish. */
+  function withStudy(due: string[], now = 0): WcState {
+    let state = wordChain.setup(2, rng, now, [{}, { pl: due }]);
+    state = wordChain.start?.(state, now) ?? state;
+    for (const [seat, lang] of [[0, 'en'], [1, 'pl']] as const) {
+      const result = wordChain.applyMove(state, { type: 'lang', lang }, seat, rng, now);
+      if (!result.ok) throw new Error(result.error);
+      state = result.state;
+    }
+    return state;
+  }
+
+  /**
+   * A glossed Polish word starting with `letter` that is *not* what the reveal
+   * would pick on its own, with the folded lemma the ledger would file it
+   * under.
+   *
+   * The lemma, not the key: a profile files `jestem` under `być`, so a study
+   * list holding the played form would never match anything. `linkLearned` is
+   * the other half of this rule and the two have to agree.
+   */
+  function deeper(letter: string): { key: string; due: string } {
+    const first = commonestStarting('pl', letter, new Set());
+    const found = chainRanked('pl').find(
+      (entry) =>
+        entry.key.startsWith(letter) && entry.gloss !== '' && entry.key !== first?.key,
+    );
+    if (!found) throw new Error(`no second glossed Polish word on ${letter}`);
+    return { key: found.key, due: fold(found.lemma || found.word) };
+  }
+
+  it('shows the word they owe a review on rather than the commonest one', () => {
+    const target = deeper('e');
+    const state = say(withStudy([target.due]), 'apple', 0);
+    const settled = wordChain.expire?.(state, TURN_MS) ?? null;
+    expect(missFor(settled as WcState, 1)?.reveal?.key).toBe(target.key);
+  });
+
+  it('falls back to the commonest word when nothing due fits the letter', () => {
+    // A key no folded key can be: every one of them is letters. So the list is
+    // non-empty, which is the case worth covering -- an empty one takes a
+    // different branch in `commonestStarting`.
+    const plain = say(playing('en', 'pl', 0), 'apple', 0);
+    const state = say(withStudy(['no-such-word']), 'apple', 0);
+    expect(missFor(wordChain.expire?.(state, TURN_MS) as WcState, 1)?.reveal?.word).toBe(
+      missFor(wordChain.expire?.(plain, TURN_MS) as WcState, 1)?.reveal?.word,
+    );
+  });
+
+  it('reads only the list of the seat that lost the minute', () => {
+    // Seat 0's ledger has nothing to do with seat 1's minute, and a reveal
+    // that consulted it would be teaching the wrong player.
+    const target = deeper('e');
+    let state = wordChain.setup(2, rng, 0, [{ pl: [target.due] }, {}]);
+    state = wordChain.start?.(state, 0) ?? state;
+    for (const [seat, lang] of [[0, 'en'], [1, 'pl']] as const) {
+      state = (wordChain.applyMove(state, { type: 'lang', lang }, seat, rng, 0) as
+        { ok: true; state: WcState }).state;
+    }
+    const settled = wordChain.expire?.(say(state, 'apple', 0), TURN_MS) ?? null;
+    expect(missFor(settled as WcState, 1)?.reveal?.key).not.toBe(target.key);
+  });
+
+  it('never offers a word already said, however overdue it is', () => {
+    const target = deeper('e');
+    const entry = chainLookup('pl', target.key);
+    expect(entry).not.toBeNull();
+    const used = new Set([target.key]);
+    expect(commonestStarting('pl', 'e', used, 'loose', new Set(), new Set([target.due]))?.key)
+      .not.toBe(target.key);
+  });
+
+  it('is a language at a time, so a key due in one cannot reach another', () => {
+    // `fold` maps onto twenty-six letters, so Polish and English keys collide
+    // as a matter of course. A flat set would show a Polish learner a word on
+    // the strength of an English row.
+    const target = deeper('e');
+    const state = say(withStudy([]), 'apple', 0);
+    const settledEn = wordChain.setup(2, rng, 0, [{}, { en: [target.due] }]);
+    expect(settledEn.study[1].pl).toBeUndefined();
+    expect(missFor(wordChain.expire?.(state, TURN_MS) as WcState, 1)?.reveal).not.toBeNull();
+  });
+
+  it("shows a seat its own list and nobody else's", () => {
+    const state = withStudy(['zebra']);
+    expect(wordChain.view?.(state, 1).study[1].pl).toEqual(['zebra']);
+    expect(wordChain.view?.(state, 0).study[1]).toEqual({});
+    // And its own is untouched, or a reconnecting player would lose it.
+    expect(wordChain.view?.(state, 1).study[0]).toEqual({});
+  });
+
+  it('deals a game with no study list at all, which is every guest room', () => {
+    const state = wordChain.setup(2, rng, 0);
+    expect(state.study).toEqual([{}, {}]);
+  });
+
+  /**
+   * A room dealt before this field existed and restored from storage since.
+   * The field is required on anything the server deals, so this state cannot
+   * arise any other way -- and it is not worth a `SNAPSHOT_VERSION` bump,
+   * which would delete every live room to add a reveal preference. See
+   * `studyFor`.
+   */
+  it('reveals as it always did for a state stored before study lists', () => {
+    const fresh = say(playing('en', 'pl', 0), 'apple', 0);
+    const { study: _dropped, ...older } = fresh;
+    const stored = older as WcState;
+    expect(stored.study).toBeUndefined();
+    expect(() => wordChain.view?.(stored, 0)).not.toThrow();
+    expect(missFor(wordChain.expire?.(stored, TURN_MS) as WcState, 1)?.reveal?.word).toBe(
+      missFor(wordChain.expire?.(fresh, TURN_MS) as WcState, 1)?.reveal?.word,
+    );
   });
 });
 

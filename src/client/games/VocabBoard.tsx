@@ -11,7 +11,7 @@ import {
   LEVEL_NAME,
   LEVEL_SCALE,
   LEVEL_WINDOW_MS,
-  MODE_CAP,
+  MODE_LABEL,
   MODE_NAME,
   REVEAL_MS,
   TARGET,
@@ -26,6 +26,7 @@ import {
   formatClock,
   hintOf,
   hintsLeft,
+  isPhrases,
   msLeftFor,
   rightTries,
   tryOf,
@@ -68,6 +69,11 @@ const LANG_NATIVE: Record<VocabLang, string> = {
 const MODE_BLURB: Record<VocabMode, string> = {
   normal: "The hundred words the language leans on hardest.",
   hard: "The first thousand, where a learner actually lives.",
+  // The odd one out, and the setup screen is where that has to be said: the
+  // other two are depths into one list and this is a different list entirely.
+  // Whole sentences, so the box is longer and the hint gives you the first
+  // letter of every word in it.
+  phrases: "Whole sentences: the coffee, the light, the bill.",
 };
 
 /**
@@ -227,7 +233,15 @@ function Scores({
  * form when the word asked about was an inflection, `jestem` shown and `być`
  * learned, which is most of what the Polish list is for.
  */
-function Answer({ round, lang }: { round: VocabRound; lang: VocabLang }) {
+function Answer({
+  round,
+  lang,
+  mode,
+}: {
+  round: VocabRound;
+  lang: VocabLang;
+  mode: VocabMode;
+}) {
   const answer = round.answer;
   if (answer === null) return null;
   return (
@@ -253,12 +267,20 @@ function Answer({ round, lang }: { round: VocabRound; lang: VocabLang }) {
         each other. It is also now the first term in what the round paid out,
         so it is a number players have a reason to read.
       */}
-      <p className="vr-answer-rank">
-        <span aria-hidden="true">#{count.format(answer.rank)}</span>
-        <span className="sr-only">
-          the {ordinal(answer.rank)} commonest {VOCAB_LANG_NAME[lang]} word
-        </span>
-      </p>
+      {/*
+        Not drawn in phrase mode, where the number would be a lie with a
+        sentence under it: a phrase's rank is where it was written down in a
+        hand-made list, not how common it is, and "#31, the 31st commonest
+        Polish word" is false twice about *gdzie jest toaleta?*.
+      */}
+      {!isPhrases(mode) && (
+        <p className="vr-answer-rank">
+          <span aria-hidden="true">#{count.format(answer.rank)}</span>
+          <span className="sr-only">
+            the {ordinal(answer.rank)} commonest {VOCAB_LANG_NAME[lang]} word
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -453,6 +475,9 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const clock = useServerNow(now, state.deadline !== null && state.phase !== "over");
   const left = state.deadline === null ? null : msLeftFor(state, clock);
   const mine = seat !== null;
+  // Whether the room is answering with sentences. It changes the question's
+  // wording, how long the box is, and which characters it will take.
+  const phrasing = isPhrases(state.mode);
   // How long this seat's own box stays open, ticking. Not the same as the
   // round clock on a mixed table: the fluent player's fifteen seconds run out
   // with half the round still to go, and theirs is the number they need.
@@ -482,7 +507,13 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   // The shape arrives already masked -- the board is never sent the word on a
   // say round -- so the letter count is read back out of the mask.
   const hintShape = myHint === null || myHint.shown === "" ? "" : myHint.shown;
-  const hintLetters = hintShape === "" ? 0 : hintShape.split(" ").length;
+  // Counted off the mask rather than off the answer, which the board does not
+  // have: every letter is either shown or an underscore, and everything else in
+  // there is the spacing `maskWord` added. The old `split(" ").length` counted
+  // those too, which was harmless on a one-word answer and is nonsense on a
+  // phrase.
+  const hintLetters = [...hintShape].filter((ch) => ch === "_" || /\p{L}/u.test(ch)).length;
+  const hintWords = hintShape === "" ? 0 : hintShape.split("   ").length;
 
   const nameFor = (index: number): string =>
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
@@ -585,7 +616,13 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
               }
             >
               <span className="vr-choice-name">
-                {MODE_NAME[mode]} - top {count.format(MODE_CAP[mode])}
+                {/*
+                  The depth belongs beside the name where it is one, and "Phrases
+                  - everyday phrases" is the name said twice. The blurb under it
+                  is what tells that mode apart.
+                */}
+                {MODE_NAME[mode]}
+                {!isPhrases(mode) && ` - ${MODE_LABEL[mode]}`}
               </span>
               <span className="vr-choice-note">{MODE_BLURB[mode]}</span>
             </button>
@@ -662,7 +699,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
             >
               {state.lang === null
                 ? "Pick a language"
-                : `Start: ${VOCAB_LANG_NAME[state.lang]}, top ${count.format(MODE_CAP[state.mode])}`}
+                : `Start: ${VOCAB_LANG_NAME[state.lang]}, ${MODE_LABEL[state.mode]}`}
             </button>
             <p className="vr-note">
               You are choosing for the table. Everyone races the same clue, so
@@ -673,7 +710,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           <p className="vr-waiting" aria-live="polite">
             {state.lang === null
               ? `${nameFor(0)} is choosing a language and difficulty.`
-              : `${nameFor(0)} has picked ${VOCAB_LANG_NAME[state.lang]}, top ${count.format(MODE_CAP[state.mode])}.`}
+              : `${nameFor(0)} has picked ${VOCAB_LANG_NAME[state.lang]}, ${MODE_LABEL[state.mode]}.`}
           </p>
         )}
 
@@ -752,7 +789,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
 
         <h3 className="vr-review-head">
           All {rounds.length} {rounds.length === 1 ? "round" : "rounds"}:{" "}
-          {VOCAB_LANG_NAME[lang]}, top {count.format(MODE_CAP[state.mode])}
+          {VOCAB_LANG_NAME[lang]}, {MODE_LABEL[state.mode]}
         </h3>
         <ol className="vr-reviews">
           {rounds.map((round, i) => (
@@ -780,8 +817,8 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
       <Scores state={state} seat={seat} nameFor={nameFor} />
 
       <p className="vr-round">
-        Round {state.history.length + 1} - {VOCAB_LANG_NAME[lang]}, top{" "}
-        {count.format(MODE_CAP[state.mode])}
+        Round {state.history.length + 1} - {VOCAB_LANG_NAME[lang]},{" "}
+        {MODE_LABEL[state.mode]}
       </p>
 
       {revealing && round ? (
@@ -799,7 +836,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                 ? `You had it first, in ${seconds(first.ms)}.`
                 : `${nameFor(first.seat)} had it first, in ${seconds(first.ms)}.`}
           </p>
-          <Answer round={round} lang={lang} />
+          <Answer round={round} lang={lang} mode={state.mode} />
           <Payout round={round} tries={payout} lang={lang} nameFor={nameFor} />
           {left !== null && (
             <p className="vr-next" aria-hidden="true">
@@ -837,7 +874,9 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           ) : (
             <>
               <p className="vr-clue-label">
-                What is the {VOCAB_LANG_NAME[lang]} for
+                {phrasing
+                  ? `How do you say this in ${VOCAB_LANG_NAME[lang]}?`
+                  : `What is the ${VOCAB_LANG_NAME[lang]} for`}
               </p>
               <p className="vr-clue">{round?.clue}</p>
             </>
@@ -908,7 +947,11 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                   className="vr-input"
                   value={draft}
                   disabled={!myMove}
-                  maxLength={24}
+                  // A sentence needs the room a word does not. Sized off the
+                  // longest phrase in the list with a little air, rather than
+                  // generously, because the cap is also what stops the box
+                  // being a place to paste an essay.
+                  maxLength={phrasing ? 64 : 24}
                   // Every one of these matters on a phone, where the default is a
                   // capitalised, autocorrected, spell-checked mess fighting a
                   // player trying to type Polish on an English keyboard.
@@ -923,13 +966,27 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                       : !myMove
                         ? "time's up"
                         : lang === "ja"
-                          ? "in romaji"
-                          : "in Polish"
+                          ? phrasing
+                            ? "the whole phrase, in romaji"
+                            : "in romaji"
+                          : phrasing
+                            ? "the whole phrase"
+                            : "in Polish"
                   }
                   onChange={(event) =>
                     // Letters only, in any alphabet: Polish accents and a stray
-                    // kana are fine, digits and punctuation never are.
-                    setDraft(event.target.value.replace(/[^\p{L}]/gu, ""))
+                    // kana are fine, digits and punctuation never are. A phrase
+                    // needs the spaces and the apostrophe as well, and gets the
+                    // question mark too -- not because the answer is checked
+                    // against it (the fold drops all three) but because a
+                    // player typing *gdzie jest toaleta?* should not watch the
+                    // box eat the keys as they go.
+                    setDraft(
+                      event.target.value.replace(
+                        phrasing ? /[^\p{L}\s'?,!.-]/gu : /[^\p{L}]/gu,
+                        "",
+                      ),
+                    )
                   }
                 />
                 <button
@@ -956,7 +1013,15 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                   </span>
                   <span className="sr-only" aria-live="polite">
                     Your hint: it starts with {[...hintShape][0]} and is{" "}
-                    {hintLetters} letters long.
+                    {hintLetters} letters long
+                    {/*
+                      A phrase's hint is the first letter of every word in it,
+                      so the shape a sighted player reads has a fact in it that
+                      "starts with z" does not carry. Said rather than left to
+                      the underscores, which are hidden from a screen reader on
+                      purpose.
+                    */}
+                    {hintWords > 1 && `, in ${hintWords} words`}.
                   </span>
                 </p>
               )}

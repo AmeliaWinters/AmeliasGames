@@ -4,6 +4,7 @@ import { startServer } from './index.js';
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../shared/protocol.js';
 import { isRoomCode, makeRoomCode } from '../shared/room.js';
 import { ALPHABET, BLANK, PUZZLES } from '../shared/games/wheel.js';
+import { accountIdFor, fromBase64Url, payloadFor, toBase64Url } from '../shared/account.js';
 
 /** A well-formed hello, so a test only has to say what it is varying. */
 function hello(over: Partial<Extract<ClientMessage, { t: 'hello' }>> = {}): ClientMessage {
@@ -514,5 +515,147 @@ describe('the heartbeat', () => {
     expect(host.received().every((m) => m.t !== 'error')).toBe(true);
     host.close();
     guest.close();
+  });
+});
+
+/**
+ * Accounts, end to end over a real socket.
+ *
+ * The whole path in one place: a real keypair signs a real claim, the server
+ * verifies it, a real game is played out, and the profile that comes back is
+ * the one the room filed. The unit tests cover each half; this is the only
+ * thing that proves they are wired to each other.
+ */
+describe('signing in', () => {
+  const ALGORITHM = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+  const SIGNING = { name: 'ECDSA', hash: 'SHA-256' } as const;
+
+  /** A keypair, and the claim it makes for a room. What the client does. */
+  async function account() {
+    const generated = await crypto.subtle.generateKey(ALGORITHM, true, ['sign', 'verify']);
+  // Narrowed structurally rather than named. `@cloudflare/workers-types` types
+  // `generateKey` as `CryptoKey | CryptoKeyPair` (for an asymmetric algorithm
+  // it is always the pair, and the union is the type not knowing that), while
+  // the shared config's lib has no `CryptoKeyPair` to name at all. This
+  // compiles under both.
+  const pair = generated as Extract<typeof generated, { privateKey: unknown }>;
+    const key = toBase64Url(new Uint8Array((await crypto.subtle.exportKey('raw', pair.publicKey)) as ArrayBuffer));
+    const id = await accountIdFor(fromBase64Url(key));
+    return {
+      id,
+      async claim(code: string) {
+        const sig = await crypto.subtle.sign(SIGNING, pair.privateKey, payloadFor(id, code));
+        return { id, key, sig: toBase64Url(sig) };
+      },
+    };
+  }
+
+  /** Seat a signed-in host and a guest, deal connect4, and play it out. */
+  async function playAGame(who: { claim(code: string): Promise<unknown> }, code = makeRoomCode()) {
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true, account: await who.claim(code) }));
+    await host.nextOf('welcome');
+
+    const guest = await TestClient.connect();
+    guest.send(hello({ name: 'Guest', code }));
+    await guest.nextOf('welcome');
+
+    host.send({ t: 'start' });
+    await host.nextOf('room');
+    host.drain();
+
+    // Four in the first column against three in the second: seat 0 wins.
+    for (let i = 0; i < 4; i++) {
+      host.send({ t: 'move', move: { type: 'drop', col: 0 } });
+      if (i < 3) guest.send({ t: 'move', move: { type: 'drop', col: 1 } });
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return { host, guest, code };
+  }
+
+  it('takes a signed claim and files the game against it', async () => {
+    const who = await account();
+    const { host, guest } = await playAGame(who);
+
+    const profile = await host.nextOf('profile');
+    expect(profile.profile.id).toBe(who.id);
+    // Connect Four teaches no vocabulary, so this is the small per-game
+    // payment and nothing else — which is exactly the point of it existing.
+    expect(profile.profile.xp).toBeGreaterThan(0);
+    expect(profile.profile.words).toBe(0);
+    expect(profile.profile.games.find((g) => g.gameId === 'connect4')?.played).toBe(1);
+
+    host.close();
+    guest.close();
+  });
+
+  /**
+   * The failure mode that matters most, because it is the one nobody would
+   * notice: an account that is not proved must not stop somebody playing.
+   */
+  it('seats a forged claim as a guest, and lets them play anyway', async () => {
+    const mine = await account();
+    const theirs = await account();
+    const code = makeRoomCode();
+    // A real signature from a real key, claiming somebody else's id.
+    const forged = { ...(await mine.claim(code)), id: theirs.id };
+
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true, account: forged }));
+    const welcome = await host.nextOf('welcome');
+    expect(welcome.seat).toBe(0);
+
+    // Seated, playing, and simply not signed in: asking for a profile is
+    // answered with silence rather than with somebody else's.
+    host.drain();
+    host.send({ t: 'profile' });
+    await expect(host.nextOf('profile')).rejects.toThrow();
+    host.close();
+  });
+
+  it('remembers a profile across two separate rooms', async () => {
+    const who = await account();
+    const first = await playAGame(who);
+    const one = await first.host.nextOf('profile');
+    first.host.close();
+    first.guest.close();
+
+    const second = await playAGame(who);
+    const two = await second.host.nextOf('profile');
+    expect(two.profile.xp).toBeGreaterThan(one.profile.xp);
+    expect(two.profile.games.find((g) => g.gameId === 'connect4')?.played).toBe(2);
+    second.host.close();
+    second.guest.close();
+  });
+
+  it('answers a profile request from a signed-in socket', async () => {
+    const who = await account();
+    const code = makeRoomCode();
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true, account: await who.claim(code) }));
+    await host.nextOf('welcome');
+
+    // Sent unasked-for on being welcomed, so the lobby has its "words due"
+    // before anybody presses anything.
+    const pushed = await host.nextOf('profile');
+    expect(pushed.profile.id).toBe(who.id);
+
+    host.drain();
+    host.send({ t: 'profile' });
+    expect((await host.nextOf('profile')).profile.id).toBe(who.id);
+    host.close();
+  });
+
+  it('lets a room of guests play exactly as it always has', async () => {
+    // The promise on the tin: "no accounts". A room where nobody has one must
+    // behave identically, and must never be sent a profile message.
+    const code = makeRoomCode();
+    const host = await TestClient.connect();
+    host.send(hello({ name: 'Host', code, create: true }));
+    await host.nextOf('welcome');
+    host.drain();
+    host.send({ t: 'profile' });
+    await expect(host.nextOf('profile')).rejects.toThrow();
+    host.close();
   });
 });

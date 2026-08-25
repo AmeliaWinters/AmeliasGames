@@ -774,6 +774,39 @@ function useShotSounds(state: BsState): ShipKind | null {
   return sinking;
 }
 
+/**
+ * How long the board being fired at stays up after the shot that ends the
+ * turn. A miss hands the guns over, and swapping the moment the move lands
+ * takes the splash off the screen before it has been seen: you are told you
+ * missed by a board that is no longer the board you shot at. Half a second is
+ * long enough to read the result and short enough that nobody waits for it.
+ *
+ * Kept in reduced motion too. This is not movement, it is time to read.
+ */
+const SWAP_AFTER = 500;
+
+/**
+ * Which sea is on screen. One grid at a time, because two ten by tens side by
+ * side on a phone are two grids nobody can read: the square went from 24px to
+ * 12px to buy a second board that is only ever half the answer.
+ *
+ * The rule is that the board being shot at is the board you see, so the view
+ * follows the guns rather than the player: your turn shows their waters, their
+ * turn shows yours. The swap trails the shot by `SWAP_AFTER` so the result of
+ * a miss is still up when the guns change hands.
+ */
+function useShownWaters(desired: "theirs" | "yours"): "theirs" | "yours" {
+  const [shown, setShown] = useState<"theirs" | "yours">(desired);
+
+  useEffect(() => {
+    if (shown === desired) return;
+    const timer = setTimeout(() => setShown(desired), SWAP_AFTER);
+    return () => clearTimeout(timer);
+  }, [desired, shown]);
+
+  return shown;
+}
+
 export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
   const sinking = useShotSounds(state);
   const them = seat === null ? null : opponentOf(seat);
@@ -798,6 +831,13 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
   useEffect(() => {
     if (!armed) setAim(null);
   }, [armed]);
+
+  // Called above the placing return, because the phase changes under it and a
+  // hook that only exists in one phase is not a hook.
+  //
+  // Once the game is over nobody is being fired at, and the sea worth looking
+  // at is theirs: the fleet that has been hidden all game is revealed there.
+  const shown = useShownWaters(canAct || state.phase === "over" ? "theirs" : "yours");
 
   if (state.phase === "placing") {
     // A spectator has no fleet to set out and no guns to fire; they get the
@@ -896,87 +936,104 @@ export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
     </span>
   );
 
+  // One sea at a time for a seated player: two ten by tens side by side put a
+  // 12px square on a phone, and half of that screen is always the board nobody
+  // is shooting at. A spectator still gets both, because neither of them is
+  // theirs and there is no turn of their own to follow.
+  const solo = seat !== null;
+
+  const theirWaters = (
+    <section className="bs-panel">
+      <h3 className="bs-panel-head">
+        <span className="bs-who them">
+          {them === null ? "Their waters" : `${nameFor(them)}'s waters`}
+        </span>
+        <span className="bs-count">{afloat(theirFleet).length} afloat</span>
+      </h3>
+      <Sea
+        label={them === null ? "Their waters" : `${nameFor(them)}'s waters`}
+        cellClass={targetClass}
+        // A hull is only ever drawn here once `view()` has revealed her:
+        // sunk, or the game is over. `Hulls` skips the hidden ones, so
+        // handing it the whole fleet reveals nothing.
+        fleet={theirFleet}
+        sinking={sinking}
+        aim={aim}
+        cellLabel={(row, col) => {
+          const shot = shotAt(yourShots, row, col);
+          const where = squareName(row, col);
+          if (!shot) {
+            if (!myShot) return where;
+            return sameCell(aim, [row, col])
+              ? `${where}, aimed. Press again to fire`
+              : `Aim at ${where}`;
+          }
+          if (shot.sunk) return `${where}, hit, and sank the ${shot.sunk}`;
+          return `${where}, ${shot.hit ? "hit" : "miss"}`;
+        }}
+        playable={(row, col) => myShot && shotAt(yourShots, row, col) === null}
+        cursor={myShot ? cursor : null}
+        onCursor={(cell) => setCursor(cell)}
+        onActivate={(row, col) => fireAt([row, col])}
+      />
+      {/* Over the sea rather than under it. A line in the flow had to hold
+          its height all game so that its arrival did not shove everything
+          below it down, which left an empty bar under the board for the
+          whole game. Floating, it can simply not be there. */}
+      {sinking && (
+        <p className="bs-banner">The {shipClass(sinking)?.name} is sunk</p>
+      )}
+      <Roster fleet={theirFleet} label="Their fleet" sinking={sinking} />
+    </section>
+  );
+
+  const yourWaters = (
+    <section className="bs-panel">
+      <h3 className="bs-panel-head">
+        <span className="bs-who">Your waters</span>
+        <span className="bs-count">{afloat(yourFleet).length} afloat</span>
+      </h3>
+      <Sea
+        label="Your waters"
+        fleet={yourFleet}
+        sinking={sinking}
+        cellClass={(row, col) => {
+          const shot = shotAt(theirShots, row, col);
+          return [
+            shot ? (shot.hit ? "hit" : "miss") : "",
+            them !== null && isLatest(row, col, them) ? "latest" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+        }}
+        cellLabel={(row, col) => {
+          const ship = shipAt(yourFleet, row, col);
+          const shot = shotAt(theirShots, row, col);
+          const where = squareName(row, col);
+          if (ship && shot) return `${where}, your ${ship.kind}, hit`;
+          if (ship) return `${where}, your ${ship.kind}`;
+          if (shot) return `${where}, they missed`;
+          return where;
+        }}
+        // Your own sea is a readout, not a control: every square is
+        // disabled, so nothing here takes a tab stop from the guns.
+        cursor={null}
+        playable={() => false}
+        onActivate={() => undefined}
+      />
+      <Roster fleet={yourFleet} label="Your fleet" sinking={sinking} />
+    </section>
+  );
+
   return (
     <div className="board bs-board">
-      <div className="bs-seas">
-        <section className="bs-panel">
-          <h3 className="bs-panel-head">
-            <span className="bs-who them">
-              {them === null ? "Their waters" : `${nameFor(them)}'s waters`}
-            </span>
-            <span className="bs-count">{afloat(theirFleet).length} afloat</span>
-          </h3>
-          <Sea
-            label={them === null ? "Their waters" : `${nameFor(them)}'s waters`}
-            cellClass={targetClass}
-            // A hull is only ever drawn here once `view()` has revealed her:
-            // sunk, or the game is over. `Hulls` skips the hidden ones, so
-            // handing it the whole fleet reveals nothing.
-            fleet={theirFleet}
-            sinking={sinking}
-            aim={aim}
-            cellLabel={(row, col) => {
-              const shot = shotAt(yourShots, row, col);
-              const where = squareName(row, col);
-              if (!shot) {
-                if (!myShot) return where;
-                return sameCell(aim, [row, col])
-                  ? `${where}, aimed. Press again to fire`
-                  : `Aim at ${where}`;
-              }
-              if (shot.sunk) return `${where}, hit, and sank the ${shot.sunk}`;
-              return `${where}, ${shot.hit ? "hit" : "miss"}`;
-            }}
-            playable={(row, col) => myShot && shotAt(yourShots, row, col) === null}
-            cursor={myShot ? cursor : null}
-            onCursor={(cell) => setCursor(cell)}
-            onActivate={(row, col) => fireAt([row, col])}
-          />
-          {/* Over the sea rather than under it. A line in the flow had to hold
-              its height all game so that its arrival did not shove everything
-              below it down, which left an empty bar under the board for the
-              whole game. Floating, it can simply not be there. */}
-          {sinking && (
-            <p className="bs-banner">The {shipClass(sinking)?.name} is sunk</p>
-          )}
-          <Roster fleet={theirFleet} label="Their fleet" sinking={sinking} />
-        </section>
-
-        <section className="bs-panel">
-          <h3 className="bs-panel-head">
-            <span className="bs-who">Your waters</span>
-            <span className="bs-count">{afloat(yourFleet).length} afloat</span>
-          </h3>
-          <Sea
-            label="Your waters"
-            fleet={yourFleet}
-            sinking={sinking}
-            cellClass={(row, col) => {
-              const shot = shotAt(theirShots, row, col);
-              return [
-                shot ? (shot.hit ? "hit" : "miss") : "",
-                them !== null && isLatest(row, col, them) ? "latest" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-            }}
-            cellLabel={(row, col) => {
-              const ship = shipAt(yourFleet, row, col);
-              const shot = shotAt(theirShots, row, col);
-              const where = squareName(row, col);
-              if (ship && shot) return `${where}, your ${ship.kind}, hit`;
-              if (ship) return `${where}, your ${ship.kind}`;
-              if (shot) return `${where}, they missed`;
-              return where;
-            }}
-            // Your own sea is a readout, not a control: every square is
-            // disabled, so nothing here takes a tab stop from the guns.
-            cursor={null}
-            playable={() => false}
-            onActivate={() => undefined}
-          />
-          <Roster fleet={yourFleet} label="Your fleet" sinking={sinking} />
-        </section>
+      <div className={`bs-seas${solo ? " solo" : ""}`}>
+        {solo ? (shown === "theirs" ? theirWaters : yourWaters) : (
+          <>
+            {theirWaters}
+            {yourWaters}
+          </>
+        )}
       </div>
 
       {/* Announced as well as drawn. A screen reader gets hit and miss from

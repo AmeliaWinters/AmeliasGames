@@ -94,10 +94,17 @@ the actual risk rather than the reflex.
 - **Recovery is a phrase, shown once and exportable at any time.** It is the
   private key. Losing it loses the account, and the profile screen should say so
   in those words rather than in the language of security.
-- **A second device is paired with a code**, not a login: device A shows four
-  letters, device B types them, the two agree through the server for sixty
-  seconds. The room-code idiom the whole app runs on, applied to the one other
-  place it fits.
+- **A second device takes the recovery key**, and that is the whole of it.
+  Paste it and that browser *is* the account.
+
+  A pairing code was the plan here and it was cut on contact. Done properly it
+  needs an account to hold *several* public keys, plus a third object keyed by
+  the code to broker them, because the alternative (the server relaying a
+  private key) is the one thing this design exists not to do. Importing the key
+  covers the same need with no new surface, and the honest cost is that the key
+  passes through wherever the player pastes it, so the screen has to say "put
+  this somewhere private", not "message it to yourself". Multi-key accounts are
+  the thing to build if pairing is wanted later; nothing here forecloses it.
 
 **Rejected: username and password.** Password storage on Workers means PBKDF2
 (no argon2, no scrypt), reset means email, and email means an address, a sending
@@ -147,10 +154,19 @@ The part that will silently double somebody's XP if done casually. `tick()` runs
 on every message, `broadcast()` runs on every state change, and a hibernating
 object can be restored in the middle of anything.
 
-- **Detect the transition, not the condition.** Capture `engine.isOver()` before
-  the action and harvest only on `false -> true`. `isOver` stays true forever
-  afterwards, so testing it alone harvests on every frame for the rest of the
-  room's life.
+- **Gate on a reservation, not on catching the moment.** The plan here was to
+  capture `engine.isOver()` before the action and fire on `false -> true`. That
+  works, and it gives exactly one attempt, so a room whose player object was
+  briefly unreachable loses the game silently. What shipped instead is a
+  `pending` key written at the deal and cleared only once every account has
+  taken its results: safe to call as often as anything likes, and it **retries
+  itself** on the next message or alarm.
+
+  One consequence is worth writing down, because a test caught it and nothing
+  else would have: the retry has to run on *any* message, not only an accepted
+  action. The commonest message after a game ends is a **refused** move, from
+  somebody tapping the board one more time, and that returns long before the
+  dispatch.
 - **Make the receiver idempotent.** Each harvest carries a key, `ABCD#3`: the
   room code and a count of games dealt in it. The player object records the keys
   it has applied and ignores a repeat. A rematch reuses the room code, which is
@@ -184,11 +200,20 @@ everything. On the contract rather than in a `switch` over game ids inside a
 harvest module, because a `switch` is a fourteenth registration point that
 nothing holds to account, and the compiler already catches the other eight.
 
-`GameRecord` is per-seat and comes in two halves: what was **played** (result,
-duration, and whatever superlatives the game already computes) and what was
-**learned** (section 4). Word Chain hands over its chain and its misses; Vocab Race
-hands over its rounds; Backgammon hands over the `stats` and `race` it has
-always kept and nobody has ever been able to look at twice.
+`GameRecord` is per-seat and comes in two halves: what was **played** and what
+was **learned** (section 4). Word Chain hands over its chain and its misses;
+Vocab Race hands over its rounds.
+
+A game that implements nothing still produces a record: every seat, played,
+**result null**. That turned out to be load-bearing rather than tidy, and it was
+found by writing the test. Eleven of the thirteen games implement no `record`,
+so without it a profile would be completely dead for somebody who mostly plays
+Backgammon, which is the exact failure the small per-game payment was put there
+to prevent. The result is null rather than a guess because the room genuinely
+cannot tell: the contract has `isOver` and a `status` string and nothing
+anywhere that names a winner. Calling them all draws was the first version, and
+it is a lie that compounds into a profile claiming two hundred drawn games of
+Connect Four.
 
 ## 4. The ledger
 
@@ -312,9 +337,12 @@ answer from somebody three weeks in outscores a fast one from a native speaker.
 reducer**, which is worse than never having made it, because the comments would
 still claim otherwise.
 
-- **A word pays.** First production of a new item pays most; each successful
-  review pays by the box it reached, since recalling something after five weeks
-  is a harder thing than recalling it after a day.
+- **A word pays, and a word recalled after five weeks pays most.** The first
+  draft of this said a *new* word pays most, and building it showed that to be
+  the wrong way round: paying most for new words rewards churning through
+  vocabulary and never coming back, which is exactly how a language app makes
+  its numbers go up while teaching nobody anything. So the payment rises with
+  the rung reached, and the efficient way to earn is the thing that works.
 - **A game pays a little.** Every finished game of anything pays a small flat
   amount, win or lose, with a small bonus for the win. That is what stops the
   profile feeling dead for somebody who mostly plays Backgammon, and it is
@@ -410,7 +438,7 @@ the words.
 |---|---|
 | `src/shared/profile.ts` | `Profile`, `Known`, `PROFILE_VERSION`, `migrate()`. **Imports nothing**, and the client renders from it. |
 | `src/shared/review.ts` | The ladder. Pure, `now` injected. |
-| `src/shared/account.ts` | Ids, key encoding, pairing codes. Shared so both adapters agree. |
+| `src/shared/account.ts` | Id derivation, key encoding, and `verifyClaim`. Shared so both adapters agree; async, which is why it is not in `session.ts`. |
 | `src/shared/harvest.ts` | `GameRecord` -> profile delta. Pure, type-only imports of game states, so it stays a leaf. |
 | `src/shared/types.ts` | `record?` and `prime?` on `GameDefinition`. |
 | `src/shared/session.ts` | Reading an account off `hello`, the way it already reads a name. Both adapters inherit it. |
@@ -482,6 +510,8 @@ for a reason, and this branch of work touches files that move often.
 
 Each phase is shippable and leaves the tree green.
 
+Phases 1 to 3 are built. What follows is the plan as it stands.
+
 1. **The core, with no I/O.** `profile.ts`, `review.ts`, `harvest.ts`,
    `record()` on the two language games, and the tests. Nothing stored, nothing
    displayed, no behaviour changed. This is where the ledger design gets proven,
@@ -489,7 +519,7 @@ Each phase is shippable and leaves the tree green.
 2. **Storage and the write path.** `Player` DO, dev-server `Map`, the
    over-transition harvest, the idempotency key. No UI beyond something
    throwaway that dumps the profile as JSON.
-3. **Identity.** Keypair, signed hello, recovery phrase, pairing code, export.
+3. **Identity.** Keypair, signed hello, recovery key, import on a second device, export.
 4. **The screen.** Profile, per-game stats, the "what this game taught you"
    panel on Word Chain and Vocab Race, the due badge on the lobby.
 5. **The loop.** `prime()` on Vocab Race, then Drill as the fourteenth game.

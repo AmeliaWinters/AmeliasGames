@@ -6,6 +6,7 @@ import {
   bumpStreak,
   dayOf,
   dueCount,
+  dueWords,
   findWord,
   migrate,
   newProfile,
@@ -172,6 +173,30 @@ describe('reading a profile', () => {
     // A day earlier nothing had come back yet, and a day later everything has.
     expect(dueCount(profile, NOW - DAY)).toBe(0);
     expect(dueCount(profile, NOW + DAY)).toBe(3);
+  });
+
+  /**
+   * The keys a game is handed so it can put a word somebody half-knows in
+   * front of them. See `StudyLists`, and `revealFor` in `wordChain.ts`.
+   */
+  it('hands out the due keys by language, and leaves the empty ones out', () => {
+    expect(dueWords(profile, NOW)).toEqual({ pl: ['byc'], ja: ['neko'] });
+    // A language with nothing due is absent rather than present and empty, so
+    // a game reading one cannot tell "nothing due" from "no such language".
+    expect(dueWords(profile, NOW - DAY)).toEqual({});
+    expect(dueWords(profile, NOW + DAY).pl).toEqual(['byc', 'miec']);
+  });
+
+  it('cuts the cap off the bottom, keeping what is most overdue', () => {
+    const many: Profile = {
+      ...profile,
+      words: [
+        word({ key: 'third', dueAt: NOW - 1 }),
+        word({ key: 'first', dueAt: NOW - 3 }),
+        word({ key: 'second', dueAt: NOW - 2 }),
+      ],
+    };
+    expect(dueWords(many, NOW, 2)).toEqual({ pl: ['first', 'second'] });
   });
 
   it('counts words by language, and all of them together', () => {

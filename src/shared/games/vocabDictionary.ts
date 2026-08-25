@@ -20,8 +20,9 @@
  * playing Connect Four.
  */
 import { chainRanked } from './chainDictionary.js';
-import { DECK_DEPTH, PICK_OPTIONS } from './vocabDisplay.js';
-import type { VocabLang } from './vocabDisplay.js';
+import { phraseDeck } from './vocabPhrases.js';
+import { DECK_DEPTH, PICK_OPTIONS, isPhrases } from './vocabDisplay.js';
+import type { VocabLang, VocabMode } from './vocabDisplay.js';
 
 /**
  * How many senses a clue is allowed to carry.
@@ -185,14 +186,32 @@ function build(lang: VocabLang): Deck {
 }
 
 /**
- * The question for the word at `rank`, or null when that word cannot be clued.
+ * Every question a mode can ask, by rank.
+ *
+ * The one place the phrase corpus joins the frequency one, and it joins as a
+ * map of the same shape rather than as a branch threaded through the three
+ * functions below. A phrase and a word are the same thing to everything
+ * downstream: a clue, an answer, and the set of things that count as typing it.
+ */
+function deckOf(lang: VocabLang, mode: VocabMode): ReadonlyMap<number, VocabQuestion> {
+  if (isPhrases(mode)) return phraseDeck(lang);
+  return (decks[lang] ?? build(lang)).byRank;
+}
+
+/**
+ * The question at `rank`, or null when nothing there can be clued.
  *
  * Null is ordinary rather than exceptional: roughly one Polish word in fifteen
  * inside the top thousand has a gloss with nothing printable left in it. The
- * caller deals past those, see `draw` in the reducer.
+ * caller deals past those, see `draw` in the reducer. In phrase mode it means
+ * only that the deck has dealt a rank past the end of a much shorter list.
  */
-export function vocabQuestion(lang: VocabLang, rank: number): VocabQuestion | null {
-  return (decks[lang] ?? build(lang)).byRank.get(rank) ?? null;
+export function vocabQuestion(
+  lang: VocabLang,
+  mode: VocabMode,
+  rank: number,
+): VocabQuestion | null {
+  return deckOf(lang, mode).get(rank) ?? null;
 }
 
 /**
@@ -220,6 +239,11 @@ export function vocabQuestion(lang: VocabLang, rank: number): VocabQuestion | nu
  * game is about to ask next, quietly telegraphing three of them, where the far
  * end of a thousand-card deck is ranks a fifteen-round game will never reach.
  *
+ * Phrase mode reads the same way and keeps the same guarantee for a different
+ * reason: only forty-five of the thousand dealt ranks are phrases at all, so
+ * the qualifying ones are scattered the whole length of the deck and the far
+ * end is no more the next few rounds than the near end is.
+ *
  * The right answer is placed at `rank % PICK_OPTIONS`, which is fixed for a
  * given word and spread evenly across the four positions over a game. A fixed
  * position would be learnable in about three rounds.
@@ -233,12 +257,13 @@ export function vocabQuestion(lang: VocabLang, rank: number): VocabQuestion | nu
  */
 export function vocabOptions(
   lang: VocabLang,
+  mode: VocabMode,
   rank: number,
   cap: number,
   order: readonly number[],
 ): string[] {
-  const deck = decks[lang] ?? build(lang);
-  const answer = deck.byRank.get(rank);
+  const deck = deckOf(lang, mode);
+  const answer = deck.get(rank);
   if (answer === undefined) return [];
 
   const wrong: string[] = [];
@@ -246,7 +271,7 @@ export function vocabOptions(
   for (let i = order.length - 1; i >= 0 && wrong.length < PICK_OPTIONS - 1; i--) {
     const other = order[i];
     if (other === rank || other > cap) continue;
-    const question = deck.byRank.get(other);
+    const question = deck.get(other);
     if (question === undefined || seen.has(question.clue)) continue;
     if (shareAnswer(answer, question)) continue;
     seen.add(question.clue);
@@ -272,10 +297,10 @@ function shareAnswer(a: VocabQuestion, b: VocabQuestion): boolean {
 }
 
 /** How many of the first `cap` ranks can actually be asked, for the tests. */
-export function vocabPoolSize(lang: VocabLang, cap: number): number {
-  const deck = decks[lang] ?? build(lang);
+export function vocabPoolSize(lang: VocabLang, mode: VocabMode, cap: number): number {
+  const deck = deckOf(lang, mode);
   let n = 0;
-  for (let rank = 1; rank <= cap; rank++) if (deck.byRank.has(rank)) n++;
+  for (let rank = 1; rank <= cap; rank++) if (deck.has(rank)) n++;
   return n;
 }
 

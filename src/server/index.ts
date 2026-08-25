@@ -9,6 +9,7 @@ import { verifyClaim } from '../shared/account.js';
 import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
 import { harvestKey } from '../shared/harvest.js';
 import { applyHarvest, loadProfile, viewOf, type HarvestPost } from '../shared/players.js';
+import { dueWords } from '../shared/profile.js';
 import type { Profile, ProfileView } from '../shared/profile.js';
 import type { Refusal } from '../shared/session.js';
 
@@ -277,7 +278,23 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
     if (!joined) return fail(socket, { kind: 'rejected', error: 'Join a room first.' });
     const { room, seat } = joined;
 
+    // Any message at all is a chance to retry a harvest that has not landed.
+    // Cheap, and it matters because the commonest message after a game ends is
+    // a *refused* move, which returns long before the dispatch below. The
+    // worker does the same, and the two must not drift.
+    if (room.engine.isOver()) harvest(room);
+
     if (isAction(msg)) {
+      // Before the deal, because `setup` is what reads the lists and a `move`
+      // never deals. The worker does the same over its stubs; here the store
+      // is a `Map` and cannot fail, which is the only difference. See
+      // `RoomEngine.setStudy`.
+      if (msg.t !== 'move') {
+        const at = Date.now();
+        for (const { seat: s, accountId } of room.engine.accounts()) {
+          room.engine.setStudy(s, dueWords(profileOf(accountId, at), at));
+        }
+      }
       const result = applyAction(room.engine, seat, msg);
       if (!result.ok) return fail(socket, { kind: 'rejected', error: result.error });
       // `start`, `rematch` and `switch` are the only three ways a game is

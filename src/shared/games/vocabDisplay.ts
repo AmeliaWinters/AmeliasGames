@@ -56,13 +56,70 @@ export const VOCAB_LANG_NAME: Record<VocabLang, string> = {
  * One setting for the room rather than one per player. A race decides who was
  * first, and two players racing at different depths are not racing.
  */
-export type VocabMode = 'normal' | 'hard';
+export type VocabMode = 'normal' | 'hard' | 'phrases';
 
-export const VOCAB_MODES: readonly VocabMode[] = ['normal', 'hard'];
+export const VOCAB_MODES: readonly VocabMode[] = ['normal', 'hard', 'phrases'];
 
-export const MODE_CAP: Record<VocabMode, number> = { normal: 100, hard: 1000 };
+/**
+ * How many phrases the phrase deck holds. See `vocabPhrases.ts`.
+ *
+ * Here rather than there because it is a cap on a deck dealt before the
+ * language is known, so the reducer needs it and the reducer may not reach the
+ * data. `vocab.test.ts` pins the two together, which is the only thing keeping
+ * this number honest.
+ */
+export const PHRASE_COUNT = 45;
 
-export const MODE_NAME: Record<VocabMode, string> = { normal: 'Normal', hard: 'Hard' };
+/**
+ * How deep into the list a mode reads. A rank cap, and for `phrases` a cap
+ * over a different list entirely.
+ *
+ * The one place the three modes stop being the same kind of thing: `normal`
+ * and `hard` are depths into one frequency-ordered corpus, where `phrases` is
+ * a corpus of its own with forty-five entries in it. Everything downstream
+ * still just filters the dealt deck against this number, which is why the
+ * third mode cost the reducer one parameter rather than a second code path.
+ */
+export const MODE_CAP: Record<VocabMode, number> = {
+  normal: 100,
+  hard: 1000,
+  phrases: PHRASE_COUNT,
+};
+
+export const MODE_NAME: Record<VocabMode, string> = {
+  normal: 'Normal',
+  hard: 'Hard',
+  phrases: 'Phrases',
+};
+
+/**
+ * What the room is playing, in three words, wherever the setting is repeated
+ * back: the setup screen, the round header, the status line, the review.
+ *
+ * A string rather than the `top ${MODE_CAP[mode]}` those four places used to
+ * build for themselves, because that sentence is only true of two of the three
+ * modes now. "Top 45" would be a lie about a list that is not ordered by
+ * frequency at all, and the one thing every one of those lines is for is
+ * telling a player what they are about to be asked.
+ */
+export const MODE_LABEL: Record<VocabMode, string> = {
+  normal: 'top 100',
+  hard: 'top 1,000',
+  phrases: 'everyday phrases',
+};
+
+/**
+ * Whether a mode asks for whole sentences rather than single words.
+ *
+ * One predicate rather than `mode === 'phrases'` scattered over three files,
+ * and the name is the question each of those places is actually asking: it
+ * decides which corpus a clue is drawn from, what a typed answer is checked
+ * against, whether a rarity rank means anything, and whether the board draws
+ * one.
+ */
+export function isPhrases(mode: VocabMode): boolean {
+  return mode === 'phrases';
+}
 
 /**
  * How many points a player has to bank to win.
@@ -241,6 +298,22 @@ export const DEFAULT_LEVEL: VocabLevel = 'some';
 export const RARITY_STEP = 5;
 
 /**
+ * What a phrase is worth, since it has no frequency to be rare by.
+ *
+ * A phrase's `rank` is its position in a hand-written list, so running it
+ * through the decades would pay 5 for the first nine phrases and 10 for the
+ * rest, a difference that means nothing: *dzień dobry* is not four times
+ * commoner than *ile to kosztuje?*, it was just written down earlier. A flat
+ * rate is the honest reading of a list that has no order to speak of.
+ *
+ * Ten, which is what the top hundred pays, because that is the comparison a
+ * player will make. A phrase is more to type and more to remember than a word
+ * from the top hundred, and rather less than one from the deep end of hard, so
+ * it sits where it sits. Speed, level, `pick` and hints all still multiply.
+ */
+export const PHRASE_RARITY = RARITY_STEP * 2;
+
+/**
  * The most speed can multiply a word's rarity by.
  *
  * Two, running down to one as your own window closes: an instant answer is
@@ -308,7 +381,7 @@ export const HINT_SCALE = 0.5;
  * possible deck up front and filtering it against the cap when a round is drawn
  * is what makes every later round decidable with no randomness at all.
  */
-export const DECK_DEPTH = MODE_CAP.hard;
+export const DECK_DEPTH = Math.max(MODE_CAP.hard, MODE_CAP.phrases);
 
 /**
  * Which way round a clue is asked.
@@ -728,7 +801,7 @@ export function rightTries(round: VocabRound): VocabTry[] {
 }
 
 /**
- * A word with everything but its first letter held back: `z _ _ _ _`.
+ * An answer with everything but its initials held back: `z _ _ _ _`.
  *
  * Spaced rather than run together, because the length is half the hint and
  * nobody reads `z____` as four correctly at a glance. Anything that is not a
@@ -736,12 +809,33 @@ export function rightTries(round: VocabRound): VocabTry[] {
  * entries, and masking those would make the shape of the word a second puzzle
  * on top of the first.
  *
+ * The first letter of *each* word rather than of the whole string, which only
+ * matters in phrase mode and matters a lot there. `z _ _ _ _ _ _   _ _   _ _ _ _`
+ * is not a hint, it is a rectangle: the thing that resolves a sentence on the
+ * tip of the tongue is the shape of its words, and a four-word phrase given one
+ * letter is being charged half its points for the length alone. On a
+ * single-word answer this is the same string it always was.
+ *
  * Built from the romaji `word` rather than the `script`, because romaji is what
  * the box takes and a hint you cannot act on is not a hint. Split by code
  * point, so a Polish diacritic counts as the one letter it is.
  */
 export function maskWord(word: string): string {
-  return [...word].map((ch, i) => (i === 0 || !/\p{L}/u.test(ch) ? ch : '_')).join(' ');
+  let opening = true;
+  return [...word]
+    .map((ch) => {
+      const letter = /\p{L}/u.test(ch);
+      if (!letter) {
+        opening = true;
+        return ch;
+      }
+      if (opening) {
+        opening = false;
+        return ch;
+      }
+      return '_';
+    })
+    .join(' ');
 }
 
 /** The hint `seat` has bought this round, or null if it has not. */
@@ -818,7 +912,7 @@ export function roundPoints(
   hinted: boolean,
 ): number {
   const decade = rank < 1 ? 0 : Math.floor(Math.log10(rank));
-  const rarity = RARITY_STEP * (decade + 1);
+  const rarity = isPhrases(state.mode) ? PHRASE_RARITY : RARITY_STEP * (decade + 1);
   const window = windowMs(state, seat);
   const left = window === 0 ? 0 : Math.max(0, Math.min(1, (window - ms) / window));
   const scaled =

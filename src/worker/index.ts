@@ -14,7 +14,7 @@ import {
 } from '../shared/session.js';
 import { verifyClaim } from '../shared/account.js';
 import { PING_FRAME, PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
-import type { ProfileView } from '../shared/profile.js';
+import type { ProfileView, StudyLists } from '../shared/profile.js';
 import { harvestKey } from '../shared/harvest.js';
 import { PLAYER_PATHS, type HarvestPost } from '../shared/players.js';
 
@@ -194,7 +194,7 @@ export class GameRoom implements DurableObject {
     accountId: string,
     path: string,
     body?: unknown,
-  ): Promise<{ profile: ProfileView } | null> {
+  ): Promise<{ profile: ProfileView; study: StudyLists } | null> {
     try {
       const stub = this.env.PLAYERS.get(this.env.PLAYERS.idFromName(accountId));
       const response = await stub.fetch(
@@ -208,9 +208,34 @@ export class GameRoom implements DurableObject {
             },
       );
       if (!response.ok) return null;
-      return (await response.json()) as { profile: ProfileView };
+      // Each path fills in one half of this and the callers read the half
+      // they asked for. Widening the return type rather than generifying it,
+      // because there are two callers and a type parameter would be more
+      // machinery than the saving.
+      return (await response.json()) as { profile: ProfileView; study: StudyLists };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Fill in what every signed-in seat is due to review, before a deal.
+   *
+   * At the deal rather than at sign-in, because "due" is a comparison against
+   * the clock: a list fetched when somebody joined the room is already stale
+   * by the time the last player arrives and the host presses start. See
+   * `RoomEngine.setStudy`.
+   *
+   * One fetch per signed-in seat, on the three messages that deal a game and
+   * on nothing else, so a room in the middle of a game pays nothing. Every
+   * failure is silent and leaves that seat with no list, which is the game as
+   * it played before any of this existed: a profile that cannot be reached
+   * must never stop a game being dealt.
+   */
+  private async loadStudy(engine: RoomEngine): Promise<void> {
+    for (const { seat, accountId } of engine.accounts()) {
+      const answer = await this.askPlayer(accountId, PLAYER_PATHS.study);
+      if (answer) engine.setStudy(seat, answer.study);
     }
   }
 
@@ -240,14 +265,12 @@ export class GameRoom implements DurableObject {
       return;
     }
 
+    // Never null here: `harvest` is only ever called on a game `isOver` agrees
+    // is finished, and a game that implements no `record` still gets a
+    // synthesised one so that playing it counts for something. Read
+    // defensively anyway, because the cost of being wrong is a lost harvest.
     const record = engine.record();
-    if (record === null) {
-      // Eleven of the thirteen games implement no `record`, so there is
-      // nothing to file beyond the fact that it happened — and that is exactly
-      // what an empty `learned` list says.
-      await this.state.storage.delete('pending');
-      return;
-    }
+    if (record === null) return;
 
     const now = Date.now();
     const results = await Promise.all(
@@ -443,6 +466,13 @@ export class GameRoom implements DurableObject {
       });
     }
 
+    // Any message at all is a chance to retry a harvest that could not be
+    // delivered. Gated on an in-memory `isOver`, so it costs nothing while a
+    // game is being played, and it matters because the commonest message after
+    // a game ends is a *refused* move — somebody tapping the board one more
+    // time — which returns long before the dispatch below.
+    if (engine.isOver()) await this.harvest(engine);
+
     if (msg.t === 'profile') {
       // No id on the message, so this can only ever answer for the account
       // this socket proved on the way in. There is nobody else to ask about.
@@ -451,6 +481,9 @@ export class GameRoom implements DurableObject {
     }
 
     if (isAction(msg)) {
+      // Before the deal, not after: `setup` is what reads the lists, and a
+      // `move` never deals. See `loadStudy`.
+      if (msg.t !== 'move') await this.loadStudy(engine);
       const result = applyAction(engine, meta.seat, msg);
       if (!result.ok) return this.fail(ws, { kind: 'rejected', error: result.error });
       // `start`, `rematch` and `switch` are the three ways a game is dealt, and

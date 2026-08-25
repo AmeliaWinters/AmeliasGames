@@ -349,6 +349,60 @@ describe('open seating', () => {
  * Word Hunt is the only timed game, and the room is what makes its clock real:
  * a reducer cannot end a round nobody is playing.
  */
+/**
+ * What the room carries from a profile store into a reducer, and nothing else.
+ *
+ * The engine never reads a profile: an adapter fetches the folded keys and
+ * says so, and the room's only job is to have them in hand at the deal. See
+ * `RoomEngine.setStudy` and `GameDefinition.setup`.
+ */
+describe('study lists', () => {
+  function seated(): RoomEngine {
+    const room = newRoom('TEST', 'wordchain');
+    room.join('a', 'Ann');
+    room.join('b', 'Bo');
+    return room;
+  }
+
+  function studyOf(room: RoomEngine, seat: number): unknown {
+    return (room.viewFor(seat, new Set([0, 1])).state as { study: unknown[] }).study[seat];
+  }
+
+  it('reaches the game it deals, in the seat it was filed under', () => {
+    const room = seated();
+    room.setStudy(1, { pl: ['byc'] });
+    expect(room.start(0).ok).toBe(true);
+    expect(studyOf(room, 1)).toEqual({ pl: ['byc'] });
+    expect(studyOf(room, 0)).toEqual({});
+  });
+
+  it('deals a room nobody said anything about, which is every guest room', () => {
+    const room = seated();
+    expect(room.start(0).ok).toBe(true);
+    expect(studyOf(room, 0)).toEqual({});
+  });
+
+  /**
+   * The adapters refill before every deal, so a rematch that dropped the lists
+   * would only ever be *stale*, never wrong. Kept anyway: a rematch is dealt
+   * from the same table and should teach the same people the same words.
+   */
+  it('survives a rematch at the same table', () => {
+    const room = seated();
+    room.setStudy(0, { ja: ['neko'] });
+    expect(room.start(0).ok).toBe(true);
+    room.rematch();
+    expect(studyOf(room, 0)).toEqual({ ja: ['neko'] });
+  });
+
+  it('ignores a seat that is not one', () => {
+    const room = seated();
+    room.setStudy(-1, { pl: ['byc'] });
+    expect(room.start(0).ok).toBe(true);
+    expect(studyOf(room, 0)).toEqual({});
+  });
+});
+
 describe('a game on a clock', () => {
   const START = 1_700_000_000_000;
   const ROUND_MS = 120_000;
