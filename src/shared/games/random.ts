@@ -1,10 +1,10 @@
 import type { Rng } from '../types.js';
 
 /**
- * The two ways this project turns an `Rng` into a number, in one place because
- * both of them need the same guard.
+ * The two ways this project turns an `Rng` into a number, together because
+ * both need the same guard.
  *
- * `Rng` is documented as returning [0, 1), and Math.random does — but a
+ * `Rng` is documented as returning [0, 1), and Math.random does, but a
  * hand-written test rng returning exactly 1 would pick one past the end of the
  * array (and roll a 7), and one returning NaN would poison the state silently.
  * Every game that touches chance needs that clamp, so none of them own it.

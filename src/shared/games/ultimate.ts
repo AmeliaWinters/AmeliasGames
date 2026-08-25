@@ -22,34 +22,32 @@ import {
 } from './ultimateDisplay.js';
 
 /**
- * Ultimate Tic-Tac-Toe — nine small boards, and your move picks the one your
+ * Ultimate Tic-Tac-Toe: nine small boards, and your move picks the one your
  * opponent has to play in next.
  *
  * The geometry, the eight lines and every predicate over a position live in
  * `ultimateDisplay.ts`, which the client's board imports too; this file is the
- * rules on top of them. Everything it re-exports below is so the tests and the
- * server carry on importing a game from one module.
+ * rules on top of them. The re-exports below let the tests and the server
+ * import a game from one module.
  *
- * The whole game is three sentences. Play a square in the board you were sent
- * to. The square you choose — top-left, centre, whichever — is the board your
- * opponent must play in next. Win three small boards in a row and you win.
+ * Three sentences. Play a square in the board you were sent to. The square you
+ * choose is the board your opponent must play in next. Win three small boards
+ * in a row and you win.
  *
- * Two of the three variants people argue about are settled here, and they are
- * settled the way the tournament rule settles them:
+ * Two of the three variants people argue about are settled the tournament way:
  *
  *   - Sent to a board that is already settled? Play anywhere. The alternative
- *     is a rule that needs a second sentence to explain, and the second
- *     sentence is what this game is trying not to have.
- *   - A small board that fills with no line in it counts for nobody. It is
- *     dead ground, and the big board's line cannot run through it.
+ *     needs a second sentence to explain, and a second sentence is what this
+ *     game is trying not to have.
+ *   - A small board that fills with no line counts for nobody. Dead ground,
+ *     and the big board's line cannot run through it.
  *
- * The third — what happens when every board is settled and nobody has three in
- * a row — is settled by counting boards, so a game that goes the distance
- * still ends with a result. Level on boards is the only draw.
+ * The third, every board settled and nobody with three in a row, is settled by
+ * counting boards, so a game that goes the distance still ends with a result.
+ * Level on boards is the only draw.
  *
  * A stalemate cannot arise: a settled board frees the mover to go anywhere,
- * and while any board is unsettled it has an empty square in it. So the only
- * way play stops is one of the endings above.
+ * and while any board is unsettled it has an empty square in it.
  *
  * No randomness and no clock, so `rng` and `now` go unused.
  */
@@ -187,8 +185,8 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
         results,
         lines,
         // A move points at the board of the same name as the square played.
-        // If that board is spent, the opponent goes anywhere — which is the
-        // one place that rule is written down.
+        // If that board is spent the opponent goes anywhere, which is the one
+        // place that rule is written down.
         sent: results[spot] === null ? spot : null,
         turn: other(mover),
         winner,
@@ -202,7 +200,7 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
   },
 
   turn(state) {
-    // Deliberately not `this.isOver` — GameDefinition promises nothing about
+    // Deliberately not `this.isOver`: GameDefinition promises nothing about
     // method binding, so a destructured `turn` would throw.
     return isOver(state) ? null : state.turn;
   },
@@ -219,20 +217,20 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
 
     if (state.winner !== null) {
       if (state.ending === 'line') {
-        return `${nameFor(state.winner)} wins — three boards in a row`;
+        return `${nameFor(state.winner)} wins with three boards in a row`;
       }
       const mine = state.winner === 0 ? zero : one;
       const theirs = state.winner === 0 ? one : zero;
-      return `${nameFor(state.winner)} wins — ${mine} boards to ${theirs}`;
+      return `${nameFor(state.winner)} wins, ${mine} boards to ${theirs}`;
     }
     if (state.draw) {
       return `A draw. ${zero} boards each.`;
     }
     if (state.sent === null) {
-      // Two different ways to be free — the opening move, and a board that has
-      // been spent — and from the mover's side they are the same instruction.
-      return `${nameFor(state.turn)} to play — any open board`;
+      // Two ways to be free, the opening move and a spent board, and from the
+      // mover's side they are the same instruction.
+      return `${nameFor(state.turn)} to play, any open board`;
     }
-    return `${nameFor(state.turn)} to play — the ${boardName(state.sent)}`;
+    return `${nameFor(state.turn)} to play, the ${boardName(state.sent)}`;
   },
 };

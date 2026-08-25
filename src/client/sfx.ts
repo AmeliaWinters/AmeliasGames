@@ -2,11 +2,10 @@
  * The table, heard.
  *
  * `feel.ts` synthesises the dice, because a throw is different every time and
- * a recording of one is not. Everything else in the app is a discrete event —
- * a disc landing, a player sitting down, a game ending — and those are
- * recordings, from Kenney's CC0 packs (see `public/sfx/LICENSE.txt`). Ten
- * files, 112 KB, which the Android build carries offline and the web build
- * fetches once.
+ * a recording of one is not. Everything else in the app is a discrete event (a
+ * disc landing, a player sitting down, a game ending) and those are recordings,
+ * from Kenney's CC0 packs (see `public/sfx/LICENSE.txt`). Ten files, 112 KB,
+ * which the Android build carries offline and the web build fetches once.
  *
  * Three rules hold the whole thing together:
  *
@@ -38,7 +37,7 @@ const CUES = {
   turn: { file: "turn.ogg", gain: 0.45 },
   /** Somebody sat down. */
   join: { file: "join.ogg", gain: 0.4 },
-  /** The game is over — for everyone, so it says "finished", not "you won". */
+  /** The game is over, for everyone, so it says "finished" and not "you won". */
   over: { file: "over.ogg", gain: 0.45 },
   /** The server refused something. */
   deny: { file: "deny.ogg", gain: 0.4 },
@@ -96,13 +95,13 @@ export function primeSfx(announce?: Cue): void {
   const all = (Object.keys(CUES) as Cue[]).map((cue) => fetchCue(cue, ac));
   // Something to hear the moment the switch is flipped, once there is
   // something to hear. Without it, turning sound on is a button that appears
-  // to do nothing until the next move — which is how a player concludes it is
+  // to do nothing until the next move, which is how a player concludes it is
   // broken and turns it back off.
   if (announce) void Promise.all(all).then(() => play(announce));
 }
 
 /**
- * One cue, now. Silent — not queued — if sound is off or it has not landed yet.
+ * One cue, now. Silent, not queued, if sound is off or it has not landed yet.
  *
  * `rate` detunes for variety where the same cue fires repeatedly; leaving it
  * at 1 is right for anything that happens once.
@@ -136,11 +135,11 @@ export function play(cue: Cue, rate = 1): void {
  * What a move sounds like in a given game.
  *
  * Null means the board speaks for itself, and then the generic rule stands
- * down completely — not just for the move, but for "your turn" as well.
+ * down completely, not just for the move but for "your turn" as well.
  * Battleships is the case: a shot is a hit or a miss, the board is the only
  * thing that knows which, and in a two-player game their shot landing *is*
  * your turn arriving. Left to fire as well, the generic rule would put a
- * wooden knock and a pluck underneath every splash — three sounds for one
+ * wooden knock and a pluck underneath every splash: three sounds for one
  * event.
  */
 const MOVE_CUE: Record<string, Cue | null> = {
@@ -156,14 +155,13 @@ function moveCue(gameId: string): Cue | null {
 /**
  * The room, turned into sound.
  *
- * Everything here is read off `RoomView`, which is the same shape for all
- * nine games — so a new game gets the whole set (dealt, moved, your turn,
- * joined, over) without this file being touched, which is the same bargain
- * the server already makes.
+ * Everything here is read off `RoomView`, the same shape for all nine games,
+ * so a new game gets the whole set (dealt, moved, your turn, joined, over)
+ * without this file being touched, the same bargain the server already makes.
  *
  * The state comparison is a stringify. It is what makes "a move happened"
- * honest where `turn` is not enough — backgammon and Yahtzee both let one
- * player move several times in a row — and it is cheap because `view()` has
+ * honest where `turn` is not enough, since backgammon and Yahtzee both let one
+ * player move several times in a row, and it is cheap because `view()` has
  * already cut each state down to what one seat may see. Nothing in any view
  * ticks on its own: Word Hunt's `endsAt` is an absolute stamp, so a running
  * clock does not read as a move every second.
@@ -199,7 +197,7 @@ export function useTableSounds(
     const was = previous.current;
     previous.current = now;
 
-    // The first view of a room — including one rejoined mid-game — describes
+    // The first view of a room, including one rejoined mid-game, describes
     // everything that has already happened in it. Announcing all of that at
     // once is not a recap, it is a pile-up.
     if (!was || was.code !== now.code) return;

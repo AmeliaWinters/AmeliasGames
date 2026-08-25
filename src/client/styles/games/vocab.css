@@ -18,7 +18,7 @@
   background: var(--board);
 }
 
-/* ── The scoreline ──────────────────────────────────────────────────── */
+/* The scoreline */
 
 /* Wraps rather than scrolls: eight seats will not fit across a phone, and a
    score you have to swipe to see is one nobody checks. */
@@ -55,14 +55,47 @@
   background: var(--rule);
 }
 
-/* Out of this round. Dimmed, but only to 0.55 -- their score is still live
-   information for everyone else, and a row faded to the disabled-control 0.45
-   would read as a player who had left. */
-.vr-score.out {
-  opacity: 0.55;
+/* Done with this round -- answered, wrong, passed or out of window.
+
+   This used to be `opacity: 0.55`, and it cannot be any more. Measured on the
+   phone palette that put the seat's name at 2.56:1 against its own row, which
+   fails AA at 12.5px, and the name is the only thing identifying whose score
+   it is. Dimming was already the wrong instrument here for a second reason:
+   under the redesign every seat finishes every round, so what used to be an
+   occasional mark on an eliminated player is now the normal state of the whole
+   scoreline, and a board that spends most of its life faded is just a faded
+   board.
+
+   So the row says what happened instead of whispering it -- see
+   `.vr-score-how`, which is the marker now. A seat that has answered is
+   finished, not eliminated, and it should not look like it has left. */
+.vr-score.out .vr-score-name {
+  font-style: italic;
 }
 
 .vr-score.won .vr-score-points {
+  color: var(--accent);
+}
+
+/* How a seat's round ended, beside its score.
+
+   A word rather than a countdown, and that is the change: there is no longer
+   anything ticking here, because nobody is held. Fixed-width all the same --
+   eight of these on a wrapping flex row would reflow the whole scoreline every
+   time somebody answered, which is the most distracting thing a board can do
+   while the rest of the table is reading a clue. */
+.vr-score-how {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 3.4em;
+  text-align: right;
+}
+
+/* Right answers get the accent. The other three endings stay grey: being wrong
+   is not worth colouring in while everybody else is still typing, and it is
+   information the seat that was wrong already has. */
+.vr-score-how.how-right {
   color: var(--accent);
 }
 
@@ -95,7 +128,7 @@
   text-align: center;
 }
 
-/* ── The clue ───────────────────────────────────────────────────────── */
+/* The clue */
 
 .vr-clue-label {
   margin: 0;
@@ -121,7 +154,120 @@
   overflow-wrap: anywhere;
 }
 
-/* ── Answering ──────────────────────────────────────────────────────── */
+/* The script under the word on a recognition round. Smaller than the reveal's
+   because there it is the last thing on the screen and here it sits above four
+   options a thumb has to reach, but the pairing is the same and it is there for
+   the same reason: the romaji alone never teaches anybody to read. */
+.vr-word-script {
+  margin: -6px 0 0;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Answering */
+
+/* The four meanings, on a recognition round.
+
+   One per row rather than a two-by-two grid, and that is a phone decision: the
+   glosses run from one word to five ("sir, Mr, gentleman"), so a grid sizes
+   every cell to the longest of them and leaves three tiles mostly empty at 320.
+   Stacked, each row is exactly as tall as its own text. */
+.vr-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Full width and well past the 44px floor, because this is the one control in
+   the game that is pressed under time pressure by somebody reading four things
+   at once. Left-aligned text: four centred phrases of different lengths have no
+   common edge for the eye to run down, which costs a beat per option and there
+   are four of them. */
+.vr-option {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule-hi);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1rem;
+  line-height: 1.3;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.vr-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Inert, because this seat has answered or its window shut. Marked by its
+   edge and its ink rather than by fading, and the two reasons are the ones this
+   board keeps running into: the four meanings are still worth reading after you
+   are out of the round, and 0.45 against this ground measures about 1.9:1,
+   which is not reading. `--muted` is 5.1:1. It is also why the button carries
+   `surface` -- the global disabled rule would fade it otherwise. */
+.vr-option:disabled {
+  border-color: var(--rule);
+  color: var(--muted);
+}
+
+/* The hint */
+
+/* The shape of the word, once bought. Sat directly under the box it is a hint
+   about, in the same monospaced-feeling tracking the answer uses, because the
+   whole content of it is how many gaps there are and letters that drift make
+   that a counting exercise. */
+.vr-hint {
+  margin: 10px 0 0;
+  text-align: center;
+}
+
+.vr-hint-shape {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+/* Buying one. Sized and coloured like "I don't know it" rather than like "Say
+   it": both are things you reach for when the answer is not coming, and a hint
+   button styled as a primary action would be pressed on every round by reflex,
+   which is three rounds at half points before anybody notices. */
+.vr-hint-buy {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 12px;
+  background: none;
+  border: 1px dashed var(--rule-hi);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 0.86rem;
+}
+
+/* Spent, or not available on this round. Marked by its border and its wording
+   rather than by fading it, and that is a contrast decision rather than a taste
+   one: "Hint taken, half points" is the only thing on the board that says this
+   answer will be scored at half, and it sits there for the rest of the round.
+   The 0.45 every other disabled control here uses measures about 1.9:1 against
+   the board, which is unreadable for a line that is still telling you
+   something. `--muted` on its own is 5.1:1. */
+.vr-hint-buy:disabled {
+  border-style: solid;
+  border-color: var(--rule);
+  color: var(--muted);
+}
+
 
 .vr-entry {
   margin: 0;
@@ -169,7 +315,30 @@
   text-transform: uppercase;
 }
 
-/* ── The reveal ─────────────────────────────────────────────────────── */
+/* Giving up. A real move -- the round ends when the last seat is done, so this
+   is what gets the table to the answer -- but never a loud one: it sits under
+   the row rather than in it, borderless and grey, at full width so a thumb can
+   find it without aiming. The gap above is deliberate and generous: a mis-tap
+   here throws away the round, and it must not be reachable by a thumb that was
+   travelling towards "Say it". */
+.vr-give-up {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 12px;
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--muted);
+  font-family: var(--body);
+  font-size: 0.86rem;
+}
+
+.vr-give-up:disabled {
+  opacity: 0.45;
+}
+
+/* The reveal */
 
 /* Who got it, and how fast. Above the word rather than below it, so the word
    is the last thing on the block and the thing left in the eye. */
@@ -262,7 +431,7 @@
   text-align: center;
 }
 
-/* ── Setup ──────────────────────────────────────────────────────────── */
+/* Setup */
 
 .vr-setup {
   gap: 12px;
@@ -337,7 +506,150 @@
   min-height: 44px;
 }
 
-/* ── The end ────────────────────────────────────────────────────────── */
+/* Three across where two fit, because the levels are a scale and reading them
+   in one row is how a scale reads. `auto-fit` on a 100px floor lets them stack
+   at 320 rather than squeezing "Just starting" onto three lines. */
+.vr-levels {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+/* Who has claimed what. A quiet list rather than a table: it exists to be
+   glanced at once before the game starts and never read again. */
+.vr-levels-said {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.vr-level-said {
+  display: flex;
+  gap: 5px;
+}
+
+.vr-level-who {
+  color: var(--ink);
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The hold */
+
+/* Why your box is dead, under your box.
+
+   The terms of a level, in figures, under the sentence that describes them.
+   Tabular because the three buttons sit side by side and "15s" under "22s"
+   under "30s" is a column the eye reads as a scale. */
+.vr-choice-terms {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+/* What the round paid, seat by seat, under the answer.
+
+   The scoreboard of the whole design, and it has to be legible in one glance
+   or none of this feels fair: a learner who scored 14 while the speaker who
+   beat them by nine seconds scored 9 should be able to see exactly that
+   without doing arithmetic. So the points are the only column that is allowed
+   to be loud, and they are right-aligned and tabular so two rows can be
+   compared by eye rather than by reading. */
+.vr-payout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vr-pay {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 9px;
+  background: var(--surface);
+}
+
+/* Nobody scored. The row stays and stays readable, because "you passed and it
+   cost you nothing" is also worth seeing -- a table where only the winners
+   appear is a table that tells a learner they were not in the game.
+
+   Not dimmed, for the same measured reason as `.vr-score.out` above: at 0.6
+   these rows came out at 2.81:1, which fails AA, and this is the screen a
+   player reads to find out what just happened to them. The separation is
+   carried by the points column instead, which is the accent on a row that
+   scored and grey on one that did not -- a difference in colour rather than in
+   legibility. */
+
+/* The best-paid answer of the round, which is very often not the first one. */
+.vr-pay.best {
+  border-left: 3px solid var(--accent);
+  padding-left: 6px;
+}
+
+.vr-pay-who {
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink);
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vr-pay-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.vr-pay-ms,
+.vr-pay-said {
+  font-variant-numeric: tabular-nums;
+}
+
+/* "hinted", beside what the round paid. Muted and small: it is a footnote on
+   the number rather than an accusation, and this screen is read by the person
+   it is about. */
+.vr-pay-hinted {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vr-pay-points {
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5em;
+  text-align: right;
+}
+
+.vr-pay.how-wrong .vr-pay-points,
+.vr-pay.how-gave-up .vr-pay-points,
+.vr-pay.how-timeout .vr-pay-points {
+  color: var(--muted);
+}
+
+/* The end */
 
 .vr-end {
   gap: 12px;
@@ -366,13 +678,32 @@
 }
 
 .vr-stat-name {
+  flex: 0 0 auto;
   font-family: var(--display);
   font-size: 0.92rem;
   font-weight: 700;
   color: var(--ink);
 }
 
+/* The number that decided it, between the name and the account of how they got
+   there. Given its own column rather than left in the sentence, because it is
+   no longer derivable from the line beside it -- six right answers from a
+   fluent speaker really can be fewer points than four from a learner, and that
+   contradiction is the result rather than a mistake in it. */
+.vr-stat-points {
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5em;
+  text-align: right;
+}
+
 .vr-stat-line {
+  flex: 1 1 auto;
   font-size: 0.8rem;
   color: var(--muted);
   text-align: right;

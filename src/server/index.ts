@@ -1,8 +1,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomEngine, isRoomCode } from '../shared/room.js';
-// The protocol above the engine — reading a frame, validating a hello, which
+// The protocol above the engine: reading a frame, validating a hello, which
 // room a hello gets, running an action without throwing. Shared with the
-// worker, because two copies of those rules is two copies that can drift.
+// worker, because two copies of those rules can drift.
 import { admit, applyAction, isAction, readFrame, readHello } from '../shared/session.js';
 import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
 import type { Refusal } from '../shared/session.js';
@@ -26,10 +26,10 @@ interface Room {
 const rooms = new Map<string, Room>();
 
 /**
- * Sockets that have connected but not yet said hello, with the time they
- * arrived. The worker evicts these on its alarm; without the same sweep here a
- * socket that opens and stays silent is never cleaned up, because `close` never
- * fires for a connection nobody is using.
+ * Sockets that connected but never said hello, with the time they arrived. The
+ * worker evicts these on its alarm; without the same sweep here a silent socket
+ * is never cleaned up, because `close` never fires for a connection nobody is
+ * using.
  */
 const pending = new Map<WebSocket, number>();
 
@@ -57,11 +57,11 @@ function broadcast(room: Room): void {
 /**
  * Wake up when a timed game runs out, so the round ends on time whether or not
  * anybody is still looking at it. Re-armed from `broadcast`, which every state
- * change already goes through — a game that is not on a clock asks for no
- * timer, and one that has just ended clears the one it had.
+ * change already goes through: an untimed game asks for no timer, and one that
+ * just ended clears the one it had.
  *
- * The timer is unref'd: the listening socket is what keeps this process alive,
- * and a pending round should never be the reason it cannot exit.
+ * The timer is unref'd, because the listening socket is what keeps this process
+ * alive and a pending round should never be the reason it cannot exit.
  */
 function armDeadline(room: Room): void {
   if (room.timer !== null) {
@@ -87,10 +87,10 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
     const msg = frame.msg;
 
     // Before `hello`, and before anything else: a heartbeat is how the client
-    // tells a live socket from one that died without saying so, and it has to
-    // be answerable by a socket that has not joined anything yet. Production
-    // answers this in the runtime itself (see the worker's auto-response);
-    // there is no hibernation to protect here, so a plain reply will do.
+    // tells a live socket from one that died quietly, and a socket that has
+    // joined nothing still has to be able to answer. Production answers this in
+    // the runtime (see the worker's auto-response); there is no hibernation to
+    // protect here, so a plain reply will do.
     if (msg.t === 'ping') {
       if (socket.readyState === WebSocket.OPEN) socket.send(PONG_FRAME);
       return;
@@ -103,8 +103,8 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
       if (!greeting.ok) return fail(socket, greeting);
       const { hello } = greeting;
 
-      // The engine, or nothing — the only I/O this adapter does to find one.
-      // In production the same step is a read from Durable Object storage.
+      // The engine, or nothing: the only I/O this adapter does to find one. In
+      // production the same step is a read from Durable Object storage.
       const found = admit(rooms.get(hello.code)?.engine ?? null, hello);
       if (!found.ok) return fail(socket, found);
 
@@ -118,8 +118,8 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
       if (!result.ok) return fail(socket, { kind: result.kind, error: result.error });
 
       // A second tab for the same player takes over the seat rather than
-      // leaving a zombie socket receiving updates. 4000 tells that client the
-      // close was deliberate so it stops retrying.
+      // leaving a zombie socket on updates. 4000 tells that client the close
+      // was deliberate, so it stops retrying.
       const previous = room.sockets.get(result.seat);
       if (previous && previous !== socket) previous.close(4000, 'Reconnected elsewhere');
 
@@ -128,9 +128,9 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
       joined = { room, seat: result.seat };
       pending.delete(socket);
 
-      // The clock may have run out while this room sat with nobody in it, so
-      // settle it before answering rather than welcoming a player into a game
-      // that is over and does not know it yet.
+      // The clock may have run out while the room sat empty, so settle it
+      // before answering rather than welcoming a player into a game that is
+      // over and does not know it.
       room.engine.tick();
       send(socket, {
         t: 'welcome',
@@ -169,8 +169,8 @@ export function startServer(port: number = PORT): WebSocketServer {
   const wss = new WebSocketServer({ port });
   // The worker validates the code at the edge before routing and again on
   // hello. Nothing here routes by code, but "a bad code never gets a socket" is
-  // stated as an invariant, and an adapter that only enforces it in one place
-  // is where the two drift apart.
+  // an invariant, and an adapter that enforces it in one place only is where
+  // the two drift apart.
   wss.on('connection', (socket, request) => {
     const code = (new URL(request.url ?? '/', 'http://localhost').searchParams.get('code') ?? '')
       .toUpperCase();
@@ -178,10 +178,10 @@ export function startServer(port: number = PORT): WebSocketServer {
       socket.close(4003, 'Invalid room code');
       return;
     }
-    // Passed on so `readHello` can hold the hello to it. Nothing here routes
-    // by code — rooms are keyed by whatever the hello says — but "the code on
-    // the socket is the code in the hello" is an invariant the worker enforces,
-    // and an invariant enforced in one adapter only is where the two drift.
+    // Passed on so `readHello` can hold the hello to it. Rooms here are keyed
+    // by whatever the hello says, but "the code on the socket is the code in
+    // the hello" is an invariant the worker enforces, and one enforced in a
+    // single adapter is where the two drift.
     handleConnection(socket, code || null);
   });
   return wss;

@@ -1,4 +1,4 @@
-/* ── Ultimate Tic-Tac-Toe ──────────────────────────────
+/* Ultimate Tic-Tac-Toe
    Nine boards inside a board, and both grids are drawn the same way: the
    container is --motif-off and the cells are --board, so the colour shows
    through only in the gaps. A gap falls between cells and never outside them,
@@ -32,6 +32,8 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1px;
+  /* The stamp at the foot of this file is laid over the nine squares. */
+  position: relative;
   /* The inner hash, drawn one pixel thinner than the outer one. The two have
      to differ or the board reads as one nine-by-nine grid, which is a
      different game entirely. */
@@ -241,3 +243,183 @@
   flex: none;
 }
 
+
+/* Ultimate: stamping a won board
+   Winning one of the nine is the event this game is made of, and the board
+   used to report it the way a spreadsheet reports a total: nine squares took a
+   tint, and you found out by noticing. The tint is the right permanent record
+   -- the note two hundred lines up explains why -- but a permanent record is
+   not an announcement, and this game hands out nine of them.
+
+   So the winner's mark falls onto the board, lands hard enough to raise dust,
+   and lifts off again. It is a stamp rather than a label: `UltimateBoard.tsx`
+   unmounts it after 900ms and what is left behind is exactly the board that
+   was there before, nine small marks and a tint. That is the whole reason the
+   objection this file already records -- one big mark laid over nine small ones
+   is two shapes in one colour -- does not apply. It is over the nine for half a
+   second, and then it is not there.
+
+   It falls towards you rather than down the page. `.ut-board` clips its
+   children, so a mark entering from above the top row would be sliced in half
+   on three of the nine; coming in oversized and shrinking to size is the same
+   fall drawn inside the box it lands in.
+
+   Nothing here is pressable and nothing here speaks: the group label already
+   says who won, and the eight other boards must stay live under a thumb while
+   this one is landing. */
+.ut-fall {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  /* Over the squares, and over the focus ring of one being tabbed through. */
+  z-index: 1;
+}
+
+/* Bigger than the 56% a square's mark takes, because it is standing in for
+   nine of them: this is the size that reads across the big grid on a phone,
+   which is the measurement the tint was introduced to fix. */
+.ut-fall .ut-mark {
+  width: 62%;
+  animation: ut-stamp 900ms linear both;
+}
+/* The ring at this scale. 3px is a hairline on a mark five times the width of
+   the one that rule was written for, and a thin ring reads as a smaller mark
+   rather than a bigger one. */
+.ut-fall .ut-mark.m1 {
+  box-shadow: inset 0 0 0 5px var(--seat-1);
+}
+
+/* Timed off the impact frame in `ut-stamp` below -- 26% of 900ms. The dust has
+   to start when the mark stops, not when it starts, or it is a puff of smoke
+   with something falling through it. */
+.ut-dust {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 14%;
+  height: 16%;
+  border-radius: 50%;
+  /* The line colour, which is the one neutral in this file that is a *thing*
+     on the board rather than a colour of it -- and it is legible against every
+     one of the four grounds a small board can be wearing. */
+  background: var(--motif-off);
+  animation: ut-cloud 520ms ease-out 234ms both;
+}
+
+/* Two puffs off the sides, which is what stops the cloud reading as a shadow.
+   They leave the ground and rise, because dust does. */
+.ut-dust::before,
+.ut-dust::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 34%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--motif-off);
+}
+.ut-dust::before {
+  left: 4%;
+  animation: ut-puff-left 560ms ease-out 234ms both;
+}
+.ut-dust::after {
+  right: 4%;
+  animation: ut-puff-right 560ms ease-out 260ms both;
+}
+
+/*
+  Five beats. Linear, with the fall's own keyframes doing the accelerating --
+  a timing function is one curve for the whole animation, and this one has to
+  speed up, stop dead, wobble and then drift away.
+
+    0-26%   the fall, gaining on itself
+    26-38%  the landing: squashed flat, then over-tall, then a mark
+    38-62%  held, which is the only part anyone actually reads
+    62-100% lifted away, leaving the board as it was
+*/
+@keyframes ut-stamp {
+  0% {
+    transform: translateY(-18%) scale(2.3);
+    opacity: 0;
+  }
+  10% {
+    transform: translateY(-15%) scale(2);
+    opacity: 0.55;
+  }
+  18% {
+    transform: translateY(-9%) scale(1.55);
+    opacity: 1;
+  }
+  26% {
+    /* Down, and wearing the impact: wide and flat, for one frame. */
+    transform: translateY(0) scale(1.16, 0.8);
+    opacity: 1;
+  }
+  32% {
+    transform: translateY(0) scale(0.96, 1.06);
+  }
+  38% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  62% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-10%) scale(1.08);
+    opacity: 0;
+  }
+}
+
+@keyframes ut-cloud {
+  from {
+    transform: scale(0.22);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes ut-puff-left {
+  from {
+    transform: translate(0, 0) scale(0.3);
+    opacity: 0.5;
+  }
+  to {
+    transform: translate(-80%, -60%) scale(1.15);
+    opacity: 0;
+  }
+}
+
+@keyframes ut-puff-right {
+  from {
+    transform: translate(0, 0) scale(0.3);
+    opacity: 0.5;
+  }
+  to {
+    transform: translate(80%, -70%) scale(1.15);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces. `useJustWon` never mounts the stamp when stillness is
+     asked for, so these rules should have nothing to match -- but the query is
+     the thing a reader looks for in this file, and a mark stuck mid-fall
+     because the element outlived its animation is the failure that would not
+     be caught anywhere else. */
+  .ut-fall .ut-mark,
+  .ut-dust,
+  .ut-dust::before,
+  .ut-dust::after {
+    animation: none;
+  }
+  .ut-fall {
+    display: none;
+  }
+}

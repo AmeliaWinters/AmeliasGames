@@ -12,81 +12,119 @@ export interface SeatRecord {
 }
 
 /**
- * Bumped whenever a persisted shape changes — a game's state, or the snapshot
+ * Bumped whenever a persisted shape changes: a game's state, or the snapshot
  * itself. A stored room from an older shape is discarded rather than fed to a
  * reducer that would misread it.
  *
  * Meaning counts as shape. A stored `Toss` is not a record of what the dice
- * showed, it is the throw the boards re-run to find out — so changing the
- * simulation or the size of a die makes an old one land somewhere new, and a
- * game restored across that change would draw dice that disagree with the
- * score beside them. That is the same failure as a misread field and takes the
- * same cure.
+ * showed, it is the throw the boards re-run to find out, so changing the
+ * simulation or the size of a die makes an old one land somewhere new and a
+ * restored game draws dice that disagree with the score beside them. Same
+ * failure as a misread field, same cure.
+ *
+ * 21: Vocab Race asks every third clue the other way round, and sells hints.
+ * `VocabRound` gained `ask`, `options` and `hints`, `VocabTry` gained `hinted`,
+ * and the state carries a per-seat `hints` allowance. Meaning, not just shape,
+ * and in the direction that matters: a stored round with no `ask` reads as
+ * `undefined`, which is neither `say` nor `pick`, so a restored recognition
+ * round is redrawn as a production one with an empty clue and a text box,
+ * asking nothing and answerable by nobody. A restored `hints` of `undefined` also
+ * hands every seat an allowance of zero, silently, mid-game.
+ *
+ * 20: Vocab Race stops being a race one person can win. Everybody still in a
+ * round answers and everybody who gets it scores, so `VocabRound` swapped
+ * `winner`, `said`, `ms` and `missed` for a per-seat `tries` array, gained
+ * `began`, and scores points rather than rounds (first to 100, not 5). A
+ * seat's `levels` entry now buys a shorter window and a smaller share of the
+ * points instead of a delay. Shape and meaning throughout: no `tries` means
+ * `undefined` in every review box, a restored `scores` array counts rounds
+ * against a hundred-point target and so can never end, and a restored round
+ * has no `began`, which is the clock the new deadline arithmetic measures
+ * from.
+ *
+ * 19: Word Chain keeps score, and a lost minute stops being the end of it.
+ * Words score their letters, the allowance falls a second a word to a floor of
+ * five (was a second every three to a floor of ten), the English list doubled
+ * to fifty thousand, and `gaveUp` and `reveal` became `misses`, one entry per
+ * minute anybody lost, with a new `chase` phase after the first. Shape *and*
+ * meaning: no `misses` leaves the end screen with no word to show, a chain
+ * restored mid-game gets a clock the ramp disagrees with, and a stored `rank`
+ * was a position in a list half the size that the end-of-game percentages
+ * divide by `LIST_SIZE`.
+ *
+ * 18: Word Chain taxes a repeated ending. Each seat carries `cooldowns` (the
+ * letters they have ended words on, how often, and the turn each comes back)
+ * and a word ending on a locked letter is refused. Shape and meaning both: a
+ * restored game has no `cooldowns`, so a resumed chain lets a player replay
+ * the ending they were just charged for, and reveals on losing a word the new
+ * rule would not have taken.
+ *
+ * 16: Word Duel has no draws. Players who spend the same guesses are split by
+ * who got there first, so the state carries `guessedAt` (when each seat's
+ * latest guess landed) and dropped `draw`. Shape and meaning both: without
+ * `guessedAt` every tiebreak compares `undefined` and hands the game to the
+ * lower seat, and a board restored the other way reads a `draw` flag nothing
+ * sets.
  *
  * 15: Backgammon keeps an account of itself. `last` is the move just played,
- * `stats` is what each seat did with the dice, and `race` is the pip lead
- * after every turn — none of which can be recovered from a position, because
- * a hit leaves no trace once the checker comes back in and an unplayable die
- * leaves none at all. A restored game would come back with no `stats` and end
- * on a summary reading `undefined` in every box, and `race` would draw a chart
- * of a game that began at the point it was restored.
+ * `stats` what each seat did with the dice, `race` the pip lead after every
+ * turn. None of it can be recovered from a position: a hit leaves no trace
+ * once the checker comes back in, and an unplayable die leaves none at all. A
+ * restored game ends on a summary reading `undefined` in every box, and `race`
+ * draws a chart of a game that began where it was restored.
  *
  * 14: the Polish word list more than doubled. A frequency list counts strings
- * and Polish spreads a word over strings, so `arbuz` — which only ever appears
- * as `arbuza` — was not in the game at all; the counts are now rolled up onto
- * the lemma and the dictionary's own headwords are admitted below everything
- * anybody actually says. That is meaning, not shape: a `ChainLink` carries the
- * rank it had when it was played and the stats divide it by `LIST_SIZE`, which
- * went from 28,848 to 62,669, so a chain resumed across this deploy would
- * report a common word as a rare one and every letter's answers-left count
- * beside it would be measured against a different list.
+ * and Polish spreads a word over strings, so `arbuz` (which only ever appears
+ * as `arbuza`) was not in the game at all. Counts are now rolled up onto the
+ * lemma, with the dictionary's own headwords admitted below everything anybody
+ * actually says. Meaning, not shape: a `ChainLink` carries the rank it had
+ * when played and the stats divide it by `LIST_SIZE`, which went from 28,848
+ * to 62,669, so a resumed chain reports a common word as a rare one.
  *
  * 13: the wheel stops where it stopped. `travel` was rounded to whole wedges
- * and the board stood the wheel on the wedge's midpoint, so every landing in
- * the game's history was dead-centre; travel is now fractional and the new
- * `rest` field carries the exact resting position the next throw is anchored
- * to. `SPIN_DRAG` and the travel clamps moved with it. A stored spin has no
- * `rest`, and re-run under the new drag it would take half as long to go three
- * times as far — the throw is the record, so this is the `Toss` case again.
+ * and the board stood the wheel on the midpoint, so every landing in the
+ * game's history was dead-centre. Travel is now fractional and `rest` carries
+ * the exact resting position the next throw anchors to, with `SPIN_DRAG` and
+ * the travel clamps moved to match. A stored spin has no `rest`, and re-run
+ * under the new drag it takes half as long to go three times as far. The throw
+ * is the record, so this is the `Toss` case again.
  *
- * 12: Word Chain words carry how long they took. A chain restored from before
- * this deploy has links with no `ms` on them, and every average the end-of-game
- * stats are built from would come out `NaN` beside a word that looks perfectly
- * fine — the failure is invisible until the game ends, which is the worst kind
- * to leave restorable.
+ * 12: Word Chain words carry how long they took. An older chain has links
+ * with no `ms`, so every end-of-game average comes out `NaN` beside a word
+ * that looks perfectly fine. Invisible until the game ends, which is the worst
+ * kind to leave restorable.
  *
  * 11: the wheel is thrown rather than dialled. `travel` was wedges of pointer
  * travel, always forwards; it is now signed wedges of *rotation*, positive
- * clockwise, with the pointer running the other way round it — see
- * `wedgeAfter`. Meaning again: a stored spin re-read under the old rule turns
- * the wheel the wrong way and stops it on a wedge nobody spun.
+ * clockwise, with the pointer running the other way round it (see
+ * `wedgeAfter`). Meaning again: a stored spin re-read under the old rule turns
+ * the wheel the wrong way and stops on a wedge nobody spun.
  *
- * 10: Word Chain. Words carry a frequency rank, the state carries how many
- * answers are left and whether the loser gave up, the threshold that refuses a
- * stranding word moved from one answer to a per-language count, and a chain
- * between two players in the same language now links on the accented letter.
- * A stored game would restore without the rank or the count and draw
- * `#undefined` beside every word, and the last one is meaning rather than
- * shape: a Polish chain resumed after this deploy would start asking for `ł`
- * where it had been asking for `l`.
+ * 10: Word Chain. Words carry a frequency rank, the state carries answers
+ * left and whether the loser gave up, the stranding threshold moved from one
+ * answer to a per-language count, and two players in the same language now
+ * link on the accented letter. A stored game restores without the rank or the
+ * count and draws `#undefined` beside every word, and the last one is meaning
+ * rather than shape: a resumed Polish chain starts asking for `ł` where it had
+ * been asking for `l`.
  *
- * 9: the dice became real cubes. `Toss` changed shape — `Rest` was `{x, y, o}`
- * indexing 24 square orientations and is now `{x, y, up, q}` with a full
- * rotation, `spin` is gone, and the simulation that re-runs it is Rapier in
- * the browser rather than a 2.5D solver on the server. Every one of those on
- * its own would need this bump.
+ * 9: the dice became real cubes. `Rest` was `{x, y, o}` indexing 24 square
+ * orientations and is now `{x, y, up, q}` with a full rotation, `spin` is
+ * gone, and the simulation that re-runs it is Rapier in the browser rather
+ * than a 2.5D solver on the server. Any one of those alone would need the
+ * bump.
  */
-export const SNAPSHOT_VERSION = 15;
+export const SNAPSHOT_VERSION = 21;
 
-/** Everything needed to rebuild a room — this is what gets persisted. */
+/** Everything needed to rebuild a room. This is what gets persisted. */
 export interface RoomSnapshot {
   version: number;
   code: string;
   gameId: string;
   /**
-   * Null until the game is dealt. A room now exists before its game does —
-   * see the note on `RoomEngine` — and there is no honest state to store for
-   * a game that has not been set up yet.
+   * Null until the game is dealt. A room exists before its game does (see the
+   * note on `RoomEngine`), and there is no honest state to store for a game
+   * that has not been set up yet.
    */
   state: unknown;
   /** Only the people actually here. No holes: the list grows as they arrive. */
@@ -106,20 +144,16 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Transport-agnostic room logic. It knows about seats, turns and rules but
- * nothing about sockets — which is what lets the Node dev server and the
+ * nothing about sockets, which is what lets the Node dev server and the
  * Cloudflare Durable Object share it verbatim.
  *
  * **A room has two phases.** It opens empty and gathers people; then somebody
- * starts it and the game is dealt. That split is the whole of open seating,
- * and it replaced a model where the table size was chosen by the host before
- * anyone had turned up and fixed for the life of the room.
- *
- * The old way had one failure that could not be recovered from inside the
- * product: a third friend arriving at a room opened for two was told "That
- * game is full", and the only way to include them was for everybody to abandon
- * the code and start again. Now the room takes whoever comes, up to whatever
- * ceiling the game itself has, and the deal happens when the people who are
- * here say they are ready.
+ * starts it and the game is dealt. That split is the whole of open seating.
+ * Before it, the host fixed the table size before anyone had turned up, and a
+ * third friend arriving at a room opened for two was told "That game is full"
+ * with no way in but everybody abandoning the code. Now the room takes whoever
+ * comes, up to the game's own ceiling, and deals when the people here say they
+ * are ready.
  *
  * The deal is deferred rather than re-run, which matters more than it looks:
  * `setup(playerCount)` is called once, with the number of people actually
@@ -129,8 +163,8 @@ export class RoomEngine {
   readonly code: string;
   /**
    * Not readonly: a room outlives the game it was opened with. `switchGame`
-   * swaps the reducer under the same code and the same seats, which is the
-   * whole point of being able to play something else without regrouping.
+   * swaps the reducer under the same code and seats, which is the whole point
+   * of playing something else without regrouping.
    */
   def: GameDefinition<any, any>;
   /** Null until `start` deals. See the class note. */
@@ -152,11 +186,10 @@ export class RoomEngine {
   /**
    * Build a fresh room, or null if there is no such game. Callers are on a
    * socket and must answer the client rather than throw, so an unknown game id
-   * is a return value here, not an exception.
+   * is a return value, not an exception.
    *
-   * No player count: the room opens with no seats at all and grows as people
-   * arrive. What size table this turns out to be is settled by who shows up,
-   * and not before.
+   * No player count: the room opens with no seats and grows as people arrive.
+   * The table size is settled by who shows up, and not before.
    */
   static create(code: string, gameId: string): RoomEngine | null {
     const def = getGame(gameId);
@@ -165,10 +198,10 @@ export class RoomEngine {
   }
 
   /**
-   * Rebuild a persisted room, or null if it can no longer be trusted — a
-   * snapshot from an older shape, or for a game that no longer exists. Callers
-   * should treat null as "this room is gone" and delete it, rather than
-   * throwing on every subsequent message forever.
+   * Rebuild a persisted room, or null if it can no longer be trusted: a
+   * snapshot from an older shape, or for a game that no longer exists. Treat
+   * null as "this room is gone" and delete it, rather than throwing on every
+   * subsequent message forever.
    */
   static restore(snapshot: RoomSnapshot): RoomEngine | null {
     if (snapshot?.version !== SNAPSHOT_VERSION) return null;
@@ -187,7 +220,7 @@ export class RoomEngine {
     };
   }
 
-  /** True before anyone has ever taken a seat — used to detect code collisions. */
+  /** True before anyone has ever taken a seat. Used to detect code collisions. */
   isFresh(): boolean {
     return this.seats.length === 0;
   }
@@ -234,9 +267,9 @@ export class RoomEngine {
       this.seats[existing] = { playerId, name };
       return { ok: true, seat: existing, reclaimed: true };
     }
-    // Arriving after the deal. The alternative — seating them anyway — hands
-    // the reducer a seat index its arrays were never sized for, and every
-    // move in the room fails from then on.
+    // Arriving after the deal. Seating them anyway would hand the reducer a
+    // seat index its arrays were never sized for, and every move in the room
+    // would fail from then on.
     if (this.started()) {
       return {
         ok: false,
@@ -248,7 +281,7 @@ export class RoomEngine {
       return {
         ok: false,
         kind: 'full',
-        error: `Room ${this.code} is full — ${this.def.name} seats ${this.capacity}.`,
+        error: `Room ${this.code} is full. ${this.def.name} seats ${this.capacity}.`,
       };
     }
     this.seats.push({ playerId, name });
@@ -258,14 +291,13 @@ export class RoomEngine {
   /**
    * Deal the game to the people who are here.
    *
-   * Somebody has to say when, and it is seat 0 — whoever opened the room. The
-   * alternative, starting the moment the minimum is met, deals a friend who is
-   * still loading the page out of a game they were invited to, which is the
-   * failure this whole change exists to remove.
+   * Somebody has to say when, and it is seat 0, whoever opened the room.
+   * Starting the moment the minimum is met would deal a friend who is still
+   * loading the page out of a game they were invited to, which is the failure
+   * this whole change exists to remove.
    *
-   * This is also where a timed game's clock starts: `tick` runs immediately
-   * after the deal, so the round is already running by the time the first
-   * view goes out rather than a message later.
+   * Also where a timed game's clock starts: `tick` runs straight after the
+   * deal, so the round is running by the time the first view goes out.
    */
   start(seat: number, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
     if (this.started()) {
@@ -276,8 +308,8 @@ export class RoomEngine {
       return {
         ok: false,
         error: host
-          ? `Only ${host}, who opened the room, can start.`
-          : 'Only the player who opened the room can start.',
+          ? `${host} opened the room, so starting is their call.`
+          : 'Only whoever opened the room can start.',
       };
     }
     if (this.short() > 0) {
@@ -293,21 +325,19 @@ export class RoomEngine {
   }
 
   /**
-   * A move is refused until the game has been dealt. There is no state to
-   * apply it to, which is a blunter version of the rule this replaced — moves
-   * used to be turned away while the room was short a player, with an
-   * exception (`allowsEarlyMove`) so Battleships could set out its fleet
-   * while waiting. That exception is gone with the thing it worked around:
-   * once a room starts, everybody in it is already sitting down, so placing
-   * happens in an ordinary dealt game like everything else.
+   * A move is refused until the game has been dealt, because there is no state
+   * to apply it to. Moves used to be turned away while the room was short a
+   * player, with an exception (`allowsEarlyMove`) so Battleships could set out
+   * its fleet while waiting. That exception went with the thing it worked
+   * around: once a room starts, everybody in it is already sitting down.
    */
   move(seat: number, move: unknown, rng: Rng = Math.random, now: number = Date.now()): ActionResult {
     if (!this.started()) {
       return { ok: false, error: `${this.def.name} has not been dealt yet.` };
     }
-    // A move that arrives after the whistle meets a game that is already over,
-    // rather than one that is still open because no timer happened to have
-    // fired yet. The clock decides, not the scheduler.
+    // A move arriving after the whistle meets a game that is already over,
+    // rather than one still open because no timer happened to fire. The clock
+    // decides, not the scheduler.
     this.tick(now);
     const result = this.def.applyMove(this.state, move, seat, rng, now);
     if (!result.ok) return { ok: false, error: result.error };
@@ -330,7 +360,7 @@ export class RoomEngine {
    * it once its time is up. Returns whether anything changed, so a caller
    * knows whether to broadcast.
    *
-   * Safe to call as often as you like — a game that is not timed, not yet
+   * Safe to call as often as you like: a game that is not timed, not yet
    * dealt, or not yet out of time says no and does nothing. Both halves run in
    * order, so a room that starts and expires between two ticks still ends up
    * settled rather than stuck half-started.
@@ -389,8 +419,8 @@ export class RoomEngine {
       return {
         ok: false,
         error:
-          `${next.name} doesn't play with ${this.seats.length} — ` +
-          `it seats ${next.minPlayers}` +
+          `${next.name} doesn't play with ${this.seats.length}. It ` +
+          `seats ${next.minPlayers}` +
           `${next.maxPlayers === next.minPlayers ? '' : ` to ${next.maxPlayers}`}.`,
       };
     }
@@ -417,7 +447,7 @@ export class RoomEngine {
       // yet, and a board handed a made-up state would draw a lie.
       state: waiting ? null : this.def.view ? this.def.view(this.state, seat) : this.state,
       turn: waiting ? null : this.def.turn(this.state),
-      // Nobody may act before the deal, and nobody at all is at seat -1 — a
+      // Nobody may act before the deal, and nobody at all is at seat -1. A
       // spectator socket would otherwise be handed a true by a game whose
       // `canAct` only range-checks the seat it was given.
       canAct: waiting || seat < 0 ? false : this.def.canAct(this.state, seat, now),
@@ -426,10 +456,9 @@ export class RoomEngine {
       waiting,
       canStart: this.canStart(),
       capacity: this.capacity,
-      // The server's clock, sent so a timed game's countdown is measured
-      // against the clock that ends it rather than the player's, which may be
-      // wrong by minutes and would otherwise show a timer that disagrees with
-      // the game.
+      // The server's clock, sent so a timed countdown is measured against the
+      // clock that ends it rather than the player's, which may be wrong by
+      // minutes.
       now,
     };
   }
@@ -442,9 +471,9 @@ export class RoomEngine {
   private lobbyStatus(): string {
     const more = this.short();
     if (more > 0) {
-      return `Waiting for ${more} more player${more === 1 ? '' : 's'}…`;
+      return `Waiting for ${more} more player${more === 1 ? '' : 's'}...`;
     }
     const host = this.seats[0]?.name || 'Player 1';
-    return `Ready — ${host} can start whenever you are`;
+    return `Ready. ${host} can start whenever you are`;
   }
 }

@@ -53,28 +53,26 @@ export type { WhMove, WhState } from './wordHuntDisplay.js';
  *
  * 1. **Nobody waits.** Play is free-simultaneous, like Word Duel: any seat may
  *    submit a word at any time. `turn` reports whoever is still hunting purely
- *    as a hint for the status line — `applyMove` never consults it, and
- *    anything deciding whether a player may act must ask `canAct`.
+ *    as a hint for the status line; `applyMove` never consults it, and anything
+ *    deciding whether a player may act asks `canAct`.
  *
  * 2. **Length is the whole of the scoring**, and it climbs faster than length
- *    does — see `wordScore`. Words run from three letters to eight, which is
- *    all a 4x4 grid can give up; the shared list runs further, for
- *    Letterpress, so this game reads the short end of it and plants from the
- *    short end too.
+ *    does, see `wordScore`. Words run from three letters to eight, all a 4x4
+ *    grid can give up; the shared list runs further for Letterpress, so this
+ *    game reads the short end of it and plants from the short end too.
  *
  * 3. **The grid is built to be beatable.** A random bag of letters is usually
  *    a grid with nothing in it, so `setup` plants real words along real paths
- *    first and only then fills the gaps — and throws the grid away and starts
+ *    first and only then fills the gaps, throwing the grid away and starting
  *    again until it holds enough words to be worth playing.
  *
  * 4. **The round is two minutes long**, and the server's clock is the only one
  *    that counts. `start` stamps `endsAt` on the room's first tick after the
- *    deal, not inside `setup` — the two happen a moment apart, and the clock
+ *    deal, not inside `setup`: the two happen a moment apart, and the clock
  *    belongs to the one the room controls. `found` refuses anything arriving
- *    after it, and `expire`
- *    settles the game when it passes, which the room calls off a timer so the
- *    hunt ends on time even with nobody watching. A client counting down is
- *    showing the player a number, not deciding anything.
+ *    after it, and `expire` settles the game when it passes, which the room
+ *    calls off a timer so the hunt ends on time even with nobody watching. A
+ *    client counting down is showing the player a number, not deciding.
  */
 
 /**
@@ -120,7 +118,7 @@ function prefixes(): Set<string> {
   return prefixCache;
 }
 
-/** Neighbours of every cell, worked out once — the grid never changes shape. */
+/** Neighbours of every cell, worked out once: the grid never changes shape. */
 const NEIGHBOURS: readonly number[][] = Array.from({ length: CELL_COUNT }, (_, cell) =>
   Array.from({ length: CELL_COUNT }, (_, other) => other).filter((other) =>
     areAdjacent(cell, other),
@@ -144,7 +142,7 @@ const BAG = 'AAAAEEEEIIIOOOUURRSSTTLLNNDDCCMMPPHHGGBFYKVWXJZ'.split('');
 
 /**
  * Lay `word` along some path of touching cells, writing into `grid` only where
- * a cell is empty or already holds the letter that belongs there — so words
+ * a cell is empty or already holds the letter that belongs there, so words
  * cross and share letters the way they do in a real grid.
  *
  * Best-effort by design: it tries a bounded number of random walks and gives
@@ -184,7 +182,7 @@ function plant(grid: Array<string | null>, word: string, rng: Rng): boolean {
 /**
  * Every word the grid holds. Depth-first from each cell, pruned against the
  * prefix set, deduplicated because the same word is often traceable more than
- * one way — and a word found twice is still one word.
+ * one way and a word found twice is still one word.
  */
 export function solve(grid: readonly string[]): string[] {
   const stems = prefixes();
@@ -194,8 +192,8 @@ export function solve(grid: readonly string[]): string[] {
   function walk(cell: number, sofar: string): void {
     const spelt = sofar + grid[cell];
     if (spelt.length >= MIN_WORD && allWords().has(spelt)) found.add(spelt);
-    // A word can carry on into a longer one — CAT into CATS — so this checks
-    // the prefix set after taking the word, not instead of taking it.
+    // A word can carry on into a longer one, CAT into CATS, so this checks the
+    // prefix set after taking the word rather than instead of taking it.
     if (spelt.length === MAX_WORD || !stems.has(spelt)) return;
 
     path.push(cell);
@@ -224,9 +222,9 @@ function richness(words: readonly string[]): number {
 }
 
 /**
- * A grid worth playing. Words are planted first — five of them, which is more
- * than will usually fit — and the gaps filled afterwards, which tends to throw
- * up a good few words nobody planted.
+ * A grid worth playing. Five words are planted first, more than will usually
+ * fit, and the gaps filled afterwards, which tends to throw up a good few words
+ * nobody planted.
  *
  * The result is then checked and thrown away if it is thin. That check is the
  * point of the whole function: "nothing left to find" and "nothing left that I
@@ -264,10 +262,10 @@ function isOver(state: WhState): boolean {
 
 /**
  * The biggest score wins; a tie at the top is a draw, however many are in it.
- * Nothing breaks a tie by who finished first — under free-simultaneous play
- * that would hand the game to the faster typist rather than the better hunter,
- * and nothing breaks it on word count either, because a player who found one
- * seven-letter word has not lost to one who found two threes.
+ * Nothing breaks a tie by who finished first, since under free-simultaneous
+ * play that hands the game to the faster typist rather than the better hunter.
+ * Nor on word count, because a player who found one seven-letter word has not
+ * lost to one who found two threes.
  */
 function decide(state: WhState): { winner: number | null; draw: boolean } {
   const scores = state.found.map((_, seat) => scoreOf(state, seat));
@@ -297,7 +295,7 @@ function finish(state: WhState): WhState {
 }
 
 function found(state: WhState, path: unknown, seat: number, now: number): MoveResult<WhState> {
-  if (timeIsUp(state, now)) return { ok: false, error: "Time — that one didn't count." };
+  if (timeIsUp(state, now)) return { ok: false, error: "Time's up, so that one didn't count." };
   if (!canAct(state, seat)) {
     return {
       ok: false,
@@ -356,8 +354,8 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
 
   /**
    * The whistle. Idempotent, because `tick` runs on every message the room
-   * handles and only the first of them may set the clock — otherwise every
-   * word anybody found would buy the table another two minutes.
+   * handles and only the first may set the clock, or every word anybody found
+   * would buy the table another two minutes.
    */
   start(state, now) {
     if (state.phase !== 'play' || state.endsAt !== null) return null;
@@ -380,15 +378,15 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
   /**
    * Time. Settles the game exactly as the last player stopping would, so a
    * round that runs out and a round everyone finished early end up in the same
-   * shape — same answer key, same result, one code path deciding both.
+   * shape: same answer key, same result, one code path deciding both.
    */
   expire(state, now) {
     return timeIsUp(state, now) ? finish(state) : null;
   },
 
   /**
-   * A hint for the status line only — see the note at the top of this file.
-   * The lowest seat still hunting, so this stays a pure function of the state.
+   * A hint for the status line only, see the note at the top of this file. The
+   * lowest seat still hunting, so this stays a pure function of the state.
    */
   turn(state) {
     if (isOver(state)) return null;
@@ -396,9 +394,9 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
     return waiting === -1 ? null : waiting;
   },
 
-  // Straight through from the display module, `now` and all — see the note on
-  // Word Duel's. The clock is the reason this one takes a `now`: a seat whose
-  // two minutes are up may not trace, and only the server's clock says when.
+  // Straight through from the display module, `now` and all. See the note on
+  // Word Duel's. The clock is why this one takes a `now`: a seat whose two
+  // minutes are up may not trace, and only the server's clock says when.
   canAct,
 
   isOver,
@@ -410,14 +408,14 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
       if (state.winner !== null) {
         const score = scoreOf(state, state.winner);
         const count = countOf(state, state.winner);
-        return `${nameFor(state.winner)} wins on ${score} — ${count} ${
+        return `${nameFor(state.winner)} wins on ${score}, ${count} ${
           count === 1 ? 'word' : 'words'
         }`;
       }
       const score = scoreOf(state, 0);
       return score === 0
         ? 'A draw. Nobody found a thing.'
-        : `A draw — ${score} each`;
+        : `A draw, ${score} each`;
     }
 
     const hunting = state.done.flatMap((flag, seat) => (flag ? [] : [seat]));
@@ -427,17 +425,16 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
   },
 
   /**
-   * The grid is open — it is the same sixteen letters for everyone, and that
-   * is the game. What is hidden is the one thing worth hiding: which words
-   * somebody else has already found, since a list of their words is a list of
-   * yours for the copying.
+   * The grid is open, the same sixteen letters for everyone, and that is the
+   * game. What is hidden is which words somebody else has already found, since
+   * a list of their words is a list of yours for the copying.
    *
    * They arrive masked rather than dropped, so the count and the score both
-   * survive — a mask is as long as the word it stands for, and length is what
-   * a word is worth. Watching an opponent's total climb while you are stuck is
-   * most of the tension in this game, and it gives away nothing but the shape.
+   * survive: a mask is as long as the word it stands for, and length is what a
+   * word is worth. Watching an opponent's total climb while you are stuck is
+   * most of the tension here, and it gives away nothing but the shape.
    *
-   * The answer key is empty until the game is over, by construction — nothing
+   * The answer key is empty until the game is over, by construction. Nothing
    * computes it before then.
    */
   view(state, seat) {

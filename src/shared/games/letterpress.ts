@@ -43,7 +43,7 @@ export type { LpMove, LpState, Owner } from './letterpressDisplay.js';
 
 /**
  * Letterpress. One 5x5 grid of letters, two players, and every tile you use
- * turns your colour — including the ones your opponent had already taken.
+ * turns your colour, including the ones your opponent had already taken.
  *
  * Four things are worth knowing before reading on:
  *
@@ -58,7 +58,7 @@ export type { LpMove, LpState, Owner } from './letterpressDisplay.js';
  *    be taken. That is the only protection in the game, and building it is the
  *    positional half of what looks like a word game.
  *
- * 3. **Every tile is judged before any tile turns** — see `claim` in
+ * 3. **Every tile is judged before any tile turns**, see `claim` in
  *    `letterpressDisplay.ts`. Otherwise the order of the letters within a word
  *    would decide what the word took.
  *
@@ -83,7 +83,7 @@ export type { LpMove, LpState, Owner } from './letterpressDisplay.js';
  * it leaves tiles that will still be unclaimed at the end, and the last tiles
  * on the board decide games here. So the tail is thinner than English's.
  *
- * Q is absent for the same reason it is absent there — it arrives needing a U
+ * Q is absent for the same reason it is absent there: it arrives needing a U
  * beside it, and a dead tile is worse than a slightly untrue alphabet.
  */
 const BAG = 'AAAAAEEEEEEIIIIOOOOUURRRSSSTTTLLLNNNDDCCMMPPHHGGBBFFYYKVWXJZ'.split('');
@@ -101,7 +101,7 @@ const MIN_VOWELS = 7;
 const MAX_VOWELS = 11;
 
 /**
- * The lengths a planted seed word may be — long enough to be worth planting,
+ * The lengths a planted seed word may be: long enough to be worth planting,
  * short enough to leave a grid.
  *
  * The ceiling used to be the dictionary's, back when the list stopped at
@@ -134,10 +134,9 @@ function seedWords(): readonly string[] {
  * The length at which a word is worth counting when judging a grid.
  *
  * Five and up, because three- and four-letter words are dense on any
- * twenty-five tiles — with no adjacency to get in the way, a grid with a
- * couple of vowels in it holds hundreds of them, so counting them measures
- * nothing at all. What a game of this needs is words long enough to take a
- * defended shape apart, and those are what get weighed.
+ * twenty-five tiles. With no adjacency in the way, a grid with a couple of
+ * vowels holds hundreds of them, so counting them measures nothing. What this
+ * game needs is words long enough to take a defended shape apart.
  */
 const LONG_WORD = 5;
 
@@ -176,15 +175,15 @@ function spellable(pool: Int8Array, word: string): boolean {
  * Every word these tiles can spell, at `minLength` or longer, lazily.
  *
  * The dictionary is walked as the set it already is rather than copied into an
- * array first — the caller either counts these or takes a handful, and neither
+ * array first. The caller either counts these or takes a handful, and neither
  * wants a hundred and fifty thousand strings spread out to do it.
  */
 function* spellableFrom(grid: readonly string[], minLength: number): Generator<string> {
   const pool = counts(grid);
   for (const word of allWords()) {
-    // The list runs to twenty-five letters for this game's sake, and the tail
-    // of it cannot be spelt from a grid that has already spent tiles — but the
-    // length test is a number compare and `spellable` is not, so it goes here.
+    // The list runs to twenty-five letters for this game's sake, and its tail
+    // cannot be spelt from a grid that has already spent tiles. The length
+    // test is a number compare and `spellable` is not, so it goes first.
     if (word.length < minLength || word.length > grid.length) continue;
     if (spellable(pool, word)) yield word;
   }
@@ -193,7 +192,7 @@ function* spellableFrom(grid: readonly string[], minLength: number): Generator<s
 /**
  * Long words the grid can spell, counted up to `cap`.
  *
- * Capped rather than totalled because the count itself is never wanted — the
+ * Capped rather than totalled because the count itself is never wanted. The
  * only question is "enough or not", and stopping at the answer turns a sweep
  * of a hundred and fifty thousand words into a few hundred for any grid that
  * is fine. Exported for the test that holds this promise.
@@ -211,12 +210,12 @@ export function richness(grid: readonly string[], cap = Infinity): number {
  * Words that could be played on this grid right now: spellable from the tiles,
  * and not shut out by something already played.
  *
- * Nothing in the running game asks this — the players are the ones who find
- * words, and a reducer that could enumerate them would be a hint feature
- * nobody has asked for. It exists for the playout test, which has to be able
- * to move in order to prove the game ends, and it is here rather than in the
- * test because it needs the dictionary sweep above and duplicating that would
- * mean the test measuring a copy of the thing rather than the thing.
+ * Nothing in the running game asks this. The players find the words, and a
+ * reducer that could enumerate them would be a hint feature nobody asked for.
+ * It exists for the playout test, which has to be able to move in order to
+ * prove the game ends. It lives here rather than in the test because it needs
+ * the dictionary sweep above, and a copy there would have the test measuring
+ * a copy of the thing rather than the thing.
  */
 export function playable(
   grid: readonly string[],
@@ -249,9 +248,8 @@ function shuffle(letters: string[], rng: Rng): string[] {
  *
  * The seed word is the cheap half of making a grid playable. Twenty-five tiles
  * drawn at random will spell plenty of five-letter words, but a *seven*-letter
- * word — the thing that takes a defended corner apart in one turn — is not
- * guaranteed by any letter distribution, and one is guaranteed here by
- * construction.
+ * word, the thing that takes a defended corner apart in one turn, is not
+ * guaranteed by any letter distribution. This guarantees one by construction.
  */
 function deal(rng: Rng): string[] {
   const seeds = seedWords();
@@ -260,9 +258,9 @@ function deal(rng: Rng): string[] {
   while (letters.length < CELL_COUNT) letters.push(BAG[pick(rng, BAG.length)]);
 
   // Redraw individual tiles rather than the whole grid: a grid two vowels
-  // short is two tiles from being fine. Only the filled tail is fair game —
-  // the seed word sits at the front and its letters are the point of it, so
-  // the swap that fixes the vowel count must not spell it away.
+  // short is two tiles from being fine. Only the filled tail is fair game: the
+  // seed word sits at the front and its letters are the point of it, so the
+  // swap that fixes the vowel count must not spell it away.
   for (let guard = 0; guard < CELL_COUNT * 4; guard++) {
     const vowels = letters.filter((letter) => VOWELS.has(letter)).length;
     if (vowels >= MIN_VOWELS && vowels <= MAX_VOWELS) break;
@@ -285,20 +283,20 @@ function deal(rng: Rng): string[] {
  * A grid worth playing: dealt, then measured, then dealt again if it is thin.
  *
  * The measure is the point of the function. "Nothing left to play" and
- * "nothing left that I can see" feel identical from the player's side, and
- * only one of them is fair — and in this game a thin grid is worse than in
- * Word Hunt, because a player who cannot find a word does not merely score
- * nothing, they hand the board over untouched.
+ * "nothing left that I can see" feel identical from the player's side and only
+ * one of them is fair. A thin grid is worse here than in Word Hunt, because a
+ * player who cannot find a word does not merely score nothing, they hand the
+ * board over untouched.
  */
 export function makeGrid(rng: Rng): string[] {
   /*
     A floor, not a target. Twenty-five tiles with no adjacency are enormously
-    rich — forty measured deals ran from 766 long words to 26,429, median
-    9,006 — so this passes on the first deal essentially always, and the cap in
-    `richness` means the count stops at 400 and the whole check costs under a
-    millisecond. What it is for is the deal that goes wrong: a bag that comes
-    up all tail, or a vowel fix that could not find one. Those grids exist and
-    they are unplayable, and this is cheap enough to keep looking for them.
+    rich (forty measured deals ran from 766 long words to 26,429, median
+    9,006), so this passes on the first deal essentially always, and the cap in
+    `richness` stops the count at 400 so the whole check costs under a
+    millisecond. It is for the deal that goes wrong: a bag that comes up all
+    tail, or a vowel fix that could not find one. Those grids exist and are
+    unplayable, and this is cheap enough to keep looking for them.
   */
   const ENOUGH = 400;
   const TRIES = 8;
@@ -357,7 +355,7 @@ function play(state: LpState, path: unknown, mover: 0 | 1): MoveResult<LpState> 
       error:
         spent === word
           ? `${word} has already been played.`
-          : `${word} is out — ${spent} has been played.`,
+          : `${word} is out, since ${spent} has been played.`,
     };
   }
 
@@ -438,7 +436,7 @@ export const letterpress: GameDefinition<LpState, LpMove> = {
   },
 
   turn(state) {
-    // Deliberately not `this.isOver` — GameDefinition promises nothing about
+    // Deliberately not `this.isOver`: GameDefinition promises nothing about
     // method binding, so a destructured `turn` would throw.
     return isOver(state) ? null : state.turn;
   },
@@ -454,17 +452,17 @@ export const letterpress: GameDefinition<LpState, LpMove> = {
     if (state.winner !== null) {
       const mine = state.winner === 0 ? zero : one;
       const theirs = state.winner === 0 ? one : zero;
-      return `${nameFor(state.winner)} wins — ${mine} tiles to ${theirs}`;
+      return `${nameFor(state.winner)} wins, ${mine} tiles to ${theirs}`;
     }
-    if (state.draw) return `A draw — ${zero} tiles each`;
+    if (state.draw) return `A draw, ${zero} tiles each`;
     if (state.passes === 1) {
       // The one thing more urgent than the score: the game is one move from
       // ending, and it will end on a count the player can see above.
-      return `${nameFor(state.turn)} to play — pass again and that is the game`;
+      return `${nameFor(state.turn)} to play. If they pass again, that is the game`;
     }
 
     const free = unclaimed(state);
-    return `${nameFor(state.turn)} to play — ${zero}–${one}, ${free} ${
+    return `${nameFor(state.turn)} to play, ${zero}-${one}, ${free} ${
       free === 1 ? 'tile' : 'tiles'
     } free`;
   },

@@ -23,7 +23,7 @@ describe('the word list', () => {
   /**
    * The dictionary costs about 34ms to build and eight of the ten games never
    * open one, so it is built on first use rather than at import. That saving
-   * is invisible — nothing fails if it goes away — which is exactly why it is
+   * is invisible, nothing failing if it goes away, which is exactly why it is
    * worth a test: one `const WORDS = allWords()` at the top of any module and
    * every cold start pays for a hundred and fifty thousand words again.
    */
@@ -67,7 +67,7 @@ describe('the word list', () => {
   /**
    * Every board draws paths to its own limits and the server validates against
    * the dictionary's. Where those disagree the player can draw traces the list
-   * was never going to take — or, the way it went wrong in Letterpress, is
+   * was never going to take, or, the way it went wrong in Letterpress, is
    * stopped from drawing words that are sitting right there in it.
    *
    * So the list has to span every game's range, and Letterpress's is the one
@@ -133,8 +133,8 @@ describe('isWord', () => {
 
   /**
    * Two shapes of hole the source has, both reported from real games. It drops
-   * words that began as proper nouns — `jaffa`, where it kept `satsuma` and
-   * `clementine` — and it is unreliable about the plurals of what it borrowed
+   * words that began as proper nouns, such as `jaffa` where it kept `satsuma`
+   * and `clementine`, and it is unreliable about the plurals of what it borrowed
    * recently, taking `courgette` and refusing `courgettes`.
    */
   it('knows the words its source dropped for being names or plurals', () => {
@@ -145,7 +145,7 @@ describe('isWord', () => {
 
   /**
    * The other half of the same age gap: the insults. `jabroni` was reported,
-   * and `muppet`, `bellend` and `plonker` were not there either — the source
+   * and `muppet`, `bellend` and `plonker` were not there either. The source
    * predates most of what people actually call each other.
    */
   it('knows the names people call each other', () => {
@@ -155,9 +155,9 @@ describe('isWord', () => {
   });
 
   /**
-   * The imported list is old rather than squeamish — it has had `fellatio` and
-   * `cunnilingus` all along — so the sexual vocabulary it misses is the
-   * everyday half. `jizz` was the one reported.
+   * The imported list is old rather than squeamish, having had `fellatio` and
+   * `cunnilingus` all along, so the sexual vocabulary it misses is the everyday
+   * half. `jizz` was the one reported.
    */
   it('knows the everyday sexual slang its source is too old for', () => {
     const missing = ['jizz', 'cumming', 'handjob', 'queef', 'creampie', 'milf', 'thot'];
@@ -169,7 +169,7 @@ describe('isWord', () => {
 
   /**
    * The imported dictionary is old enough to predate a lot of ordinary
-   * vocabulary — brand names people use as words. `xanax` was the one
+   * vocabulary: brand names people use as words. `xanax` was the one
    * reported, and it was not being filtered: it simply was not there.
    */
   it('knows the brand names people use as ordinary words', () => {
@@ -179,8 +179,8 @@ describe('isWord', () => {
   });
 
   /**
-   * The list this replaced was hand-written and full of holes — it was missing
-   * `below`, `being` and `alias`, which is what a word game must never do. The
+   * The list this replaced was hand-written and full of holes, missing `below`,
+   * `being` and `alias`, which is what a word game must never do. The
    * words below are the ones that were actually reported; the plain English in
    * the second row is there because those were the embarrassing ones.
    */

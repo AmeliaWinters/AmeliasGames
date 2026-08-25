@@ -85,13 +85,13 @@ describe('markGuess', () => {
   it('does not yellow a duplicate that an exact match already claimed', () => {
     // SLATE has one E, and ELITE's own final E matches it exactly. The E the
     // player opened with therefore has nothing left to point at and is grey,
-    // not yellow — the rule people get wrong when they implement this.
+    // not yellow, the rule people get wrong when they implement this.
     expect(markGuess('ELITE', 'SLATE')).toEqual(['miss', 'hit', 'miss', 'hit', 'hit']);
   });
 
   it('hands out only as many yellows as the word has copies left', () => {
     // EERIE has three Es. GEESE matches two of them exactly, leaving exactly
-    // one spare — so exactly one of the guess's remaining Es turns yellow.
+    // one spare, so exactly one of the guess's remaining Es turns yellow.
     expect(markGuess('GEESE', 'EERIE')).toEqual(['miss', 'hit', 'near', 'miss', 'hit']);
   });
 });
@@ -151,7 +151,7 @@ describe('guessing', () => {
     const state = play(started(), { type: 'guess', word: 'crane' }, 0);
     expect(state.guesses[0][0].marks).toEqual(['hit', 'hit', 'hit', 'hit', 'hit']);
     expect(state.solvedIn[0]).toBe(1);
-    // Solving does not end the game — seat 1 still has their guesses.
+    // Solving does not end the game; seat 1 still has their guesses.
     expect(state.phase).toBe('play');
     expect(wordle.isOver(state)).toBe(false);
   });
@@ -195,6 +195,24 @@ describe('finishing', () => {
     return state;
   }
 
+  /**
+   * The same, at stated moments a second apart from `from`. There are no draws
+   * here, so when two players spend the same guesses it is *when* they spent
+   * them that decides, which a test must therefore choose rather than inherit
+   * from the wall clock.
+   */
+  function wasteAt(
+    state: WordleState,
+    seat: number,
+    count: number,
+    from: number,
+  ): WordleState {
+    for (let i = 0; i < count; i++) {
+      state = playAt(state, { type: 'guess', word: 'blank' }, seat, from + i * 1000);
+    }
+    return state;
+  }
+
   it('gives it to whoever needed fewer guesses', () => {
     let state = started();
     state = waste(state, 0, 1);
@@ -204,17 +222,24 @@ describe('finishing', () => {
 
     expect(state.phase).toBe('over');
     expect(state.winner).toBe(0);
-    expect(state.draw).toBe(false);
     expect(wordle.status(state, ['Amelia', 'Sam'])).toBe('Amelia wins in 2 guesses');
   });
 
-  it('calls the same guess count a draw', () => {
+  it('gives the same guess count to whoever got there first', () => {
     let state = started();
-    state = play(state, { type: 'guess', word: 'crane' }, 0);
-    state = play(state, { type: 'guess', word: 'slate' }, 1);
-    expect(state.winner).toBeNull();
-    expect(state.draw).toBe(true);
-    expect(wordle.status(state, ['Amelia', 'Sam'])).toMatch(/draw/i);
+    state = playAt(state, { type: 'guess', word: 'crane' }, 0, T0);
+    state = playAt(state, { type: 'guess', word: 'slate' }, 1, T0 + 1000);
+    expect(state.winner).toBe(0);
+    expect(wordle.status(state, ['Amelia', 'Sam'])).toBe('Amelia wins in 1 guess, first to it');
+  });
+
+  it('does not hand a tie to the lower seat', () => {
+    // The same game with the solves the other way round. If this passed by
+    // seat order rather than by the clock it would still say seat 0.
+    let state = started();
+    state = playAt(state, { type: 'guess', word: 'slate' }, 1, T0);
+    state = playAt(state, { type: 'guess', word: 'crane' }, 0, T0 + 1000);
+    expect(state.winner).toBe(1);
   });
 
   it('lets a solver beat someone who never got there', () => {
@@ -225,12 +250,17 @@ describe('finishing', () => {
     expect(state.winner).toBe(0);
   });
 
-  it('is a draw when neither word is cracked', () => {
-    let state = waste(started(), 0, MAX_GUESSES);
-    state = waste(state, 1, MAX_GUESSES);
+  it('gives a game nobody cracked to whoever spent their six first', () => {
+    // Nobody solving is a tie on guesses too, so it goes to the same rung of
+    // the ladder rather than ending level.
+    let state = wasteAt(started(), 1, MAX_GUESSES, T0);
+    state = wasteAt(state, 0, MAX_GUESSES, T0 + 60_000);
     expect(state.phase).toBe('over');
-    expect(state.draw).toBe(true);
-    expect(state.winner).toBeNull();
+    expect(state.winner).toBe(1);
+    expect(state.solvedIn).toEqual([null, null]);
+    expect(wordle.status(state, ['Amelia', 'Sam'])).toBe(
+      'Not one word was cracked, so Sam wins on speed',
+    );
     expect(refuse(state, { type: 'guess', word: 'blank' }, 0)).toMatch(/already over/i);
   });
 
@@ -309,7 +339,6 @@ describe('the shot clock', () => {
     expect(settled?.phase).toBe('over');
     expect(settled?.timedOut).toEqual([0]);
     expect(settled?.winner).toBe(1);
-    expect(settled?.draw).toBe(false);
     expect(settled?.solvedIn).toEqual([null, 1]);
     expect(settled?.dueBy).toEqual([null, null]);
     expect(wordle.isOver(settled as WordleState)).toBe(true);
@@ -471,7 +500,7 @@ describe('the keyboard', () => {
   });
 });
 
-// ── More than two at the table ─────────────────────────────────────────
+// More than two at the table
 
 /** Words straight from the list, so every one of them is certain to be legal. */
 const WORDS = [...duelWords()].slice(0, 8);

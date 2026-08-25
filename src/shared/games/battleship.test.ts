@@ -11,6 +11,7 @@ import {
   isSunk,
   placementError,
   shipCells,
+  shotLog,
   squareName,
   unplaced,
 } from './battleship.js';
@@ -49,7 +50,7 @@ function refuse(state: BsState, move: unknown, seat: number, rng = noRng): strin
 
 /**
  * A fleet in five tidy rows, so every test below can name a square and know
- * exactly what is under it: row 0 carrier (A1–A5), row 2 battleship (C1–C4),
+ * exactly what is under it: row 0 carrier (A1-A5), row 2 battleship (C1-C4),
  * row 4 cruiser, row 6 submarine, row 8 destroyer. Nothing reaches past column
  * 4, so the right-hand columns are open water for the shots that only need to
  * miss.
@@ -201,7 +202,7 @@ describe('scattering a fleet', () => {
   it('produces a legal board from any rng, however badly it behaves', () => {
     for (const rng of [() => 0, () => 0.999999, seeded(1), seeded(99)]) {
       const state = play(fresh(), { type: 'scatter' }, 0, rng);
-      // A pathological rng may fail to seat every ship — but never an illegal
+      // A pathological rng may fail to seat every ship, but never an illegal
       // one, and the fleet it does seat has to be playable by hand from there.
       const cells = fleetCells(state, 0).map(([r, c]) => `${r},${c}`);
       expect(new Set(cells).size).toBe(cells.length);
@@ -232,7 +233,7 @@ describe('firing', () => {
 
   it('gives another shot for the hit that sinks a ship, and for the first hit of a game', () => {
     let state = firing();
-    // The destroyer is two long at I1–I2: hit, sink, and still holding the guns.
+    // The destroyer is two long at I1-I2: hit, sink, and still holding the guns.
     state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
     state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
     expect(state.shots[0].at(-1)?.sunk).toBe('destroyer');
@@ -257,7 +258,7 @@ describe('firing', () => {
 
   it('reports a sinking on the shot that finishes her', () => {
     let state = firing();
-    // The destroyer is two long at I1–I2.
+    // The destroyer is two long at I1-I2.
     state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
     expect(state.shots[0].at(-1)?.sunk).toBeNull();
     state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
@@ -273,7 +274,7 @@ describe('firing', () => {
 
   it('ends the moment the last ship goes down, and not before', () => {
     let state = firing();
-    // Seventeen hits in a row, and seat 1 never gets the guns at all — the
+    // Seventeen hits in a row, and seat 1 never gets the guns at all: the
     // price of a rule that rewards finding a ship.
     for (const [row, col] of fleetCells(state, 1)) {
       expect(battleship.isOver(state)).toBe(false);
@@ -383,21 +384,21 @@ describe('the status line', () => {
     expect(battleship.status(state, names)).toBe('Amelia to fire');
 
     state = play(state, { type: 'fire', row: 9, col: 9 }, 0);
-    expect(battleship.status(state, names)).toBe('Sam to fire — a miss');
+    expect(battleship.status(state, names)).toBe('Sam to fire, a miss');
 
     // Sam finds Amelia's carrier at A1 and keeps the guns.
     state = play(state, { type: 'fire', row: 0, col: 0 }, 1);
-    expect(battleship.status(state, names)).toBe('Sam to fire again — a hit');
+    expect(battleship.status(state, names)).toBe('Sam to fire again, a hit');
 
     // A ship going down is the one thing called out by name.
     state = play(state, { type: 'fire', row: 8, col: 0 }, 1);
     state = play(state, { type: 'fire', row: 8, col: 1 }, 1);
-    expect(battleship.status(state, names)).toBe('Sam to fire again — the Destroyer is sunk');
+    expect(battleship.status(state, names)).toBe('Sam to fire again, and the Destroyer is sunk');
 
-    // A miss hands them back, and the news is that miss — not Sam's earlier
-    // hits, which the line has already reported.
+    // A miss hands them back, and the news is that miss rather than Sam's
+    // earlier hits, which the line has already reported.
     state = play(state, { type: 'fire', row: 9, col: 9 }, 1);
-    expect(battleship.status(state, names)).toBe('Amelia to fire — a miss');
+    expect(battleship.status(state, names)).toBe('Amelia to fire, a miss');
   });
 
   it('falls back to seat numbers when nobody has a name', () => {
@@ -413,5 +414,49 @@ describe('naming a square', () => {
     expect(squareName(0, 0)).toBe('A1');
     expect(squareName(9, 9)).toBe('J10');
     expect(squareName(2, 4)).toBe('C5');
+  });
+});
+
+describe('the shot log', () => {
+  it('reconstructs the order shots were fired in, streaks and all', () => {
+    // Played through the reducer rather than hand-built, so the log is checked
+    // against the turn order `fire` actually produced and not against a second
+    // guess at the same rule. Seat 0 hits twice (keeping the guns), misses,
+    // then seat 1 misses, and it comes back round.
+    let state = firing();
+    state = play(state, { type: 'fire', row: 0, col: 0 }, 0); // hit
+    state = play(state, { type: 'fire', row: 0, col: 1 }, 0); // hit
+    state = play(state, { type: 'fire', row: 9, col: 9 }, 0); // miss, guns pass
+    state = play(state, { type: 'fire', row: 9, col: 8 }, 1); // miss, guns back
+    state = play(state, { type: 'fire', row: 2, col: 0 }, 0); // hit
+
+    expect(shotLog(state.shots).map((shot) => [shot.ordinal, shot.seat, shot.hit])).toEqual([
+      [1, 0, true],
+      [2, 0, true],
+      [3, 0, false],
+      [4, 1, false],
+      [5, 0, true],
+      // Seat 0 still holds the guns, so there is nothing of seat 1's after it.
+    ]);
+  });
+
+  it('names the square and the ship a shot sank, in the log as on the board', () => {
+    let state = firing();
+    // The destroyer is two long, at I1-I2, so two shots finish her.
+    state = play(state, { type: 'fire', row: 8, col: 0 }, 0);
+    state = play(state, { type: 'fire', row: 8, col: 1 }, 0);
+    const log = shotLog(state.shots);
+    expect(log).toHaveLength(2);
+    expect(squareName(log[1].row, log[1].col)).toBe('I2');
+    expect(log[1].sunk).toBe('destroyer');
+  });
+
+  it('is empty before a shot is fired, and stops rather than looping on a log it cannot explain', () => {
+    expect(shotLog(firing().shots)).toEqual([]);
+    // Seat 1 cannot have fired before seat 0 did. The server will not produce
+    // this; a snapshot from an older simulation might, and a viewer that hangs
+    // on it would be worse than one that shows a short log.
+    const impossible = [[], [{ row: 0, col: 0, hit: false, sunk: null }]];
+    expect(shotLog(impossible)).toEqual([]);
   });
 });

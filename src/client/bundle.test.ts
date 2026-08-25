@@ -54,7 +54,7 @@ it('ships no puzzle category or reducer to the browser', { timeout: 120_000 }, (
 });
 
 /**
- * Word Duel has no secret answer to leak — players bring their own words — but
+ * Word Duel has no secret answer to leak, players bringing their own words, but
  * the same import boundary is load-bearing for a different reason: the word
  * list is by far the largest thing in the repo, it is needed only to validate
  * a move, and moves are validated on the server. One convenience import in
@@ -83,8 +83,8 @@ it('ships no word list to the browser', { timeout: 120_000 }, () => {
  * A run of the raw source rather than any single word: the lists are ordinary
  * vocabulary and `apple` or `pan` would hit on UI copy and fail for no reason.
  * If the module is imported at all, its template literal is in the bundle
- * verbatim, newlines and all — so a few hundred consecutive characters of it
- * is both a precise question and an unmissable one.
+ * verbatim, newlines and all, so a few hundred consecutive characters of it is
+ * both a precise question and an unmissable one.
  */
 it('ships no chain word list to the browser', { timeout: 120_000 }, () => {
   const bundle = buildClient();

@@ -15,7 +15,7 @@ import {
  * They are deliberately distinct: a first-time visitor should not be told we
  * are "reconnecting" to something they were never connected to.
  *
- * `superseded` is terminal — this seat is being played somewhere else, so
+ * `superseded` is terminal: this seat is being played somewhere else, so
  * retrying would only start a fight over it.
  */
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'superseded';
@@ -28,14 +28,14 @@ const PROBE_MS = 5000;
 
 function randomId(): string {
   // crypto.randomUUID needs a secure context, which a plain http:// LAN address
-  // is not — so fall back when testing from a phone over the local network.
+  // is not, so fall back when testing from a phone over the local network.
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `p-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
 /**
  * Identity is per-browser, but `?as=b` gives you a second one on the same
- * machine — which is how you drive both sides of a game in two tabs.
+ * machine, which is how you drive both sides of a game in two tabs.
  */
 export function getPlayerId(): string {
   const suffix = new URLSearchParams(location.search).get('as') ?? '';
@@ -64,7 +64,7 @@ export function saveName(name: string): void {
  *
  * Written from the room rather than from the pick, so joining someone else's
  * link counts: the game you played is the game you played, whoever chose it.
- * Reading it returns null rather than a default — the caller decides what an
+ * Reading it returns null rather than a default: the caller decides what an
  * empty shelf looks like, and here that is the first game in the manifest.
  *
  * Carries the `?as=` suffix for the same reason the name does. Two tabs
@@ -91,7 +91,7 @@ export function serverOrigin(): string {
   return configured ? configured.replace(/\/+$/, '') : location.origin;
 }
 
-/** The link to hand a friend — always the server, never the WebView. */
+/** The link to hand a friend: always the server, never the WebView. */
 export function inviteUrl(code: string): string {
   return `${serverOrigin()}/#${code}`;
 }
@@ -100,7 +100,7 @@ function socketUrl(code: string): string {
   // http -> ws, https -> wss.
   const wsOrigin = serverOrigin().replace(/^http/, 'ws');
   // The code rides in the URL because in production it selects which Durable
-  // Object handles the socket — that has to be decided before the upgrade.
+  // Object handles the socket, which has to be decided before the upgrade.
   return `${wsOrigin}/ws?code=${encodeURIComponent(code)}`;
 }
 
@@ -114,16 +114,16 @@ export interface UseRoom {
   /**
    * How many refusals this session has seen. The message alone cannot say
    * whether one arrived: tapping the same illegal square twice produces the
-   * same string twice, and anything watching `error` for a change — the
-   * toasts, the deny sound — saw the second one as no event at all. A counter
-   * makes every refusal distinct without making the message carry an id.
+   * same string twice, and anything watching `error` for a change (the toasts,
+   * the deny sound) saw the second one as no event at all. A counter makes
+   * every refusal distinct without making the message carry an id.
    */
   errorSeq: number;
   sendMove(move: unknown): void;
   requestRematch(): void;
   /** Play a different game with the people already in this room. */
   switchGame(gameId: string): void;
-  /** Deal the game to whoever is here. Seat 0 only — the server enforces it. */
+  /** Deal the game to whoever is here. Seat 0 only, and the server enforces it. */
   startGame(): void;
   dismissError(): void;
 }
@@ -147,10 +147,10 @@ export function useRoom(opts: {
   /**
    * When we last heard *anything* from the server on the current socket.
    *
-   * Any frame counts as proof of life, not only a pong — a room that is being
-   * played in sends `room` messages far more often than the heartbeat, and an
-   * older server that does not answer pings at all is still plainly alive
-   * while it is talking to us.
+   * Any frame counts as proof of life, not only a pong. A room being played in
+   * sends `room` messages far more often than the heartbeat, and an older
+   * server that does not answer pings at all is plainly alive while it is
+   * talking to us.
    */
   const heardRef = useRef(0);
   // Only the very first join may create the room. Reconnects must not silently
@@ -177,9 +177,9 @@ export function useRoom(opts: {
      * Abandon a socket that has stopped answering and start again.
      *
      * The handlers come off *before* the close, because a half-open socket can
-     * take its own sweet time firing `close` — sometimes minutes — and if it
-     * fired after we had already begun reconnecting it would schedule a second
-     * attempt on top of this one, and the two would race for the seat.
+     * take its own sweet time firing `close`, sometimes minutes, and if it
+     * fired after we had begun reconnecting it would schedule a second attempt
+     * on top of this one and the two would race for the seat.
      */
     const revive = (delay: number) => {
       if (cancelled) return;
@@ -225,11 +225,11 @@ export function useRoom(opts: {
 
     /**
      * A locked phone or a backgrounded tab has its timers throttled, so the
-     * heartbeat above may not have run for the whole time it was away — which
-     * means silence proves nothing at the moment it comes back. Ask directly
-     * instead, and give the answer a few seconds before concluding anything.
-     * Waiting out the ordinary silence limit here would leave someone staring
-     * at a stale board for the best part of a minute after unlocking.
+     * heartbeat above may not have run for the whole time it was away, so
+     * silence proves nothing at the moment it comes back. Ask directly instead,
+     * and give the answer a few seconds before concluding anything. Waiting out
+     * the ordinary silence limit would leave someone staring at a stale board
+     * for the best part of a minute after unlocking.
      */
     const wake = () => {
       if (cancelled) return;
@@ -271,7 +271,7 @@ export function useRoom(opts: {
           create: createRef.current,
           // Only a client opening a room gets to say what it is playing.
           // Someone arriving on a link is joining whatever is already there,
-          // and their lobby still has its own default selected — asserting it
+          // and their lobby still has its own default selected. Asserting it
           // here is how a perfectly good invitation gets refused for "playing
           // Connect Four" at a room that is not.
           gameId: createRef.current ? gameId : '',
@@ -297,14 +297,14 @@ export function useRoom(opts: {
           // An error describes a moment, not a session. Until this line the
           // only thing that cleared one was the player pressing Dismiss, so a
           // failed first attempt left "No room with that code." sitting above
-          // the room it then successfully joined, and "Not connected —
-          // reconnecting…" outlived the reconnection it was reporting. Being
-          // welcomed is proof both are over.
+          // the room it then successfully joined, and "Not connected, hang on"
+          // outlived the reconnection it was reporting. Being welcomed is proof
+          // both are over.
           setError(null);
           setErrorKind(null);
           if (location.hash.slice(1).toUpperCase() !== msg.room.code) {
             // Path and query first, code last. A query written after the hash
-            // is inside the fragment, not beside it — see `roomUrl` in
+            // is inside the fragment, not beside it. See `roomUrl` in
             // `App.tsx` for what that cost.
             history.replaceState(
               null,
@@ -325,7 +325,7 @@ export function useRoom(opts: {
         if (cancelled) return;
         // The server closed us because this player said hello on another
         // socket. Retrying would evict that one, which would retry and evict
-        // this one — two tabs trading the seat about once a second, forever,
+        // this one: two tabs trading the seat about once a second, forever,
         // with the room never allowed to hibernate.
         if (event.code === TAKEN_OVER) {
           cancelled = true;
@@ -364,7 +364,7 @@ export function useRoom(opts: {
     const socket = socketRef.current;
     // OPEN is not the same as working. A socket that died without a close
     // frame reads OPEN right up until the heartbeat catches it, and moves
-    // written into it in the meantime went nowhere at all — silently, which is
+    // written into it in the meantime went nowhere at all, silently, which is
     // the worst way for a move to fail. If nothing has been heard for longer
     // than the silence limit, treat it as gone now rather than in a few
     // seconds' time, and tell the player their move did not land.
@@ -375,7 +375,7 @@ export function useRoom(opts: {
     ) {
       socket.send(JSON.stringify(msg));
     } else {
-      setError('Not connected — reconnecting…');
+      setError('Not connected, hang on...');
       setErrorKind('rejected');
       setErrorSeq((n) => n + 1);
     }
@@ -391,8 +391,8 @@ export function useRoom(opts: {
     sendMove: useCallback((move: unknown) => post({ t: 'move', move }), [post]),
     requestRematch: useCallback(() => post({ t: 'rematch' }), [post]),
     // No optimistic swap: the room's game comes back on the next `room`
-    // message, so the board only changes once the server agrees — which is
-    // also what keeps both players' boards changing at the same moment.
+    // message, so the board only changes once the server agrees, which is also
+    // what keeps both players' boards changing at the same moment.
     switchGame: useCallback((id: string) => post({ t: 'switch', gameId: id }), [post]),
     startGame: useCallback(() => post({ t: 'start' }), [post]),
     dismissError: useCallback(() => {

@@ -1,6 +1,6 @@
 ---
 name: game-rules-reviewer
-description: Reviews game reducers for rule correctness, purity, determinism and test coverage — the highest-risk code in the project. Use after adding or changing anything in src/shared/games/.
+description: Reviews game reducers for rule correctness, purity, determinism and test coverage, the highest-risk code in the project. Use after adding or changing anything in src/shared/games/.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -24,7 +24,7 @@ Non-negotiable properties:
 
 - **Pure.** No I/O, no clock, no ambient randomness. The only entropy is the
   injected `rng`, which lets tests be exact.
-- **Never mutates its input.** Every game has an explicit immutability test —
+- **Never mutates its input.** Every game has an explicit immutability test, so
   check new ones do too, and that `clone` covers every array and tuple. A
   shallow spread that leaves `points` shared is the classic version of this bug.
 - **Total.** Any input at all must produce a result, never a throw. Assume the
@@ -43,7 +43,7 @@ explicitly, because those are where implementations quietly diverge:
 - **Turn order.** Does the turn advance exactly once? Can a player move twice?
 - **Forced moves.** Backgammon obliges you to play as many dice as you can, and
   to use the higher die when only one is playable. These are implemented by
-  searching for the longest playable sequence — verify the search is still
+  searching for the longest playable sequence, so verify the search is still
   correct and still terminates after any change.
 - **Off-board state.** The bar and the borne-off tray are as much part of the
   position as the points. Check checker conservation: every checker must be on
@@ -66,7 +66,7 @@ The bar to meet is what backgammon already has:
 - Loaded dice for exact rolls.
 - One test per awkward rule, named after the rule.
 - **Property tests that play full random games to completion**, asserting
-  invariants on every single move — checker conservation, termination, a valid
+  invariants on every single move: checker conservation, termination, a valid
   result. Forty games caught more than any handwritten case would have.
 - A test that every move the engine *advertises* as legal, it will actually
   accept. Disagreement between `legalMoves` and `applyMove` is a whole class of

@@ -1,4 +1,4 @@
-// WEDGE_ARC comes from wheelDisplay.js, which imports nothing — the same rule
+// WEDGE_ARC comes from wheelDisplay.js, which imports nothing, the same rule
 // the board follows. Nothing in this file may reach for `wheel.ts`, which is
 // where the puzzle bank lives.
 import { WEDGE_ARC } from "../../shared/games/wheelDisplay.js";
@@ -45,13 +45,13 @@ export const WEDGE_COUNT = Math.round(360 / WEDGE_ARC);
 export function restAngle(at: number | null): number {
   if (at === null) return 0;
   // The pointer is at twelve o'clock, and wedge `at` runs clockwise from
-  // `at * WEDGE_ARC` — so its middle has to come back by that much plus half
-  // a wedge.
+  // `at * WEDGE_ARC`, so its middle has to come back by that much plus half a
+  // wedge.
   //
-  // `at` is fractional — it is `WofState.rest`, not `WofState.wedgeAt`. Whole
-  // values are midpoints and the halves are the seams, which is the same
-  // convention `restAfter` and `wedgeUnder` use, and it only works because
-  // this expression was linear in `at` to begin with.
+  // `at` is fractional: it is `WofState.rest`, not `WofState.wedgeAt`. Whole
+  // values are midpoints and the halves are the seams, the same convention
+  // `restAfter` and `wedgeUnder` use, and it only works because this expression
+  // was linear in `at` to begin with.
   return -(at * WEDGE_ARC + WEDGE_ARC / 2);
 }
 
@@ -61,7 +61,7 @@ export function restAngle(at: number | null): number {
  * Thirty-six wedges meeting at a point is thirty-six slivers a fraction of a
  * unit wide, which turns to mush at any size and shimmers when the wheel
  * turns. A real wheel has a hub for the same reason: something has to hold the
- * middle. Wide enough to swallow the slivers, no wider — the wedges have to
+ * middle. Wide enough to swallow the slivers and no wider: the wedges have to
  * read as slices of *this* disc, and a big cap makes them a ring again, which
  * is what the crop used to do and the complaint that started this.
  */
@@ -76,13 +76,13 @@ export const FLAP_MAX = 14;
  * The pointer used to be a fixed triangle, and a fixed triangle is why the
  * spin never looked like a wheel: on a real one the flapper is a loose strip
  * that each peg lifts and drops, so the wheel *ticks*, and the ticks slowing
- * down are how you feel it coming to rest. Nothing else on screen carries
- * that — the disc is a blur of the same wedges either way.
+ * down are how you feel it coming to rest. Nothing else on screen carries that,
+ * since the disc is a blur of the same wedges either way.
  *
  * Zero for the first half of a wedge, then lifted through the second half as
  * the next peg rides up under it, then dropped. So it hangs still when the
- * wheel is at rest — a wheel stops with the pointer in the *middle* of a
- * wedge, not on a peg — which is the property the test pins.
+ * wheel is at rest, a wheel stopping with the pointer in the *middle* of a
+ * wedge rather than on a peg, which is the property the test pins.
  */
 export function flapAngle(wheel: number): number {
   const within = (((wheel % WEDGE_ARC) + WEDGE_ARC) % WEDGE_ARC) / WEDGE_ARC;

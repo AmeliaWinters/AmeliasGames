@@ -1,31 +1,34 @@
 /**
- * The *beats* of a throw: the wind-up before it, the slow moment inside it,
- * and the flourish after it.
+ * The *beats* of a throw: the wind-up before it, and the flourish after it.
+ *
+ * There used to be a third, inside it: a slow-motion moment at the contact
+ * that settled the last die. It has been removed, and the section below says
+ * why, because the reasoning that put it there was sound and is worth not
+ * repeating.
  *
  * Pure, and its own file, for the same reason `entryOf` is pure and exported:
  * everything else about a throw is Rapier's and Rapier does not explain
- * itself, but these three are decisions about *time and drawing* and a test
- * can hold them to account. Nothing here touches the physics.
+ * itself, but these are decisions about *time and drawing* and a test can hold
+ * them to account. Nothing here touches the physics.
  *
- * ── Why none of this needs a version bump ─────────────────────────────
+ * Why none of this needs a version bump
  *
  * A throw is stored as a seed and a flick and re-run to be watched (see
  * `toss.ts`), so anything that changes what the simulation *does* relands
  * every stored throw and costs a `SNAPSHOT_VERSION`. None of this does. The
- * wind-up happens before step 0, the pacing changes how much wall clock a step
- * is given rather than what it computes, and the flourish runs after the dice
- * have already been reported. Same steps, same faces, same resting places.
+ * wind-up happens before step 0 and the flourish runs after the dice have
+ * already been reported. Same steps, same faces, same resting places.
  *
- * ── The rule the flourish is built around ─────────────────────────────
+ * The rule the flourish is built around
  *
  * **A celebrating die must still show its number.** The scoresheet beside the
  * tray already says what was rolled, and a cube that disagrees with it is the
  * bug this whole 3D rewrite started from. That is why the hop is scripted
  * rather than thrown: a real upward impulse is livelier, and it also lets five
  * dice knock each other over into faces the sheet never saw. What is here
- * instead is a parabola and a turn about the *world's* vertical axis — and
+ * instead is a parabola and a turn about the *world's* vertical axis, and
  * spinning a die about the axis its top face is already pointing along cannot
- * change which face that is, at any point in the turn, which `beats.test.ts`
+ * change which face that is at any point in the turn, which `beats.test.ts`
  * asserts rather than trusts.
  */
 import { multiply, type Quat } from '../../shared/games/dice.js';
@@ -38,15 +41,15 @@ export interface Pose {
   q: Quat;
 }
 
-/* ── The wind-up ─────────────────────────────────────────────────────── */
+/* The wind-up */
 
 /**
  * How long the dice take to leave the table, in milliseconds.
  *
- * Short. This is the beat before a throw, not an animation in its own right —
- * long enough that the dice are seen to be *picked up* rather than to appear
- * in the air, and short enough that a player rolling three times a turn is not
- * waiting through it. Much longer and it reads as lag on the button.
+ * Short. The beat before a throw, not an animation in its own right: long
+ * enough that the dice are seen to be *picked up* rather than to appear in the
+ * air, and short enough that a player rolling three times a turn is not waiting
+ * through it. Much longer and it reads as lag on the button.
  */
 export const WINDUP_MS = 170;
 
@@ -54,10 +57,10 @@ export const WINDUP_MS = 170;
  * The handful, on its way from the table to where the throw begins.
  *
  * The dice used to simply exist at their release point, two die-heights up and
- * already moving. That is where `openThrow` puts them and it is correct — but
- * on screen it meant the tray was empty for a frame and then full of dice in
- * mid-flight, which is the largest reason a throw did not read as a throw: no
- * gesture was ever shown, only its result.
+ * already moving. That is where `openThrow` puts them and it is correct, but on
+ * screen it meant the tray was empty for a frame and then full of dice in
+ * mid-flight, the largest reason a throw did not read as a throw: no gesture
+ * was ever shown, only its result.
  *
  * So the handful is drawn *travelling* from where the dice were lying to where
  * the throw begins. It is the same dice: a die you can see on the table is the
@@ -65,11 +68,11 @@ export const WINDUP_MS = 170;
  * are checking it.
  *
  * `skip` is the kept dice, and it is not an optimisation. A kept die's release
- * pose is already its resting pose, so the interpolation moves it nowhere — but
+ * pose is already its resting pose, so the interpolation moves it nowhere, but
  * `LIFT` is added on top of that interpolation rather than along it, and a die
  * going nowhere was still being lifted a fifth of its own height into the air
- * and put back. Held means the player chose to keep it; a kept die that bobs
- * every time the others are thrown is a kept die that looks thrown.
+ * and put back. Held means the player chose to keep it, and a kept die that
+ * bobs every time the others are thrown is a kept die that looks thrown.
  */
 export function windUp(
   from: readonly Pose[],
@@ -101,98 +104,47 @@ const LIFT = 0.55;
 const arc = (u: number) => 4 * u * (1 - u);
 
 /**
- * Slow out of the table, fast into the throw — the shape of a hand gathering
+ * Slow out of the table, fast into the throw: the shape of a hand gathering
  * something and then flinging it, and the opposite of the usual ease-out. A
  * wind-up that decelerates into its release looks like the dice changed their
  * minds.
  */
 const ease = (u: number) => u * u;
 
-/* ── The slow moment ─────────────────────────────────────────────────── */
+/* The slow moment, and why there is no longer one
+   A throw used to be time-warped as it played: `paceOf` ran the clock at about
+   a third of life for eighteen steps around the contact that settled the last
+   die, and then at four times life through the tail behind it. `scoutThrow` in
+   `engine.ts` ran the whole throw once in advance, for about two milliseconds,
+   purely so the slowdown could begin *before* the contact rather than after it.
 
-/**
- * Where the interesting part of a throw is, in steps.
- *
- * `decisive` is the last contact worth watching — the bounce or topple that
- * settles the last unsettled die — and `steps` is where the throw ends.
- * `scoutThrow` in `engine.ts` finds them by running the throw once before it
- * is animated, which costs about two milliseconds and is the only way to know
- * a beat is coming *before* it arrives rather than after.
- */
-export interface Beats {
-  steps: number;
-  /** −1 where the throw has no moment worth slowing down for. */
-  decisive: number;
-}
+   It is gone, and the note is kept because the case for it was good and the
+   thing was still wrong.
 
-/** Steps of run-up before the decisive contact that are given the slow rate. */
-const SLOW_LEAD = 6;
-/** And after it, long enough to see what the die did about it. */
-const SLOW_TRAIL = 12;
-/** How much of real time a step gets inside the window. */
-const SLOW_RATE = 0.32;
-/**
- * And after it: faster than life, through the tail.
- *
- * The tail is the half second where a die is barely moving and Rapier has not
- * yet called it asleep — the same stretch `DEADLINE_DAMP` exists to shorten,
- * and time nobody is watching. Slowing the good part and then making the
- * player sit through that would spend the beat and hand back the bill.
- */
-const SNAP_RATE = 4;
+   The case: it was measured rather than eyeballed, the beat landed near the
+   middle of a throw in over 99% of them, and, the part genuinely hard to argue
+   with, it was *free*, buying the slow moment out of a tail nobody was watching
+   and coming out a few milliseconds shorter per throw than no pacing at all.
 
-/**
- * ── What the four numbers above are worth, together ───────────────────
- *
- * They were not chosen by eye. Measured over 240 throws per tray, mixing taps
- * and flicks, on the shipped physics:
- *
- *     tray         steps  decisive  no moment   watched
- *     yahtzee        134        67         0%   2251ms → 2234ms
- *     backgammon     114        48         1%   1959ms → 1947ms
- *     liarsdice      132        64         0%   2204ms → 2194ms
- *
- * Two things were being solved for at once. The first is that the beat has to
- * *happen*: the decisive contact lands around the middle of a throw rather than
- * in its first few steps, so "no moment" is a rounding error rather than the
- * common case, and a player is not told about this feature only occasionally.
- *
- * The second is that **it has to be free**. A first cut ran the tail at 2.6 and
- * gave the window eight steps of lead and fourteen of trail, which came out
- * 270ms longer per throw — and a throw is watched three times a turn in
- * Yahtzee, thirteen rounds a game. Emphasis you pay for in waiting is not
- * emphasis, it is lag with a reason. Tightening the window and taking the tail
- * at four times life buys the slow moment out of time nobody was watching
- * anyway, and the numbers above are what that trade came to: a throw that is
- * marginally *shorter* than it was, with a slow-motion beat inside it.
- *
- * `MAX_SUBSTEPS` is why the tail is 4 rather than more. At 60fps a rate of four
- * asks for four steps a frame against a cap of five; asking for more would be
- * silently refused on a slow frame, which turns a snap into a stutter.
- */
+   Why it went anyway: none of that is the question a viewer asks. Dice are one
+   of the few things everyone has watched land in real life, and a throw that
+   changes speed partway through does not read as emphasis, it reads as
+   *broken*, the same instinct that spots a dropped frame. Every argument above
+   is about the throw's budget and none is about whether it looks real, which
+   was the only thing wrong with it. Reported, in the end, as "the slow-mo looks
+   awful", which was correct.
 
-/**
- * A throw whose decisive contact lands earlier than this has no slow moment:
- * everything in it is still the beginning, and slowing a die down before it has
- * done anything reads as a dropped frame rather than as emphasis.
- */
-const MIN_DECISIVE = 18;
+   The general lesson, since it is easy to reach for this again: the throw is
+   simulated so that it can be *believed*, and anything that treats the playback
+   clock as a place to add expression is spending the one thing the simulation
+   was bought with. Emphasis belongs in the flourish below, which happens after
+   the dice have stopped and reported, where a viewer has no physical intuition
+   left to violate.
 
-/** How fast time runs at this point in the throw. */
-export function paceOf(step: number, beats: Beats): number {
-  const { decisive } = beats;
-  if (decisive < MIN_DECISIVE) return 1;
-  if (step < decisive - SLOW_LEAD) return 1;
-  if (step <= decisive + SLOW_TRAIL) return SLOW_RATE;
-  return SNAP_RATE;
-}
+   `Beats` and `scoutThrow` went with it: with nothing needing foresight, the
+   two-millisecond pre-run bought nothing. */
 
-/** Whether the throw is inside its slow moment, for anything that wants to mark it. */
-export function inSlowMoment(step: number, beats: Beats): boolean {
-  return paceOf(step, beats) === SLOW_RATE;
-}
-
-/* ── The flourish ────────────────────────────────────────────────────── */
+/* The flourish */
 
 /**
  * What the dice are celebrating.
@@ -278,8 +230,8 @@ export function cheerPose(
     const angle = cheer.turns * 2 * Math.PI * u;
     const half = angle / 2;
     // About the world's vertical axis, applied on the left so it turns the die
-    // where it stands rather than about an axis of the die's own — which is
-    // the whole reason the face survives. See the note at the top.
+    // where it stands rather than about an axis of the die's own, which is the
+    // whole reason the face survives. See the note at the top.
     const spin: Quat = [Math.cos(half), 0, Math.sin(half), 0];
     return { ...die, y: die.y + cheer.hop * arc(u), q: multiply(spin, die.q) };
   });
@@ -290,11 +242,11 @@ export function cheerPose(
  * can be heard.
  *
  * The hop is scripted, so there is no contact for the solver to report and no
- * impulse to take a volume from — but a die that lands in silence when every
+ * impulse to take a volume from, but a die that lands in silence when every
  * other landing in the app makes a noise reads as the sound having broken. The
  * crossing is asked between two times rather than tested at one, because at
- * 60fps a die is only exactly at the ground for an instant that no frame is
- * likely to sample.
+ * 60fps a die is only exactly at the ground for an instant no frame is likely
+ * to sample.
  */
 export function landedBetween(kind: CheerKind, count: number, was: number, now: number): number[] {
   const cheer = CHEERS[kind];
@@ -306,7 +258,7 @@ export function landedBetween(kind: CheerKind, count: number, was: number, now: 
   return down;
 }
 
-/* ── Small maths ─────────────────────────────────────────────────────── */
+/* Small maths */
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -315,7 +267,7 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
  *
  * Negated where the two point away from each other: a quaternion and its
  * negation are the same rotation, and interpolating towards the wrong one of
- * them takes a die the long way round — which in a 170ms wind-up is a die that
+ * them takes a die the long way round, which in a 170ms wind-up is a die that
  * visibly spins backwards on its way into the hand.
  */
 export function slerp(a: Quat, b: Quat, t: number): Quat {

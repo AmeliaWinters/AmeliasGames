@@ -1,5 +1,5 @@
 /**
- * The parts of Ultimate Tic-Tac-Toe the board may know — see the boundary note
+ * The parts of Ultimate Tic-Tac-Toe the board may know. See the boundary note
  * in `types.ts`. Not secrecy: one number does three jobs here, and both halves
  * of the app must read it the same way. A square's index within its small
  * board is *also* the board the opponent is sent to, and *also* a position in
@@ -8,9 +8,9 @@
  */
 
 /**
- * Nine squares to a board, nine boards to the game — the same nine, which is
- * the trick. A `spot` is both a square within a board and a board within the
- * big one.
+ * Nine squares to a board, nine boards to the game, and the same nine is the
+ * trick. A `spot` is both a square within a board and a board within the big
+ * one.
  */
 export const SPOTS = 9;
 export const CELLS = SPOTS * SPOTS;
@@ -29,16 +29,16 @@ export type Result = 0 | 1 | 'drawn' | null;
 export type Line = readonly [number, number, number];
 
 /**
- * Row by row, left to right, within a board — and boards the same way within
+ * Row by row, left to right, within a board, and boards the same way within
  * the big one. Square 4 of board 0 is the centre of the top-left board, and
  * playing it sends the opponent to board 4.
  *
  * ```
- *   0 │ 1 │ 2
- *  ───┼───┼───
- *   3 │ 4 │ 5
- *  ───┼───┼───
- *   6 │ 7 │ 8
+ *   0 | 1 | 2
+ *  ---+---+---
+ *   3 | 4 | 5
+ *  ---+---+---
+ *   6 | 7 | 8
  * ```
  */
 export const LINES: readonly Line[] = [
@@ -57,7 +57,7 @@ export function boardOf(cell: number): number {
   return Math.floor(cell / SPOTS);
 }
 
-/** Where a square sits in its board — and so the board it sends the opponent to. */
+/** Where a square sits in its board, and so the board it sends the opponent to. */
 export function spotOf(cell: number): number {
   return cell % SPOTS;
 }
@@ -86,7 +86,7 @@ const SPOT_NAMES = [
   'bottom right',
 ] as const;
 
-/** "the centre board", "the top-left board" — for the status line. */
+/** "the centre board", "the top-left board", for the status line. */
 export function boardName(board: number): string {
   return `${SPOT_NAMES[board].replace(' ', '-')} board`;
 }
@@ -110,7 +110,7 @@ export interface UtState {
   /** One per small board, in board order. */
   results: Result[];
   /**
-   * The three squares that won each small board, for drawing only — the rules
+   * The three squares that won each small board, for drawing only. The rules
    * never read it, but a player wants to see which line settled it.
    */
   lines: Array<Line | null>;
@@ -173,7 +173,7 @@ export function legal(state: UtState, cell: number): boolean {
   return state.sent === null || state.sent === board;
 }
 
-/** Small boards won, per seat — the tiebreak, and worth showing all game. */
+/** Small boards won, per seat: the tiebreak, and worth showing all game. */
 export function tally(state: UtState): [number, number] {
   return [
     state.results.filter((result) => result === 0).length,

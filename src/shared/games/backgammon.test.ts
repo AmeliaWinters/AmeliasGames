@@ -105,8 +105,8 @@ function rolls(from: BgState, want: (roll: [number, number]) => boolean): BgStat
 
 describe("rolling", () => {
   /*
-    The pair is the simulation's — read off the dice where they stop — so a
-    test cannot hand one over with a stubbed rng. It can ask for a seed that
+    The pair is the simulation's, read off the dice where they stop, so a test
+    cannot hand one over with a stubbed rng. It can ask for a seed that
     produces the pair it needs, which is what `rolls` does, and everything
     else asserts the rule rather than a number.
   */
@@ -430,7 +430,7 @@ describe("status line", () => {
   });
 });
 
-// ── helpers ────────────────────────────────────────────────────────────
+// helpers
 
 function withChecker(point: number, count: number): number[] {
   return withCheckers([[point, count]]);
@@ -443,7 +443,7 @@ function withCheckers(entries: Array<[number, number]>): number[] {
   return points;
 }
 
-// ── Property test ──────────────────────────────────────────────────────
+// Property test
 
 describe("full games", () => {
   /** Deterministic generator, so a failure here is reproducible. */
@@ -553,7 +553,7 @@ describe("full games", () => {
 describe("immutability", () => {
   it("never mutates the state it is given, including the roll", () => {
     // `roll` is a tuple, and a shallow spread leaves it shared with the state
-    // it came from — one careless write away from corrupting a snapshot that
+    // it came from, one careless write away from corrupting a snapshot that
     // has already been persisted.
     const before = position({ points: withChecker(10, 1), dice: [4], roll: [4, 2] });
     const after = applyOne(before, 0, 10, 4)!;
@@ -695,7 +695,7 @@ describe("doubles played only in part", () => {
   });
 
   it("does not apply the higher-die rule to doubles", () => {
-    // Vacuously true while all four dice are equal — pinned because it is
+    // Vacuously true while all four dice are equal, pinned because it is
     // exactly the condition a refactor breaks silently.
     const points = Array<number>(POINTS).fill(0);
     points[12] = 1;
@@ -746,7 +746,7 @@ describe("refusals", () => {
 
 describe("the dice themselves", () => {
   it("never rolls outside 1-6, even for an rng that breaks its contract", () => {
-    // Math.random cannot return 1, but a hand-written test rng can — and that
+    // Math.random cannot return 1, but a hand-written test rng can, and that
     // would otherwise roll a 7.
     for (const broken of [() => 1, () => 0.9999999999, () => NaN, () => -0.5, () => 2]) {
       const state = position({ points: withChecker(10, 1), dice: [], phase: "roll", turn: 0 });
@@ -766,7 +766,7 @@ describe("the dice on the table", () => {
   /*
     The bug this is about: a double is four moves, and the board drew it as
     four dice. The tray draws the cubes the simulation tumbled and there were
-    only two of them, so the two extra ones sat unrotated in the corner — and
+    only two of them, so the two extra ones sat unrotated in the corner, and
     an unrotated cube shows a one. A double four drew two fours and two ones.
   */
   it("is two dice, whatever the roll", () => {
@@ -896,7 +896,7 @@ describe("what the game remembers", () => {
   });
 
   /*
-    The race is seat 0's lead, positive when seat 0 is ahead — which means the
+    The race is seat 0's lead, positive when seat 0 is ahead, which means the
     *lower* pip count, since a pip count is distance still to travel. Getting
     that sign backwards draws every chart upside down and is invisible in a
     game that stays close, so it is pinned from a position with a known gap.

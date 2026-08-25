@@ -1,18 +1,38 @@
-/* ── Wheel of Fortune ────────────────────────────────────────
-   A tile per character, wrapped a whole word at a time — a word broken across
+/* Wheel of Fortune
+   A tile per character, wrapped a whole word at a time: a word broken across
    two rows is a word you cannot read the shape of, and the shape is the game.
    Blanks and letters share a tile so the board does not shift as it fills in;
    punctuation gets no box, because it was never hidden. */
 .wof {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* Eight, not twelve. There are nine blocks stacked here and the gap between
+     them was costing ninety-six pixels of a screen that has to hold the
+     phrase, the wheel, the keyboard and the money at once. The rule the
+     spacing has to keep is that the blocks read as separate, and at 8px
+     against a 44px key they still do. */
+  gap: 8px;
+}
+
+/* The caption over the puzzle: what the round is on the left, what just
+   happened on the right. Wraps to two lines rather than truncating, since the
+   note is a sentence and half a sentence is worse than a second line. */
+.wof-strap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 14px;
+  /* One line's worth, held whether or not anything has happened yet, so the
+     puzzle below does not jump the first time the note appears. */
+  min-height: 1.35em;
 }
 
 .wof-round {
   margin: 0;
   font-size: 0.82rem;
   color: var(--muted);
+  flex: none;
 }
 
 .wof-puzzle {
@@ -25,11 +45,14 @@
      inside a word. At 13px it was four letter-gaps and looked like five, and a
      two-word answer read as one long word nobody could see the shape of. */
   gap: 7px clamp(15px, 5.4vw, 28px);
-  padding: 12px 10px;
+  padding: 8px 10px;
   background: var(--board);
   /* Room for two rows, so a short puzzle and a long one sit in the same place
-     on the screen rather than shunting everything below them about. */
-  min-height: 108px;
+     on the screen rather than shunting everything below them about. Two rows
+     of the tallest tile plus the row gap plus this padding is 99, which is
+     what the number is. It was 108 against 12px of padding and is the same
+     two rows either way. */
+  min-height: 99px;
 }
 
 .wof-word {
@@ -69,24 +92,53 @@
    as the other two: which tiles just turned. One called letter can land in
    four places at once, and without this you are left comparing the board to
    your memory of it. The class follows the last letter called, so a reconnect
-   re-renders the same board without replaying it. */
+   re-renders the same board without replaying it.
+
+   The tile turns *and* comes up lit, then settles to the board's ink over the
+   back half. The flash is not decoration on top of the flip: the flip alone is
+   260ms of a tile that already looks like every other filled tile the moment
+   it lands, and on a board with a dozen letters on it that is a needle in a
+   haystack a second after it happened. The colour is the accent, the wheel's
+   own, so "this is what the spin bought" is one colour said twice. */
 @keyframes turn-over {
-  from {
+  0% {
     transform: rotateX(90deg);
+    background: var(--accent);
+    color: var(--ground);
+  }
+  55% {
+    transform: rotateX(0deg);
+    background: var(--accent);
+    color: var(--ground);
+  }
+  100% {
+    transform: rotateX(0deg);
+    background: var(--ink);
+    color: var(--ground);
   }
 }
 
 .wof-tile.just {
-  animation: turn-over 260ms ease-out;
+  animation: turn-over 420ms ease-out;
+  /* Left to right, a tile at a time, see REVEAL_STAGGER in `WheelBoard.tsx`.
+     `backwards` is the load-bearing word: without it a tile waiting its turn
+     is already sitting there face-up, and the stagger reveals nothing because
+     there is nothing left to reveal. */
+  animation-delay: var(--wof-flip, 0ms);
+  animation-fill-mode: backwards;
 }
 
+/* The line the note is on is `.wof-strap`'s, which holds its height whether or
+   not there is a note, so this does not have to hold one of its own and an
+   empty note takes no room at all. Ink rather than muted: it was the only
+   thing on its own line before and could afford to be quiet, and beside the
+   round number it is the half that is news. */
 .wof-note {
   margin: 0;
   font-size: 0.88rem;
-  color: var(--muted);
-  /* Holds its line whether or not anything has happened yet, so the board
-     above does not jump the first time the note appears. */
-  min-height: 1.4em;
+  color: var(--ink);
+  text-align: right;
+  min-width: 0;
 }
 
 .wof-money {
@@ -95,23 +147,78 @@
   gap: 8px;
 }
 
+/* Two to a row on a phone and four across on anything wider, and both fall
+   out of the one basis rather than out of a breakpoint: 132px is wide enough
+   for a name and a four-figure sum, so a 608px column fits four and a 343px
+   phone fits two. It was `42%`, which meant two to a row for ever, and four
+   purses in two rows is seventy pixels of a phone spent on air. */
 .wof-purse {
-  flex: 1 1 42%;
+  flex: 1 1 132px;
   min-width: 0;
   display: grid;
-  grid-template-columns: auto 1fr;
+  /* Name, then the badges. Both badges can be on at once (you, reconnecting)
+     and a missing one collapses to nothing rather than holding a column. */
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 1px 7px;
-  padding: 8px 11px;
+  padding: 6px 10px;
   background: var(--surface);
   font-size: 0.78rem;
   color: var(--muted);
 }
-/* Whose turn it is gets weight, not a colour wash — the same as the players
+/* Whose turn it is gets weight, not a colour wash, the same as the players
    strip above it. */
 .wof-purse.active {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* Which purse moved, and which way. Money changing hands is the score of this
+   game changing, and the note line above says it in a sentence nobody reads in
+   time, so the purse itself is marked for the length of the count. Up is the
+   live green, down is the alert, and both are a rim rather than a wash so the
+   number inside stays the same contrast it always was.
+
+   `up` and `down` are set from `useTally`, which clears them after FLASH_MS.
+   The class is the whole animation's lifetime, so a purse that gains twice
+   running marks twice. */
+@keyframes purse-gain {
+  from {
+    box-shadow: inset 0 0 0 2px var(--live);
+  }
+  to {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+.wof-purse.up {
+  animation: purse-gain 900ms ease-out;
+}
+
+/* A loss is a Bankrupt nine times in ten, which is the worst thing that
+   happens in this game and the one event that should be felt rather than
+   read. Two small knocks, not a wobble: enough to say "that one", not enough
+   to make the total unreadable while it is counting to nothing. */
+@keyframes purse-loss {
+  0% {
+    box-shadow: inset 0 0 0 2px var(--alert);
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  45% {
+    transform: translateX(3px);
+  }
+  70% {
+    transform: translateX(-1px);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+    transform: translateX(0);
+  }
+}
+.wof-purse.down {
+  animation: purse-loss 900ms ease-out;
 }
 
 .wof-purse .chip {
@@ -141,33 +248,49 @@
   white-space: nowrap;
   color: var(--ink);
 }
-.wof-purse .round {
+/* "you" and "away", from the strip this row replaced. Muted and small: they
+   are the least of the four things on the line and the only two that are the
+   same on every table. */
+.wof-purse .note {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+/* The round's money and the money already banked, on one line where there is
+   room for one. They wrap rather than shrink, because a total nobody can read
+   is not a total, so a narrow purse quietly becomes the three-line thing it
+   used to always be and a wide one saves the line. */
+.wof-purse .totals {
   grid-column: 1 / -1;
-  font-size: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 7px;
+}
+.wof-purse .round {
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 .wof-purse .banked {
-  grid-column: 1 / -1;
   font-variant-numeric: tabular-nums;
 }
 
 /* The wheel and what it means, stacked: the thing you watch, then the fact it
    settled on, then how many guesses that leaves you. */
 /* No card. The wheel is a piece of machinery seen through a window, not a
-   picture of one — and a panel drawn round it fought the shape: the band ran
-   off the left and right edges into a border, which is what made a crop that
-   is meant to read as "there is more of this" read as "this has been cut". */
+   picture of one, and a panel drawn round it fought the shape: the band ran off
+   the left and right edges into a border, which made a crop meant to read as
+   "there is more of this" read as "this has been cut". */
 .wof-wheel {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-/* A window onto the wheel — see VIEW_W, SHOW and CROP in `WheelBoard.tsx`.
+/* A window onto the wheel, see VIEW_W, SHOW and CROP in `WheelBoard.tsx`.
    The wheel is drawn far bigger than this and runs off both sides and the
    bottom, which is what makes a wedge big enough to read at thirty-six of
    them; what the box holds is the arc under the pointer, where the reading
@@ -175,12 +298,21 @@
 .wof-wheel-frame {
   position: relative;
   width: 100%;
-  max-width: 608px;
-  /* VIEW_W / CROP, and it has to stay that. The SVG's own
-     `preserveAspectRatio` is the default, so a box that disagrees with the
-     viewBox does not crop harder — it letterboxes, and the wheel shrinks away
-     from the sides of a frame that is still the old height. */
-  aspect-ratio: 90 / 68;
+  /* Capped well under the column's 608px, and that is a height decision rather
+     than a width one: the frame is a fixed ratio, so every pixel of width is
+     0.53 of a pixel of height, and the whole table has to stand inside one
+     screen. At 424 a wedge's number still comes out around 25px, a quarter
+     again what the same number gets on a phone, which is where it has to be
+     legible and is. The last twenty pixels of it are what put a four-player
+     table inside a 1080p browser window rather than eight pixels outside one;
+     measured, not guessed. */
+  /* VIEW_W / CROP, handed over by `WheelBoard.tsx`, which is the only place
+     those two numbers exist. The SVG's own `preserveAspectRatio` is the
+     default, so a box that disagrees with the viewBox does not crop harder;
+     it letterboxes, and the wheel shrinks away from the sides of a frame that
+     is still the old height. The fallback is the shape the board ships with,
+     for the one frame before the custom property lands. */
+  aspect-ratio: var(--wof-frame, 90 / 48);
 }
 
 .wof-disc {
@@ -192,7 +324,7 @@
 /* The rim is thrown by hand, so it has to look like something you can take
    hold of. `touch-action` is the load-bearing half: without it a flick up the
    wheel is a flick down the page, and the browser takes the gesture away
-   mid-drag. Only while it is actually throwable — a wheel that resisted the
+   mid-drag. Only while it is actually throwable: a wheel that resisted the
    scroll on somebody else's turn would just be a bug. */
 .wof-disc.grabbable {
   cursor: grab;
@@ -203,26 +335,26 @@
 }
 
 /* The turn itself. The easing is not a taste: a wheel slowed by a constant
-   frictional torque covers `2t - t²` of its distance in normalised time, which
-   is exactly quadratic ease-out, which is exactly this cubic-bezier — the
-   quadratic Bézier (0, 0) (0.5, 1) (1, 1) raised a degree. So the curve on
+   frictional torque covers `2t - t^2` of its distance in normalised time, which
+   is exactly quadratic ease-out, which is exactly this cubic-bezier: the
+   quadratic Bezier (0, 0) (0.5, 1) (1, 1) raised a degree. So the curve on
    screen is the same equation `spinThrow` resolved the landing with, and the
    duration beside it is that throw's own. Change SPIN_DRAG and nothing here
    moves; change this and the wheel starts lying about the other.
 
-   The rotation is set from React as an absolute angle, signed both ways now —
-   a flick left is a smaller number than the one before it — so this never has
+   The rotation is set from React as an absolute angle, signed both ways now,
+   a flick left being a smaller number than the one before it, so this never has
    to work out which way round to go.
 
    `center` here means half the box measured from the element's own origin, so
    the wheel is drawn about (0, 0) and then moved to the middle of a box that
-   starts at (0, 0) — see CENTRE in WheelBoard.tsx. Drawing it about the middle
+   starts at (0, 0), see CENTRE in WheelBoard.tsx. Drawing it about the middle
    of a viewBox that starts at -110 put the pivot a full radius off the wheel
    and threw it clean off the screen on the first spin. */
 .wof-turn {
   transform-box: view-box;
   /* The wheel's own hub, handed over by the board. `center` meant half the
-     box, which was the same point only while the box was square — the crop
+     box, which was the same point only while the box was square. The crop
      made it a band, and half of that is a good way above the hub. The hub is
      below the frame entirely, which is why neither number can be guessed
      from the box. */
@@ -231,8 +363,8 @@
      99.7% by the last sixth, so the wheel snapped and then sat apparently
      still for four hundred milliseconds. This one is physics: it sheds speed
      at a constant rate from the moment the finger lets go, right down to the
-     stop. `cubic-bezier(.333,.667,.667,1)` is exactly `2t - t²`, which is the
-     distance a constantly-decelerating wheel has covered — the same equation
+     stop. `cubic-bezier(.333,.667,.667,1)` is exactly `2t - t^2`, which is the
+     distance a constantly-decelerating wheel has covered: the same equation
      `spinMs` times and `spinThrow` resolves, not an impression of it.
 
      Do not retune this curve to fix "it does not slow down". It was reported
@@ -250,7 +382,7 @@
 
 .wof-wedge {
   stroke: var(--rule);
-  /* Units, not pixels, and the box is now half the width it was — so the same
+  /* Units, not pixels, and the box is now half the width it was, so the same
      hairline needs half the number to stay a hairline. */
   stroke-width: 0.3;
 }
@@ -275,10 +407,10 @@
 
    It is the *ratio* that was wrong before, not the pixels. At 12 units against
    a wedge nineteen units wide, "900" was fractionally wider than the wedge
-   carrying it — three digits set edge to edge with their neighbours, which is
+   carrying it: three digits set edge to edge with their neighbours, which is
    why the wheel read as a wall of numbers. Measured rather than guessed: 5.4
    units puts "900" at 73% of the fourteen-unit wedge carrying it, so there is
-   a clear seventh of a wedge of air on each side — and the wheel around it
+   a clear seventh of a wedge of air on each side, and the wheel around it
    grew by more than the number shrank, so it lost nothing on screen. */
 .wof-face {
   font-family: var(--body);
@@ -287,8 +419,8 @@
   font-variant-numeric: tabular-nums;
   fill: var(--ink);
 }
-/* Bankrupt and Lose a Turn, as marks. A 10° slice is about fourteen units of
-   arc where the labels sit, which is not room for a word — so those two wedges
+/* Bankrupt and Lose a Turn, as marks. A 10 deg slice is about fourteen units of
+   arc where the labels sit, which is not room for a word, so those two wedges
    carry a drawing instead, and say what they are in the readout below. Both
    sit on a filled wedge, so both are struck in the reversed ink. */
 .wof-glyph {
@@ -312,7 +444,7 @@
   stroke-width: 1.4;
 }
 
-/* The hub, over the point where thirty-six wedges meet — see HUB_RADIUS. Two
+/* The hub, over the point where thirty-six wedges meet, see HUB_RADIUS. Two
    circles: the cap, and the pin it turns on. Filled from the page rather than
    from the wheel, so it reads as a fitting on top of the disc and not as a
    thirty-seventh wedge. */
@@ -328,7 +460,7 @@
 
 /* The flapper. Hinged along its top edge rather than pinned at its middle, so
    the tip is knocked aside by each peg that passes under it and falls back
-   between them — see `flapAngle`. The angle is written straight onto the
+   between them, see `flapAngle`. The angle is written straight onto the
    element from a frame loop, so there is no transition here: it would smear
    thirty-six ticks a turn into one slow wobble. */
 .wof-pointer {
@@ -345,18 +477,19 @@
   align-items: baseline;
   justify-content: center;
   gap: 9px;
-  min-height: 34px;
+  min-height: 32px;
   margin: 0;
   text-align: center;
 }
 
-/* Guesses left, as three pips and a count. The pips are the glanceable half —
+/* Guesses left, as three pips and a count. The pips are the glanceable half:
    nobody reads a sentence to find out whether they can risk a letter. */
 .wof-guesses {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  flex: none;
   margin: 0;
   font-family: var(--body);
   font-size: 0.72rem;
@@ -382,22 +515,36 @@
   box-shadow: inset 0 0 0 1px var(--rule-hi);
 }
 
-/* Guesses left and letters left, side by side — two ways the same turn ends,
-   so they are read as a pair. They wrap on a narrow phone rather than shrink:
-   a meter nobody can count is not a meter. */
-.wof-meters {
+/* What you may press, and how many more times, on one line under the keyboard.
+   They wrap rather than shrink on a narrow phone: a meter nobody can count is
+   not a meter, and half a sentence is not an instruction. */
+.wof-foot {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 18px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The wheel still lands on the right wedge — it just gets there at once.
+  /* The wheel still lands on the right wedge; it just gets there at once.
      The value below it is never held back in this mode, so nothing is lost
      but the flourish. */
   .wof-turn {
     transition: none;
+  }
+  /* And the same answer for everything added since: the turn, the flash, the
+     knock and the count are all flourishes over facts that are on the screen
+     either way: the tile carries its letter, the purse carries its total.
+     `useTally` makes the same call for the count itself, which is a number
+     changing rather than a property animating and so cannot be stopped from
+     here. */
+  .wof-tile.just,
+  .wof-purse.up,
+  .wof-purse.down,
+  .wof-value,
+  .wof-readout.bad .wof-prompt {
+    animation: none;
   }
 }
 
@@ -410,6 +557,26 @@
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
+  /* The wheel stops and this appears in the same frame, and appearing is not
+     the same as arriving: the whole spin was a question and this is the answer
+     to it, so it lands. Keyed on `spins` in the board, so it plays again on a
+     second spin that paid the same money. */
+  animation: value-land 320ms cubic-bezier(0.2, 1.3, 0.5, 1);
+}
+@keyframes value-land {
+  from {
+    transform: scale(0.72);
+    opacity: 0;
+  }
+}
+
+/* Bankrupt and Lose a Turn. The readout is the only place they are said in
+   words, the wedge itself carrying a mark, so it is the only place that can
+   say them in the colour of the thing that just happened. */
+.wof-readout.bad .wof-prompt {
+  color: var(--alert);
+  font-weight: 600;
+  animation: value-land 320ms cubic-bezier(0.2, 1.3, 0.5, 1);
 }
 
 .wof-prompt {
@@ -421,6 +588,19 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
+}
+/* Twenty-six letters in seven columns is four rows, and the fourth row is
+   five keys and a lot of nothing: 48px of height for the ragged end of the
+   alphabet. Above 360px it is three rows instead, which is 48px of
+   a phone handed back. The key's own 44px minimum is untouched, and that is the
+   height, and the height is the part of a touch target a thumb reaching down
+   a keyboard misses. Nine columns at 375px is a 35px-wide key, wider than the
+   one the phone's own keyboard gives the same letter. Below 360 there is not
+   room for that and it stays at seven. */
+@media (min-width: 360px) {
+  .wof-keys {
+    grid-template-columns: repeat(9, 1fr);
+  }
 }
 
 .wof-key {
@@ -438,7 +618,7 @@
 .wof-key:disabled {
   cursor: default;
 }
-/* A letter already called is spent, and says so — struck through rather than
+/* A letter already called is spent, and says so, struck through rather than
    faded, because you still need to read which ones have gone. */
 .wof-key.spent {
   background: transparent;
@@ -451,6 +631,7 @@
   margin: 0;
   font-size: 0.82rem;
   color: var(--muted);
+  min-width: 0;
 }
 
 .wof-solve {
@@ -471,3 +652,49 @@
 }
 
 
+
+/* A phone
+   Four players, a phrase, a wheel and twenty-six keys, and none of it worth
+   anything if you have to scroll between the wheel and the letter you want to
+   call. Everything below buys height and nothing below touches a touch target:
+   the keys keep their 44px, the actions keep theirs, and what goes is air.
+
+   Measured on a 390 x 844 viewport with four seated players, which is the case
+   that has to fit. A 375 x 667 phone is still a little over, and the last of
+   that would have to come out of the wheel or the keyboard, both of which are
+   the game. */
+@media (max-width: 479px) {
+  .wof {
+    gap: 6px;
+  }
+  .wof-puzzle {
+    /* Two rows of the tallest tile a 375px screen draws, plus the row gap and
+       the padding. Still the two rows the desktop number reserves; it is the
+       tile that is smaller here, not the reservation that is looser. */
+    min-height: 88px;
+  }
+  .wof-wheel {
+    gap: 4px;
+  }
+  .wof-readout {
+    min-height: 28px;
+  }
+  /* Four fifths of the column. The wheel is the one thing here whose size is a
+     matter of degree rather than a rule: a wedge's number goes from about 21px
+     to about 17px, which is still half again the legend under the keyboard. */
+  .wof-wheel-frame {
+    width: 82%;
+  }
+}
+
+/* The purse, on a phone, where four of them are two rows and every pixel of
+   one is two pixels of the board. Nothing is dropped; the numbers are set at
+   the size the rest of the phone's secondary text is set at. */
+@media (max-width: 479px) {
+  .wof-purse {
+    padding: 5px 9px;
+  }
+  .wof-purse .round {
+    font-size: 1.02rem;
+  }
+}

@@ -42,24 +42,23 @@ export type { Bid, CallKind, LdMove, LdState, Showdown } from './liarsDiceDispla
  * Liar's Dice, for two to four.
  *
  * Everyone rolls five dice behind their hand. Round the table, each player
- * either raises the bid — "four 3s" means there are at least four 3s on the
- * whole table, not just in your hand — or calls it. The dice come up, the face
- * is counted, and whoever was wrong loses a die. Out of dice is out of the
- * game; the last player still holding any wins.
+ * either raises the bid ("four 3s" means at least four 3s on the whole table,
+ * not just in your hand) or calls it. The dice come up, the face is counted,
+ * and whoever was wrong loses a die. Out of dice is out; the last player still
+ * holding any wins.
  *
  * There are two calls, and the difference between them is the difference
  * between the two ways a bid can be wrong:
  *
- * - **Liar** says the bid is too high. It is settled by "at least", so a bid
- *   met exactly is the bidder being right, not a tie — call "four 3s" on
- *   exactly four 3s and it costs you the die.
- * - **Spot on** says the bid is neither too high nor too low: the count is the
- *   quantity, to the die. Get it right and you take a die *back* (never past
- *   the five you started with); get it wrong and you lose one like anybody
- *   else. It is the only move in the game that costs nobody anything, and the
- *   only one that can be right while the bidder is also right — which is what
- *   makes the last player to be dragged into a bid worth watching rather than
- *   worth pitying.
+ * - **Liar** says the bid is too high. Settled by "at least", so a bid met
+ *   exactly is the bidder being right, not a tie: call "four 3s" on exactly
+ *   four 3s and it costs you the die.
+ * - **Spot on** says the bid is neither too high nor too low, the count on the
+ *   die. Right and you take a die *back* (never past the five you started
+ *   with); wrong and you lose one like anybody else. It is the only move that
+ *   costs nobody anything, and the only one that can be right while the bidder
+ *   is also right, which is what makes the last player dragged into a bid
+ *   worth watching rather than worth pitying.
  *
  * **Ones are not wild.** The Perudo variant everyone half-remembers from a film
  * counts them for every face, which makes the arithmetic a game in itself. This
@@ -67,15 +66,15 @@ export type { Bid, CallKind, LdMove, LdState, Showdown } from './liarsDiceDispla
  * whole of the rules in a sentence and still be counting correctly on their
  * first call.
  *
- * ── The part that matters ──────────────────────────────────────────────
+ * The part that matters
  *
  * The hands are the game. `state.dice` holds all of them, and `view()` is the
- * only thing standing between a player and everybody else's dice — the client
- * is sent the state, so an unredacted hand is a hand anyone can read out of
- * devtools. The redaction keeps the *lengths*, because how many dice each
- * player is holding is public and is most of what a bid is reasoned from, and
- * replaces the faces with `HIDDEN_FACE`, which is not a face and so cannot be
- * counted even by a bug.
+ * only thing standing between a player and everybody else's dice: the client
+ * is sent the state, so an unredacted hand is one anyone can read out of
+ * devtools. The redaction keeps the *lengths*, because how many dice a player
+ * holds is public and most of what a bid is reasoned from, and replaces the
+ * faces with `HIDDEN_FACE`, which is not a face and cannot be counted even by
+ * a bug.
  *
  * Hands become public exactly once: in the `Showdown` a call produces, which is
  * a snapshot rather than a flag, so the board can show what was on the table at
@@ -83,9 +82,9 @@ export type { Bid, CallKind, LdMove, LdState, Showdown } from './liarsDiceDispla
  */
 
 /**
- * A fresh hand, sorted. Sorting gives away nothing — the owner already knows
- * what they rolled, and nobody else is shown it — and it makes a revealed hand
- * countable at a glance, which is what the whole reveal is for.
+ * A fresh hand, sorted. Sorting gives away nothing, since the owner knows what
+ * they rolled and nobody else is shown it, and it makes a revealed hand
+ * countable at a glance, which is what the reveal is for.
  */
 function roll(count: number, rng: Rng): number[] {
   return Array.from({ length: count }, () => die(rng)).sort((a, b) => a - b);
@@ -99,8 +98,8 @@ function clone(state: LdState): LdState {
     bid: state.bid === null ? null : { ...state.bid },
     history: state.history.map((said) => ({ ...said })),
     // The showdown is replaced wholesale or left alone, never edited, so the
-    // shared reference is safe — and copied anyway, because "safe as long as
-    // nobody edits it" is a rule that outlives the person who knew it.
+    // shared reference is safe. Copied anyway, because "safe as long as nobody
+    // edits it" is a rule that outlives the person who knew it.
     showdown: state.showdown === null ? null : { ...state.showdown, hands: state.showdown.hands.map((h) => [...h]) },
   };
 }
@@ -127,7 +126,7 @@ function readBid(move: { quantity: unknown; face: unknown }, seat: number): Move
 function bid(state: LdState, next: Bid): MoveResult<LdState> {
   const ceiling = totalDice(state);
   if (next.quantity > ceiling) {
-    // Bidding more dice than exist is not a bluff, it is a typo — and it would
+    // Bidding more dice than exist is not a bluff, it is a typo, and it would
     // leave the next player with nothing to raise to.
     return { ok: false, error: `There are only ${ceiling} dice on the table.` };
   }
@@ -149,7 +148,7 @@ function bid(state: LdState, next: Bid): MoveResult<LdState> {
  *
  * Kept apart from the bookkeeping below because it is the whole of the rules
  * either call is settled by, and it is worth being able to read the two side by
- * side. A `liar` call is settled by "at least" — the bid stands the moment the
+ * side. A `liar` call is settled by "at least": the bid stands the moment the
  * count *reaches* it, so "four 3s" against exactly four 3s costs the caller. A
  * spot-on call needs the count on the nose and pays a die back for it.
  */
@@ -171,11 +170,10 @@ function settlement(
  * counted across every hand, a die changes hands, and anyone that empties is
  * out.
  *
- * The die a correct spot-on call earns is rolled rather than invented, so the
- * hand is a hand of real dice at every moment — the face is nobody's business
- * and is re-rolled with the rest at the top of the next round, but a state
- * carrying a die that is not a die is a state every invariant in the game has
- * to start apologising for.
+ * The die a correct spot-on call earns is rolled rather than invented, so a
+ * hand is real dice at every moment. The face is nobody's business and gets
+ * re-rolled at the top of the next round anyway, but a state carrying a die
+ * that is not a die is one every invariant has to start apologising for.
  */
 function callBid(
   state: LdState,
@@ -213,8 +211,9 @@ function callBid(
   }
 
   after.phase = 'reveal';
-  // The player who lost the die opens the next round — the standard rule, and
-  // the merciful one: it hands the initiative to whoever is furthest behind.
+  // The player who lost the die opens the next round: the standard rule, and
+  // the merciful one, since it hands the initiative to whoever is furthest
+  // behind.
   // A spot-on call that cost nobody anything has no such player, so it goes to
   // whoever made it, who has earned the one seat with the least information.
   // Knocked out, and it passes to the next seat still holding dice.
@@ -227,21 +226,20 @@ function callBid(
 /**
  * A seat's own hand, as the client that threw it reports it.
  *
- * The reducer already dealt this hand — see `nextRound` — so the game is
+ * The reducer already dealt this hand (see `nextRound`), so the game is
  * playable without this ever arriving, which is the point: a client with no
- * WebAssembly, or one that simply never sends it, is not a round that hangs.
- * What this adds is that the dice a player *watched land* are the dice they
- * are holding, rather than an animation that agreed with a number chosen
- * elsewhere.
+ * WebAssembly, or one that never sends it, is not a round that hangs. What
+ * this adds is that the dice a player *watched land* are the dice they hold,
+ * rather than an animation agreeing with a number chosen elsewhere.
  *
  * **This is the most trusting thing in the app, and it is trusted on purpose.**
  * A modified client reports five sixes and there is nothing here that could
  * know. In a game whose whole substance is bluffing about a hidden hand, that
  * is a large thing to give away; it was given away knowingly, in exchange for
- * the dice being real everywhere rather than real in two games out of three.
- * Anyone tightening this later wants the server to keep dealing and the client
- * to animate onto what it was dealt — which is the same picture and none of
- * this risk.
+ * the dice being real everywhere rather than in two games out of three. Anyone
+ * tightening this later wants the server to keep dealing and the client to
+ * animate onto what it was dealt, which is the same picture and none of this
+ * risk.
  */
 function reportHand(state: LdState, seat: number, faces: unknown): MoveResult<LdState> {
   if (!owesRoll(state, seat)) {
@@ -272,8 +270,8 @@ function nextRound(state: LdState, rng: Rng): LdState {
   const after = clone(state);
   after.round = state.round + 1;
   after.dice = state.dice.map((hand) => (hand.length > 0 ? roll(hand.length, rng) : []));
-  // Everyone's own throw is owed again. The hands above are the fallback, and
-  // the ones a client reports replace them — see `owesRoll`.
+  // Everyone's own throw is owed again. The hands above are the fallback and
+  // the ones a client reports replace them. See `owesRoll`.
   after.rolled = state.dice.map(() => false);
   after.bid = null;
   after.history = [];
@@ -297,8 +295,8 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     // table the room builds is the table the lobby offered.
     const seats = clampSeats(GAME_MANIFEST.liarsdice, playerCount);
     // Nobody has an opening advantage: who opens is drawn, like the wheel's
-    // starter. Opening is a real disadvantage here — you bid with the least
-    // information anyone will have all round.
+    // starter. Opening is a real disadvantage here, since you bid with the
+    // least information anyone will have all round.
     const starter = pick(rng, seats);
     return {
       round: 1,
@@ -351,10 +349,10 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
 
   /**
    * Everything a client is allowed to know. Every hand but this seat's own is
-   * replaced with the same number of `HIDDEN_FACE` dice — the count is public,
-   * the faces never are, not even once a player is out and not even at the end,
-   * because the last round's hands are already public in the showdown and a
-   * hand from any earlier round is nobody's business.
+   * replaced with the same number of `HIDDEN_FACE` dice: the count is public,
+   * the faces never are, not even once a player is out and not even at the end.
+   * The last round's hands are already public in the showdown, and a hand from
+   * any earlier round is nobody's business.
    */
   view(state, seat) {
     return {
@@ -373,8 +371,8 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     Not `turn(state) === seat`, and the difference is real: everyone throws
     their own dice at the top of a round, at the same time, whoever is due to
     bid. So this is the union of "it is your turn" and "you still owe a throw",
-    and a board must not gate its *bidding* controls on it — `turn` is what
-    those want. `owesRoll` carries the other half.
+    and a board must not gate its *bidding* controls on it. `turn` is what those
+    want, and `owesRoll` carries the other half.
   */
   canAct(state, seat) {
     return !state.over && (state.turn === seat || owesRoll(state, seat));

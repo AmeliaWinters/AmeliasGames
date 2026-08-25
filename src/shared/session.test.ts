@@ -4,8 +4,8 @@ import { PROTOCOL_VERSION, type ClientMessage } from './protocol.js';
 import { MAX_NAME, admit, applyAction, isAction, readFrame, readHello } from './session.js';
 
 /**
- * These rules used to live twice — once in `src/server/index.ts` and once in
- * `src/worker/index.ts` — and so did their tests. Two suites proving two
+ * These rules used to live twice, once in `src/server/index.ts` and once in
+ * `src/worker/index.ts`, and so did their tests. Two suites proving two
  * copies is the arrangement in which a rule tightened on one side and missed
  * on the other passes everywhere and is wrong in production.
  *
@@ -43,7 +43,7 @@ describe('reading a frame', () => {
   /**
    * The four bytes `null` parse successfully and yield null, and reading `.t`
    * off that throws. Unguarded it is an uncaught exception in the dev server
-   * and an aborted Durable Object in production — in both cases taking every
+   * and an aborted Durable Object in production, in both cases taking every
    * other room with it.
    */
   it('refuses the payloads that parse to something with no `t` to read', () => {
@@ -53,7 +53,7 @@ describe('reading a frame', () => {
   });
 
   it('lets an array through, because an array cannot throw either', () => {
-    // `typeof [] === 'object'` and it is not null, so this passes the guard —
+    // `typeof [] === 'object'` and it is not null, so this passes the guard,
     // and that is fine. Reading `.t` off it yields undefined, which every
     // `t` test below simply misses. The guard is against throwing, not against
     // nonsense; nonsense is handled by falling through to nothing.
@@ -169,7 +169,7 @@ describe('which room a hello gets', () => {
   });
 
   it('lets the host re-send a create-flagged hello for their own room', () => {
-    // Ordinary — a retry, or a remount. Refusing it would lock the host out of
+    // Ordinary: a retry, or a remount. Refusing it would lock the host out of
     // the room they had just made.
     const existing = RoomEngine.create(CODE, 'connect4')!;
     existing.join('p1', 'Amelia');
@@ -230,7 +230,7 @@ describe('running an action', () => {
   /**
    * A reducer is not supposed to throw, and the fuzzing says none of them
    * does. But an exception escaping here is fatal in both adapters, and fatal
-   * to every other room sharing the process or the object — so the guard is
+   * to every other room sharing the process or the object, so the guard is
    * held by a test rather than by hope.
    */
   it('turns a reducer that throws into a refusal, not a crash', () => {
@@ -243,7 +243,7 @@ describe('running an action', () => {
     };
     engine.def = exploding;
     const result = applyAction(engine, 0, { t: 'move', move: { type: 'drop', col: 3 } });
-    expect(result).toEqual({ ok: false, error: 'That move could not be played.' });
+    expect(result).toEqual({ ok: false, error: "That move didn't land." });
   });
 
   it('refuses a switch to a game that does not exist', () => {

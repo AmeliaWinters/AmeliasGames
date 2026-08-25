@@ -3,18 +3,18 @@
  *
  * The tray it replaces was CSS. Six `<span>`s per die under `preserve-3d`,
  * turned by writing a `matrix3d` onto a parent, and deliberately **no
- * `perspective`** — which meant the camera was orthographic, a die at the edge
+ * `perspective`**, which meant the camera was orthographic, a die at the edge
  * of the tray was drawn exactly as square as one in the middle, and height
- * moved a die nowhere at all. That was the right call for what it was: it
- * fixed a bug where five dice at rest each appeared tipped a different way.
- * But it also meant nothing had depth and nothing caught light, and a flat
- * shape with a number on it is what "the dice look fake" was about.
+ * moved a die nowhere at all. That was the right call for what it was: it fixed
+ * a bug where five dice at rest each appeared tipped a different way. But it
+ * also meant nothing had depth and nothing caught light, and a flat shape with
+ * a number on it is what "the dice look fake" was about.
  *
  * So: WebGL. One canvas per tray, a perspective camera steep enough to read
  * the tops of the dice, one directional light casting a soft shadow onto a
  * plane, and dice that are actually cubes.
  *
- * ── What this file may and may not do ─────────────────────────────────
+ * What this file may and may not do
  *
  * It **only ever reads**. Every position and rotation comes from `engine.ts`,
  * which knows nothing about three.js and can therefore be run in Node by the
@@ -22,13 +22,13 @@
  * is, the simulation stops being checkable outside a browser and the contact
  * sheet stops being evidence.
  *
- * ── Verifying it ──────────────────────────────────────────────────────
+ * Verifying it
  *
  * Almost nothing here can be seen from the tooling: the Browser pane runs as a
  * hidden document, so `requestAnimationFrame` never fires and a WebGL canvas
- * cannot be screenshotted — and unlike the CSS dice it cannot be measured
- * through the DOM either, because there is no DOM inside a canvas. What is
- * left is arithmetic, so the framing is a pure function (`frameTray`) that
+ * cannot be screenshotted, and unlike the CSS dice it cannot be measured
+ * through the DOM either, because there is no DOM inside a canvas. What is left
+ * is arithmetic, so the framing is a pure function (`frameTray`) that
  * `scene.test.ts` checks by projecting the tray's own corners and asserting
  * they land inside the viewport. Everything else needs eyes on a real screen.
  */
@@ -36,6 +36,7 @@
 import * as THREE from 'three';
 import type { Tray } from '../../shared/games/dice.js';
 import { DIE_HALF, trayInPhysics } from './engine.js';
+import { dieGeometry } from './dieGeometry.js';
 
 /**
  * The die's own colours, which are literals here for the reason `styles/dice.css`
@@ -50,12 +51,11 @@ const PIP = 0x0c0c0f;
  * How steep the camera is, and how long its lens.
  *
  * Steep because the game is read off the tops of the dice and a low camera
- * hides them behind one another. Long — a narrow field of view, pulled far
- * back — because a wide one bends the tray's straight edges and makes five
- * dice at the near corner much bigger than five at the far one, which is the
- * distortion that reads as a cheap toy. It is close to the orthographic view
- * this replaces, deliberately, with just enough perspective that a cube looks
- * like a cube.
+ * hides them behind one another. Long, meaning a narrow field of view pulled
+ * far back, because a wide one bends the tray's straight edges and makes five
+ * dice at the near corner much bigger than five at the far one, the distortion
+ * that reads as a cheap toy. Close to the orthographic view this replaces,
+ * deliberately, with just enough perspective that a cube looks like a cube.
  */
 const PITCH = (70 * Math.PI) / 180;
 const FOV = 24;
@@ -70,35 +70,57 @@ const MARGIN = 1.03;
  * rectangle, it can rest against a wall with its far half hanging over the
  * edge of it, it can come to rest on top of another one, and on the way there
  * it is in the air. Measured against the shipped lens, dice at rest reached
- * 0.95 to 1.00 of the way to the edge of the canvas — Backgammon's crossed
- * it — and in flight they reached 1.15 to 1.24, which is a die you cannot see
- * and, at rest, a number you cannot read.
+ * 0.95 to 1.00 of the way to the edge of the canvas, Backgammon's crossing it,
+ * and in flight they reached 1.15 to 1.24, which is a die you cannot see and,
+ * at rest, a number you cannot read.
  *
  * So the camera frames a *box*: the floor grown by half a die on every side,
- * and `HEADROOM` tall. Four units is a die standing on another die, which is
- * the tallest thing a throw can leave behind, and `engine.ts` keeps the flight
- * under it by releasing the handful lower than it used to.
+ * and `HEADROOM` tall.
  *
- * It costs size — the tray is drawn 15–25% smaller than it was, depending on
- * its shape — and that is the trade: a smaller die you can read beats a bigger
+ * It costs size, the tray being drawn 15-25% smaller than it was depending on
+ * its shape, and that is the trade: a smaller die you can read beats a bigger
  * one with its top cropped off.
+ *
+ * Why three dice, and not the highest a die goes
+ *
+ * Both are written in terms of `DIE_HALF` rather than as bare numbers, because
+ * they used to be bare numbers in an abstract unit and the rescale to real
+ * centimetres silently made them mean something else. Half a die of margin and
+ * three dice of height is what they say now, and what they will still say
+ * after the next rescale.
+ *
+ * Three is not the ceiling of the throw. Dice bouncing off *each other* go far
+ * higher (a measured p99 of 6.3 dice and a worst case over 6.6) and framing for
+ * that would cost everybody a permanently smaller tray to accommodate a freak. What matters is not how high one die once went but how much of the
+ * throw is spent up there, which `scripts/measure-throw.ts` reports directly.
+ * Over 200 Yahtzee throws, the share of die-frames above a given height:
+ *
+ *     1 die    8.43%
+ *     2 dice   0.50%
+ *     3 dice   0.21%   <- here
+ *     4 dice   0.09%
+ *
+ * So this crops about one die-frame in five hundred, for a fraction of a frame
+ * each time, and buys back the size of every throw that does not. Going to four
+ * dice would halve an already invisible number and cost real legibility on a
+ * phone.
  */
-const ROOM = 1;
-const HEADROOM = 4;
+const ROOM = DIE_HALF;
+const HEADROOM = DIE_HALF * 6;
 
 /**
- * Where to put the camera so the whole tray — and everything standing on it —
- * is in frame.
+ * Where to put the camera so the whole tray, and everything standing on it, is
+ * in frame.
  *
  * Pure, and exported, because it is the one thing in this file a test can
  * check without a screen; see the note at the top about why that matters.
  *
- * ── Why this is solved rather than derived ────────────────────────────
+ * Why this is solved rather than derived
  *
  * It used to be two lines of trigonometry: the tray's width against the
  * horizontal half-angle, its depth against the vertical one after the tilt had
  * foreshortened it, further of the two wins. That is exact for a *rectangle
- * lying flat*, and the thing being framed is not one — it is a box with height,
+ * lying flat*, and the thing being framed is not one: it is a box with height,
  * seen from a tilt, so its near-top corners are much closer to the camera than
  * its far-bottom ones and project much further out. No closed form for that is
  * worth writing down, and the one that was there quietly under-framed by a
@@ -116,7 +138,7 @@ export function frameTray(w: number, h: number, aspect: number): { distance: num
   const hw = w / 2 + ROOM;
   const hh = h / 2 + ROOM;
 
-  // The corners, plus the middles of the edges — a tilted box's worst point is
+  // The corners, plus the middles of the edges. A tilted box's worst point is
   // not always a corner, and nine points a level is cheap.
   const box: Array<[number, number, number]> = [];
   for (const x of [-hw, 0, hw]) for (const z of [-hh, 0, hh]) for (const y of [0, HEADROOM]) box.push([x, y, z]);
@@ -128,7 +150,7 @@ export function frameTray(w: number, h: number, aspect: number): { distance: num
     const eyeY = Math.sin(PITCH) * distance;
     const eyeZ = Math.cos(PITCH) * distance;
     // The camera's own axes: it sits above and in front, looking at the origin,
-    // and has no roll — so `right` is +x and `up` is whatever is left.
+    // and has no roll, so `right` is +x and `up` is whatever is left.
     const fwd = [0, -Math.sin(PITCH), -Math.cos(PITCH)];
     const up = [0, Math.cos(PITCH), -Math.sin(PITCH)];
     let worst = 0;
@@ -172,7 +194,7 @@ export function aimCamera(
     And the lens, here rather than only at construction.
 
     `scene.test.ts` builds its own camera to check the framing, and three's
-    default field of view is 50° — more than twice this one. So the test was
+    default field of view is 50 deg, more than twice this one. So the test was
     measuring a camera nobody ships, and passed comfortably while the real one
     cropped the dice. Setting it here means a camera this function has aimed is
     the camera the app draws through, whoever made it.
@@ -185,9 +207,9 @@ export function aimCamera(
   /*
     And the world matrix, by hand.
 
-    `lookAt` sets the camera's rotation and nothing else; `matrixWorld` — and
-    with it `matrixWorldInverse`, which is what `Vector3.project` actually
-    reads — is only refreshed by three during `render()`. Since `draw` projects
+    `lookAt` sets the camera's rotation and nothing else; `matrixWorld`, and
+    with it `matrixWorldInverse` which is what `Vector3.project` actually reads,
+    is only refreshed by three during `render()`. Since `draw` projects
     each die *before* it renders, leaving this out meant the first draw after a
     mount projected everything through an identity camera: the dice were drawn
     correctly and their buttons landed hundreds of pixels outside the tray. It
@@ -211,7 +233,7 @@ export interface OnScreen {
   /** Centre, in CSS pixels from the tray's top-left corner. */
   x: number;
   y: number;
-  /** Roughly how wide the die is there — it shrinks with distance. */
+  /** Roughly how wide the die is there, since it shrinks with distance. */
   size: number;
 }
 
@@ -225,8 +247,8 @@ export interface DiceScene {
    * The screen positions are not decoration. A die used to be a `<button>` with
    * its own `aria-label`, its own 44px target and its own place in the tab
    * order, and a canvas has no DOM inside it to hang any of that on. So the
-   * buttons stay, and ride on top of the canvas at the coordinates this
-   * returns — the picture is WebGL and the *interface* is still HTML.
+   * buttons stay and ride on top of the canvas at the coordinates this returns:
+   * the picture is WebGL and the *interface* is still HTML.
    */
   draw(
     dice: readonly Placed[],
@@ -252,7 +274,7 @@ export interface DiceScene {
  *
  * Drawn rather than modelled. Pips as geometry means either boolean-subtracting
  * six dimples out of a cube at load time or stacking sixty little spheres per
- * die, and this is one 128×128 canvas per face, shared by every die in the
+ * die, and this is one 128x128 canvas per face, shared by every die in the
  * tray and by every tray on the screen.
  *
  * Built once and cached at module scope: Liar's Dice puts a tray on screen per
@@ -261,7 +283,7 @@ export interface DiceScene {
  */
 let faces: THREE.CanvasTexture[] | null = null;
 
-/** Pip positions on a face's own 3×3, in units of half the face. */
+/** Pip positions on a face's own 3x3, in units of half the face. */
 const PIPS: Record<number, ReadonlyArray<readonly [number, number]>> = {
   1: [[0, 0]],
   2: [[-1, -1], [1, 1]],
@@ -289,8 +311,8 @@ function faceTextures(): THREE.CanvasTexture[] {
     }
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    // The dice are small on a phone and seen at a slant, which is exactly the
-    // case a mipmap chain is for — without one the pips crawl as a die tumbles.
+    // The dice are small on a phone and seen at a slant, exactly the case a
+    // mipmap chain is for. Without one the pips crawl as a die tumbles.
     texture.anisotropy = 4;
     return texture;
   });
@@ -298,10 +320,10 @@ function faceTextures(): THREE.CanvasTexture[] {
 }
 
 /**
- * `BoxGeometry` groups its faces in the order +x, −x, +y, −y, +z, −z, and
+ * `BoxGeometry` groups its faces in the order +x, -x, +y, -y, +z, -z, and
  * `FACE_AXES` in `dice.ts` says which number lives on each of those. Getting
  * this wrong draws a die that is internally consistent and shows the wrong
- * number, which nothing downstream would catch — `faceUp` reads the rotation,
+ * number, which nothing downstream would catch: `faceUp` reads the rotation,
  * not the picture.
  */
 const FACE_ORDER = [3, 4, 1, 6, 2, 5];
@@ -348,16 +370,16 @@ export function createScene(host: HTMLElement, tray: Tray): DiceScene {
   floor.receiveShadow = true;
   scene.add(floor);
 
-  const geometry = new THREE.BoxGeometry(DIE_HALF * 2, DIE_HALF * 2, DIE_HALF * 2);
+  const geometry = dieGeometry();
   const textures = faceTextures();
-  const skins = FACE_ORDER.map(
+  const skins: THREE.MeshStandardMaterial[] = FACE_ORDER.map(
     (face) =>
       new THREE.MeshStandardMaterial({
         map: textures[face - 1],
         roughness: 0.42,
         metalness: 0,
         /*
-          Off at rest — `emissiveIntensity` is driven to zero on every ordinary
+          Off at rest: `emissiveIntensity` is driven to zero on every ordinary
           frame, and this is only the colour it takes when it is not.
 
           Warm rather than the accent token, and for the same reason the body
@@ -369,6 +391,28 @@ export function createScene(host: HTMLElement, tray: Tray): DiceScene {
         emissive: new THREE.Color(0xffcf6a),
         emissiveIntensity: 0,
       }),
+  );
+  /*
+    And a seventh, for the rounded edges and corners.
+
+    `dieGeometry` puts the whole shell in one group because there are no pips on
+    it, so it needs one plain material in the die's own body colour, the same
+    literal the pip canvases are painted on, so the roundover reads as the same
+    piece of plastic rather than as trim.
+
+    Slightly smoother than the faces on purpose. A real die's edges are the part
+    that has been tumbled and handled, and they carry a brighter, tighter
+    highlight than the flats do; it is a small thing and it is most of what
+    makes the bevel read as a bevel rather than as a shading artefact.
+  */
+  skins.push(
+    new THREE.MeshStandardMaterial({
+      color: new THREE.Color(BODY),
+      roughness: 0.3,
+      metalness: 0,
+      emissive: new THREE.Color(0xffcf6a),
+      emissiveIntensity: 0,
+    }),
   );
   /*
     A die already played: dimmed, not hidden. Backgammon's, and only
@@ -402,7 +446,7 @@ export function createScene(host: HTMLElement, tray: Tray): DiceScene {
     const box = host.getBoundingClientRect();
     if (box.width < 1 || box.height < 1) return;
     // Capped, because the dice are the most expensive thing on the screen and
-    // a 3× phone panel is three times the fragments for a difference nobody
+    // a 3x phone panel is three times the fragments for a difference nobody
     // can see on a shape this size.
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(box.width, box.height, false);

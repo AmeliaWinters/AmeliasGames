@@ -1,7 +1,7 @@
 # Card motifs
 
 The picture on a game's card in the lobby. Thirteen of them, one per game, in
-`.art` / `.art-{id}` — `CardArt` in `src/client/App.tsx` and the "Card motifs"
+`.art` / `.art-{id}`: `CardArt` in `src/client/App.tsx` and the "Card motifs"
 block in `src/client/styles/picker.css`. The stylesheet is a directory of
 files imported by `styles/index.css`, not the single `styles.css` this document
 used to name.
@@ -20,7 +20,7 @@ were a window onto a table someone is playing at.
 
 The distinction is load-bearing, and it is where the first version of these
 went wrong. Those were emblems: a small, complete, centred specimen of each
-game — twelve discs in the middle of a wide empty well, three dice adrift in a
+game: twelve discs in the middle of a wide empty well, three dice adrift in a
 box forty times their area. Nothing filled its frame, so nothing read as a
 game. Liar's Dice covered about 3% of its own card.
 
@@ -46,12 +46,12 @@ A position the game can actually reach, mid-play rather than at setup. Gravity
 applies to Connect Four; a hit lands on a ship and a miss on empty sea; five
 dice show a hand the sheet has a box for. The old Connect Four motif lit its
 cells by `nth-child` down a column-flow grid and floated two discs in mid-air
-over empty ones — decoration wearing a game's clothes. Read every finished
+over empty ones, decoration wearing a game's clothes. Read every finished
 motif back as a position before shipping it.
 
 **4. Pieces, not artwork.**
 The Android build ships offline with no image assets, so there is nothing to
-draw with but CSS and inline SVG — but the reason is not only the constraint. A
+draw with but CSS and inline SVG, but the reason is not only the constraint. A
 disc grid says "Connect Four" more honestly than a picture of one would. Where
 the board has already decided how something looks, copy that decision rather
 than inventing a second one. Word Hunt's traced word is filled tiles, not a
@@ -61,9 +61,31 @@ own finger.
 **5. Every shape carries itself, in both palettes.**
 Colour comes from tokens; a literal is a bug. Any token added must exist in
 both palette blocks. Every shape must clear **3:1 against whatever is actually
-behind it** — which in a motif is `--board`, with nothing brighter on top to
+behind it**, which in a motif is `--board`, with nothing brighter on top to
 lift it. That is what `--motif-off` is for. Compute the ratios; do not eyeball
 them. The measured table is at the foot of this page.
+
+Two things about that rule have changed shape, and neither changes the ratios
+you are checking against.
+
+*`--board` inside a card is now the card's own `--card-well`*, a darker shade
+of that game's identity hue, so the well is the shadowed inside of a coloured
+object rather than a grey window cut into one. The thirteen wells were solved
+to a luminance of 1.35%, which is where the old flat `--board` already sat
+(1.46%), *because* thirteen motifs had been composed and measured against that
+brightness. Every ratio in the table below therefore still holds. If you add a
+fourteenth game, its well is solved to the same number and this stays true.
+
+*"In both palettes" is now satisfied by construction rather than by checking.*
+A card is pinned to the stage palette whichever palette the app is in (see
+"locked to the stage palette" in `palette.css`) so a motif has one appearance
+and one set of ratios, not two. The catch is the other half of that bargain: a
+motif that borrows another game's classes borrows that file's tokens too, and
+those have to be pinned as well. Ultimate's card is three real `.ut-small`
+boards and Liar's Dice's is real dice, and both leaked palette-varying tokens
+that no amount of reading `picker.css` would have found. If your motif reuses a
+board's markup, read the board's stylesheet for tokens and pin what it uses.
+`src/client/cardHues.test.ts` fails on an unpinned one.
 
 ---
 
@@ -87,12 +109,12 @@ them. The measured table is at the foot of this page.
 
 Ultimate is the fourth motif to be a grid and the reason the register exists.
 It is separated from all three of the others twice over: its marks are strokes
-rather than filled cells — the only diagonals on any card — and its grid is two
+rather than filled cells, the only diagonals on any card, and its grid is two
 grids, a thin hash inside a thick one, which no other board has. A crop of it
 showing only filled squares would be Word Duel.
 
 Word Duel, Word Hunt and Battleships are the three that used to collide. They
-are now separated on three axes at once — letters or none, rows or a square
+are now separated on three axes at once: letters or none, rows or a square
 grid, and cell density: Battleships shows ten cells across where Word Hunt
 shows four.
 
@@ -103,7 +125,7 @@ in that event, and this is it: the two are separated on three axes at once,
 which is the same standard the trio above are held to.
 
 - **Cell density**, the axis Battleships is told apart on. Measured at 375px,
-  the well holds **4.3 of Letterpress's columns against 3.2 of Word Hunt's** —
+  the well holds **4.3 of Letterpress's columns against 3.2 of Word Hunt's**:
   a board nearly all there, against a fragment of one. This is the axis that
   had to be *made* rather than found: at 46 units the two cards measured 3.24
   columns and 3.17, so "five across against four" was true of the markup and
@@ -117,8 +139,8 @@ which is the same standard the trio above are held to.
 
 Word Chain and Vocab Race are the two that went in without a motif at all, and
 they are the reason `css.test.ts` now holds "the card motifs" to the manifest.
-`motif()` ends in a `default` that returns null — correct, because an empty
-well reads as a card with no picture where a wrong one reads as a lie — so
+`motif()` ends in a `default` that returns null, which is correct because an
+empty well reads as a card with no picture where a wrong one reads as a lie, so
 nothing broke and nothing complained, and two of the thirteen sat in the lobby
 with a blank frame for as long as it took someone to notice by eye.
 
@@ -129,7 +151,7 @@ parent's last letter is standing in, with that shared letter carrying the
 accent. Word Hunt and Letterpress are boards of tiles, letters inside cells
 with fills and edges; this has no cell on it anywhere. The separators are
 `cell or no cell`, `aligned or stepped`, and `a board or a sentence`, and the
-last of those is the one that matters — the stagger is the game's only rule,
+last of those is the one that matters: the stagger is the game's only rule,
 drawn rather than described, and no board in the lobby steps.
 
 **Vocab Race** is the only bordered panel and the only motif whose subject is
@@ -141,14 +163,14 @@ race rather than a flashcard: there are other people answering this.
 
 There is a fourth, smaller separator, and it is the game's own rule: the locked
 tile's square corners. Nothing else on any card has a corner that is not either
-rounded or part of a line drawing. It is not load-bearing on its own — it is
-one tile in ten — but it is the detail that makes the card *about* something.
+rounded or part of a line drawing. Not load-bearing on its own, being one tile
+in ten, but it is the detail that makes the card *about* something.
 
 Backgammon's points are narrow and long. The board draws a point at 1:5; the
 motif gets to 1:3, which is as close as a well two and a half times wider than
 it is tall allows, and the difference between that and the 1:1.8 it started at
 is the difference between a backgammon board and bunting. It shows **twelve
-points across — six, the bar, six** — because that is how many there are between
+points across, six then the bar then six**, because that is how many there are between
 one side of a real board and the other. A crop showing seven would be inventing
 a point.
 
@@ -156,14 +178,14 @@ Yahtzee and Liar's Dice are both dice and cannot be told apart by their pieces,
 so they are told apart by composition alone. Yahtzee's five are spaced,
 face-up and on a tray, because everyone can see them and the sheet wants them
 counted. Liar's Dice is two crowded hands, one of them entirely face-down, cut
-off at the bottom — there is more of that table than the card is showing you,
+off at the bottom, so there is more of that table than the card is showing you,
 which is the game.
 
 ---
 
 ## The frame
 
-The well is **5:2** — about 218 × 87 units on a phone.
+The well is **5:2**, about 218 x 87 units on a phone.
 
 ```css
 .art {
@@ -193,7 +215,7 @@ identically today. Morris is the exception that proves the rule: it is drawn in
 an SVG whose viewBox is the well's own 218 x 87, so its units *are* the same
 units, measured from the same box.
 
-The compositions are laid out against a 218 × 87 box. A well two and a half
+The compositions are laid out against a 218 x 87 box. A well two and a half
 times wider than it is tall will not hold a square board, and no motif should
 try: Word Hunt shows four columns and a bit under two rows of a sixteen-tile
 grid, and is better for it.
@@ -217,25 +239,25 @@ wedges with `sectorPath` from `src/client/games/wheelGeometry.ts`, which the
 board imports too, so the lobby and the table cut their wedges the same way.
 
 **Ultimate Tic-Tac-Toe.** Not a count, and not really its own drawing either:
-the card emits the board's own markup — `.ut-small`, `.ut-cell`, `.ut-mark` —
+the card emits the board's own markup (`.ut-small`, `.ut-cell`, `.ut-mark`)
 and inherits the board's own CSS, so a cross on the card is cut by the same
 rule as a cross on the table and the hash rules are the same gaps. This is rule
 4 taken to its end: where the board has already decided how something looks,
 copy the decision rather than inventing a second one. The price is written into
-the hazards below — `.ut-*` class names now appear inside `.art`, and a change
+the hazards below: `.ut-*` class names now appear inside `.art`, and a change
 to a cell lands on the card too. It imports nothing from `src/shared/`, so
 `bundle.test.ts` is untroubled.
 
 **Nine Men's Morris.** Line work with pieces standing *on* the lines. CSS can
 draw three nested boxes easily enough, but every man would then need a
-hand-written percentage to stand at — a second set of coordinates for points
+hand-written percentage to stand at, a second set of coordinates for points
 the rules have already placed, and the first thing to drift when the board
 changes. The SVG reads `pointXY` from `morrisDisplay.ts`, the reducer's own
 geometry, so a man on the card is standing where the game says his point is.
 That module imports nothing, which is what keeps it on the right side of
 `bundle.test.ts`.
 
-Inside SVG, **fills come from classes, never from `fill="#…"` attributes** — a
+Inside SVG, **fills come from classes, never from `fill="#..."` attributes**: a
 literal there would be the one colour in the app that could not follow the
 palette. This is how `WheelBoard` already draws itself.
 
@@ -245,15 +267,58 @@ coordinates, the two lettered grids need their letters, Word Chain needs its
 three words split into columns so the joint can line up, Vocab Race needs a
 clue and an answer that are two different things, and Yahtzee and Liar's Dice
 use the real `Die` component so their faces are the six the rest of the app draws. `Die` scales entirely off `--die` and is already
-in the main bundle — App.tsx imports every board statically — so reusing it
+in the main bundle, App.tsx importing every board statically, so reusing it
 costs nothing and replaced a fake pip that read as a small hole at thirteen
 units.
 
-**Faces must vary, and must land unsorted.** Yahtzee shows a large straight
-(`3,1,5,2,4`) — the one scoring hand that is five different faces — rather than
-a full house, because five dice showing the same two numbers read as a repeated
-graphic rather than a throw. Liar's Dice shows a pair among five. Neither is
-sorted; dice do not land in order.
+**Faces must vary, and must land unsorted.** Yahtzee shows a large straight,
+the one scoring hand that is five different faces, rather than a full house,
+because five dice showing the same two numbers read as a repeated graphic
+rather than a throw. Liar's Dice shows a pair among five. Neither is sorted;
+dice do not land in order, and `tumbled` in `cardDeal.ts` reshuffles the one
+permutation in sixty that comes out as a run.
+
+---
+
+## The dealt four
+
+Four motifs are not written down. They are dealt from a seed drawn once per
+visit, in `src/client/cardDeal.ts`: **Yahtzee**'s five dice, **Liar's Dice**'s
+open hand, **Letterpress**'s fifteen tiles, and which points the men stand on
+in **Nine Men's Morris**.
+
+A crop of a table mid-play is the one kind of picture with no reason to be the
+same twice, and a shelf that is subtly never the same shelf costs one integer
+and no animation. The seed is taken at module load, not inside `motif()`: the
+lobby re-renders on every keystroke in the name field, and a deal taken per
+render would reshuffle the dice under somebody typing.
+
+**Why those four and not the other nine.** A motif can be dealt when its data
+lives in `cardDeal.ts` and its legality can be *decided* there.
+
+- Five of the others are a bare count of `<i>` elements coloured by `nth-child`
+  in `picker.css`, so the position they show is written in the stylesheet, not
+  in a module. Dealing them means moving the position into markup and rewriting
+  the blocks that draw them, which is the count-plus-a-CSS-block contract this
+  document keeps on purpose.
+- Word Hunt's letters must spell a word the game agrees is traceable, Word
+  Chain's must chain, and Vocab Race's must be a real translation. The lobby is
+  kept out of the word lists by `bundle.test.ts`, so it cannot check any of
+  the three.
+- Ultimate would need the rules of Ultimate in the lobby to check its own win
+  lines.
+
+**Rule 3 is now held by a test, not by a reading.** "Read every finished motif
+back as a position before shipping it" works on a constant. It does not work on
+something dealt, because there is no longer a constant to read. `DEALS` is
+therefore the whole of the seed space and small enough to enumerate, and
+`src/client/cardDeal.test.ts` walks every seed the app can ever draw: a large
+straight every time, exactly one pair every time, the locked K still on tile 2,
+and the men on points the board actually has with no man standing on another.
+That is a stronger check than the one it replaces, not a weaker one.
+
+If you make a fifth motif dealt, it goes in that file with a case in that test.
+A deal with nothing enumerating it is a position nobody has read.
 
 ---
 
@@ -262,7 +327,7 @@ sorted; dice do not land in order.
 Recorded here so they stop being re-litigated at every review.
 
 - **Battleships' miss dot is a `radial-gradient`**, and it is the one gradient
-  in the stylesheet. It is a hard stop at 22%/23% — a dot, not a fade — and the
+  in the stylesheet. It is a hard stop at 22%/23%, a dot rather than a fade, and the
   board draws its own misses exactly the same way. A shot that found nothing
   differs from one that found a ship in *shape* as well as colour.
 - **Dice are cream with dark pips in both palettes.** These are the only
@@ -281,8 +346,8 @@ Recorded here so they stop being re-litigated at every review.
   reaches 1.6:1, so an edge drawn the way the panels draw theirs would leave
   the tray a slab nobody can see.
 - **`--motif-off` is no longer only a motif colour.** The Morris board is line
-  work drawn straight onto `--board` with nothing over it — the same problem a
-  motif has, on a real table — so the board itself takes the token as well.
+  work drawn straight onto `--board` with nothing over it, the same problem a
+  motif has on a real table, so the board itself takes the token as well.
   Its comment in `styles/games/morris.css` says so; the name is historical.
 - **Morris's men are ringed in `--board`, like Backgammon's checkers**, and for
   a second reason on top of that one: a man stands *on* a line, and both seat
@@ -291,7 +356,7 @@ Recorded here so they stop being re-litigated at every review.
 
 ### The one measured compromise
 
-`--motif-off` on `--tray` is **2.76:1 in daylight** — the Yahtzee tray edge
+`--motif-off` on `--tray` is **2.76:1 in daylight**, the Yahtzee tray edge
 seen from *inside* the tray. Its outer side against `--board` is 3.33:1, and
 that is the boundary that defines the shape. Accepted knowingly. Everything
 else clears 3:1 in both palettes.
@@ -302,18 +367,18 @@ else clears 3:1 in both palettes.
 
 1. **Claim a shape.** Check the register. If the silhouette you want is taken,
    either find another or make the case in this file for why two games can
-   share one. Do not skip this — it is the step that decays first.
+   share one. Do not skip this; it is the step that decays first.
 2. **Compose a legal moment.** Write down the position and check it against the
    rules of the game. Prefer mid-play to setup.
 3. **Choose the medium.** CSS unless the shape genuinely cannot be drawn
    honestly without a path. Reuse `Die`, `sectorPath`, or the board's own
    `clip-path` where one exists.
-4. **Lay it out against 218 × 87 in `--m` units**, sized so it overflows the
+4. **Lay it out against 218 x 87 in `--m` units**, sized so it overflows the
    well on at least two edges.
-5. **Add the case to `motif()` in `App.tsx`** — a count if it can be, structure
+5. **Add the case to `motif()` in `App.tsx`**: a count if it can be, structure
    only if it must be, the board's own classes if the board has already drawn
-   this shape — and an `.art-{id}` block in the "Card motifs" section of
-   `styles/picker.css`. `css.test.ts` → "the card motifs" holds you to both:
+   this shape, and an `.art-{id}` block in the "Card motifs" section of
+   `styles/picker.css`. `css.test.ts` -> "the card motifs" holds you to both:
    a game in the manifest with no `case` and no `.art-` block fails it, which
    is how Word Chain and Vocab Race would have been caught.
 6. **Measure the contrast** of every shape against what is behind it, in both
@@ -322,15 +387,15 @@ else clears 3:1 in both palettes.
    check it does not read as one of them.
 
 The accent stripe and the card frame are not part of this: the accent comes
-from the channel map, and adding a game means adding it there too — see below.
+from the channel map, and adding a game means adding it there too. See below.
 
 ---
 
 ## Known hazards
 
-- **The channel accent map is written three times**, and `css.test.ts` →
+- **The channel accent map is written three times**, and `css.test.ts` ->
   "the channel accents" is what now tests that the copies agree:
-  `:root[data-game=…]` in `styles/palette.css`, `.game[data-game=…]` in
+  `:root[data-game=...]` in `styles/palette.css`, `.game[data-game=...]` in
   `styles/picker.css`, and `CHANNELS` in `src/client/palette.ts`. A new game
   needs all three.
 - **`.next-game` reuses `.game`** and renders no motif at all. Card-level
@@ -339,7 +404,7 @@ from the channel map, and adding a game means adding it there too — see below.
   `styles/*.css` did not change that: one namespace, ~3,400 lines, now spread
   over more files to search.
   `.art`, `.game`, `.name`, `.meta` and `.stripe` are all generic. This project
-  has already shipped two collisions of exactly that kind — the second was in
+  has already shipped two collisions of exactly that kind, and the second was in
   these motifs. **`.art i` and `.pips i` have identical specificity**, and `.art`
   sits later in the file, so `display: block` beat `display: none` and every die
   in the lobby turned on all six of its pip slots: every face showed a six, with
@@ -417,4 +482,4 @@ against each other.
 Backgammon checkers get a two-unit ring of `--board` because every seat colour
 sits within 2:1 of `--motif-off` in one palette or the other. A checker is on a
 *point*, not on the board, so the ring is what separates it from what it stands
-on — which is also the gap a real checker leaves around itself.
+on, which is also the gap a real checker leaves around itself.

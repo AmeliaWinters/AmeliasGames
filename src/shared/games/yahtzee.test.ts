@@ -116,8 +116,8 @@ describe('scoring the lower section', () => {
     expect(scoreFor('fullHouse', [2, 2, 2, 5, 5])).toBe(FULL_HOUSE);
     expect(scoreFor('fullHouse', [2, 2, 5, 5, 5])).toBe(FULL_HOUSE);
     expect(scoreFor('fullHouse', [2, 2, 2, 2, 5])).toBe(0);
-    // Five of a kind is a Yahtzee, not a full house — only the joker rule
-    // lets it stand in for one.
+    // Five of a kind is a Yahtzee, not a full house. Only the joker rule lets
+    // it stand in for one.
     expect(scoreFor('fullHouse', [4, 4, 4, 4, 4])).toBe(0);
   });
 
@@ -152,7 +152,7 @@ describe('the turn', () => {
   });
 
   /*
-    The faces are the simulation's — read off the cubes where they stop — so
+    The faces are the simulation's, read off the cubes where they stop, so
     these assert the rule rather than a number a stubbed rng handed over. What
     a kept die promises is that it does not move, and that is exactly testable.
   */
@@ -243,7 +243,7 @@ describe('filling a box', () => {
 
   it('lets a hand be crossed off for nothing, which is the game', () => {
     const state = ok(apply(position({ dice: [1, 1, 2, 3, 4] }), { type: 'score', category: 'yahtzee' }, 0));
-    // Zero is a filled box, not an open one — the distinction the sheet is
+    // Zero is a filled box, not an open one: the distinction the sheet is
     // built on, and the reason `null` and 0 are different values.
     expect(state.sheets[0].yahtzee).toBe(0);
     expect(legalCategories(state.sheets[0], [1, 1, 2, 3, 4])).not.toContain('yahtzee');
@@ -281,7 +281,7 @@ describe('filling a box', () => {
       return full;
     };
     const over = position({ sheets: [filled(5), filled(5)], over: true, winners: [0, 1] });
-    expect(yahtzee.status(over, ['Ann', 'Bo'])).toBe('A tie at 5 — Ann and Bo');
+    expect(yahtzee.status(over, ['Ann', 'Bo'])).toBe('A tie at 5: Ann and Bo');
   });
 });
 
@@ -419,7 +419,7 @@ describe('in a room', () => {
     room.join('a', 'Ann');
     room.join('b', 'Bo');
     room.join('c', 'Cy');
-    // Three turned up, so three sheets are dealt — the table is decided by who
+    // Three turned up, so three sheets are dealt. The table is decided by who
     // arrived rather than by a number chosen before anyone did.
     expect(room.start(0, () => 0.5).ok).toBe(true);
 
@@ -442,8 +442,8 @@ describe('in a room', () => {
  * The reducer runs the throw, reads the faces off the resting cubes and
  * records them; the board re-runs the same throw and draws whatever the cubes
  * are showing when they stop. Two runs of one simulation, and nothing checks
- * them against each other at play time — a player does, by reading the tray
- * and then reading the score. So this is that check: replay every throw of
+ * them against each other at play time. A player does, by reading the tray and
+ * then reading the score. So this is that check: replay every throw of
  * several games exactly the way `DiceTray` does, and hold the cubes to the
  * record, kept dice included.
  */
@@ -469,7 +469,7 @@ describe('the dice on the table', () => {
 
             This used to re-run the server's simulation and compare; there is no
             server simulation any more, so what is checked instead is the thing
-            that actually goes wrong — every board draws the dice by turning
+            that actually goes wrong: every board draws the dice by turning
             them to `toss.rest[i].q`, and every score is computed from
             `state.dice[i]`. Those two disagreeing is a die showing one number
             while being counted as another, which is the bug this file's game
@@ -477,7 +477,7 @@ describe('the dice on the table', () => {
 
             No `throw` is sent, so this is also the fallback path: a client with
             no WebAssembly, or one older than this build. It has to hold there
-            too — arguably especially there, since nobody is watching it.
+            too, arguably especially there, since nobody is watching it.
           */
           for (let die = 0; die < state.dice.length; die++) {
             expect(faceUp(state.toss!.rest[die].q)).toBe(state.dice[die]);

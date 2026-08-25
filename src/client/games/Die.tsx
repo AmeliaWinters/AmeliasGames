@@ -5,16 +5,15 @@
  * Lived in `BackgammonBoard.tsx` until Liar's Dice needed the same thing; it is
  * here rather than there because a component two boards import from a third
  * board's file is a dependency nobody expects to find. Yahtzee had a private
- * second copy for a while, drawing the same six faces by a different
- * mechanism — folded back in, because one die is the precondition for one
- * throw.
+ * second copy for a while, drawing the same six faces by a different mechanism,
+ * folded back in because one die is the precondition for one throw.
  *
  * One shape, now. `Die` is flat, for dice that sit in a row and are there to be
- * counted — Liar's Dice's hands, and the pair printed beside the Backgammon
- * board. A thrown die is not this and never was: it is a cube, and since the
+ * counted: Liar's Dice's hands, and the pair printed beside the Backgammon
+ * board. A thrown die is not this and never was. It is a cube, and since the
  * dice became a real simulation it is drawn by WebGL in `dice3d/scene.ts`
- * rather than by six `<span>`s under `preserve-3d`. `Pips` stays here because
- * a counted die still needs a face.
+ * rather than by six `<span>`s under `preserve-3d`. `Pips` stays here because a
+ * counted die still needs a face.
  *
  * **Six pip slots, always, placed by CSS from `data-face`.** The alternative is
  * rendering only the pips a face needs, which is tidier to read. It stays this
@@ -22,7 +21,7 @@
  * attribute write is one DOM operation where re-rendering children is six.
  */
 
-/** One face: a 3×3 grid of pip slots, of which `face` are shown. */
+/** One face: a 3x3 grid of pip slots, of which `face` are shown. */
 function Pips({ face, className }: { face: number; className: string }) {
   return (
     <span className={className} data-face={face >= 1 && face <= 6 ? face : 0}>
@@ -46,7 +45,7 @@ export interface DieProps {
   /**
    * Overrides the spoken label, where the board around it can say more than
    * "die showing four". Pass an empty string for the one case where the die is
-   * decorative — inside a button whose own label already names it.
+   * decorative: inside a button whose own label already names it.
    */
   label?: string;
 }

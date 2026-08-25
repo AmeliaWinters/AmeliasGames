@@ -1,8 +1,7 @@
-// Values from ultimateDisplay.js, which imports nothing: one number does three
-// jobs on this board — a square's place in its small board is also the board it
-// sends the opponent to — and a second copy of that arithmetic would be a board
-// pointing at the wrong square. The types below are type-only, so they are
-// erased and carry no import.
+// Values from ultimateDisplay.js, which imports nothing. One number does three
+// jobs here (a square's place in its small board is also the board it sends the
+// opponent to) and a second copy of that arithmetic would be a board pointing
+// at the wrong square. The types below are type-only, so they carry no import.
 import {
   SPOTS,
   boardName,
@@ -13,7 +12,9 @@ import {
   spotOf,
   tally,
 } from "../../shared/games/ultimateDisplay.js";
-import type { UtMove, UtState } from "../../shared/games/ultimateDisplay.js";
+import type { Result, UtMove, UtState } from "../../shared/games/ultimateDisplay.js";
+import { useEffect, useRef, useState } from "react";
+import { wantsStillness } from "../motion.js";
 
 import type { BoardProps } from "./boards.js";
 
@@ -30,15 +31,15 @@ type Props = BoardProps<UtState, UtMove>;
  * line that won the game (the ink edge, the same one Connect Four draws).
  *
  * Whose it is used to be the marks alone, and it did not carry: nine small
- * marks in a block a third the width of a phone is something you count, not
- * something you see, and across nine blocks nobody counts. So a settled board
- * now takes its winner's hue as ground, and the board you are sent to lights
- * its empty squares — one channel each for the two questions this board is
- * always being asked. The CSS holds the measurements.
+ * marks in a block a third the width of a phone is something you count rather
+ * than see, and across nine blocks nobody counts. So a settled board takes its
+ * winner's hue as ground, and the board you are sent to lights its empty
+ * squares: one channel each for the two questions this board is always being
+ * asked. The CSS holds the measurements.
  *
- * A settled board still keeps its marks rather than being crossed out. They
- * are the record of how it was won, and on a phone the alternative — one big
- * mark over nine small ones — is two overlapping shapes in the same colour.
+ * A settled board keeps its marks rather than being crossed out. They are the
+ * record of how it was won, and on a phone the alternative, one big mark over
+ * nine small ones, is two overlapping shapes in the same colour.
  */
 export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
   const nameFor = (index: 0 | 1) => names[index] ?? `Player ${index + 1}`;
@@ -69,7 +70,7 @@ export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
 
       {/* Boards won, which is both the object of the game and the tiebreak if
           nobody gets three in a row. The mark beside each name is the one that
-          player is leaving on the board — the legend for everything above. */}
+          player is leaving on the board: the legend for everything above. */}
       <ul className="ut-tally">
         {([0, 1] as const).map((index) => (
           <li key={index} className={`ut-side s${index}${seat === index ? " you" : ""}`}>
@@ -83,6 +84,55 @@ export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
       </ul>
     </div>
   );
+}
+
+/**
+ * How long the mark is on the board for, in `ultimate.css`: the fall, the
+ * dust, and the fade that takes it away again. The two have to agree: this
+ * number is what unmounts the element, and cutting it short would snatch the
+ * mark away mid-fade.
+ */
+const FALL_MS = 900;
+
+/**
+ * The seat that has just this moment won this small board, or null.
+ *
+ * Winning one of the nine is the event this game is made of and the board said
+ * it in a single frame: the nine squares took a tint, and you found out by
+ * noticing. Nine small marks in a block a third of a phone wide is something
+ * you count rather than see, the same reason the tint exists at all.
+ *
+ * So the board is stamped, once, with a mark big enough to read across the
+ * grid, and then the stamp goes away. Going away is the whole design. The file
+ * comment above explains why a settled board keeps its nine small marks rather
+ * than wearing one big one, and that reasoning holds: the marks are the record
+ * of *how* it was won, and a permanent overlay is two shapes in one colour. A
+ * mark that lands, throws up dust and lifts says the same thing without
+ * spending any of the board on saying it.
+ *
+ * `null -> 0 | 1` only. A drawn board is not won by anybody and gets nothing;
+ * a board that was already settled when this client joined has no news in it,
+ * and replaying the stamps of a game in progress on every reconnection would
+ * be nine boards being won at once.
+ */
+function useJustWon(result: Result): 0 | 1 | null {
+  const seen = useRef(result);
+  const [stamped, setStamped] = useState<0 | 1 | null>(null);
+
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = result;
+    if (was !== null || (result !== 0 && result !== 1)) return;
+    // Asked at the moment the movement would start, as everywhere else. There
+    // is nothing withheld by skipping it: the tint, the marks and the spoken
+    // label all say who won, and this only says it louder.
+    if (wantsStillness()) return;
+    setStamped(result);
+    const done = setTimeout(() => setStamped(null), FALL_MS);
+    return () => clearTimeout(done);
+  }, [result]);
+
+  return stamped;
 }
 
 function SmallBoard({
@@ -105,6 +155,7 @@ function SmallBoard({
   onMove(move: UtMove): void;
 }) {
   const result = state.results[small];
+  const stamped = useJustWon(result);
   const line = new Set(state.lines[small] ?? []);
   const classes = [
     "ut-small",
@@ -132,7 +183,17 @@ function SmallBoard({
           : "in play, but not the board to play in";
 
   return (
-    <div className={classes} role="group" aria-label={`${boardName(small)} — ${standing}`}>
+    <div className={classes} role="group" aria-label={`${boardName(small)}, ${standing}`}>
+      {/* The stamp. Purely a picture of what the group label above already
+          says, so it is hidden from the reader rather than announced twice,
+          and it must never be in the way of the squares underneath, which stay
+          pressable on the nine boards around it while this one lands. */}
+      {stamped !== null && (
+        <span className="ut-fall" aria-hidden="true">
+          <span className={`ut-mark m${stamped}`} />
+          <span className="ut-dust" />
+        </span>
+      )}
       {Array.from({ length: SPOTS }, (_, spot) => {
         const cell = cellAt(small, spot);
         const mark = state.board[cell];
@@ -158,9 +219,9 @@ function SmallBoard({
             // cannot see by looking at the square they are about to press.
             aria-label={
               mark !== null
-                ? `${cellName(cell)} — ${nameFor(mark)}`
+                ? `${cellName(cell)}, ${nameFor(mark)}`
                 : playable
-                  ? `${cellName(cell)} — sends to the ${boardName(spotOf(cell))}`
+                  ? `${cellName(cell)}, sends to the ${boardName(spotOf(cell))}`
                   : cellName(cell)
             }
           >

@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from "react";
  *
  * Every deadline in this app is a server timestamp, so counting down to one
  * with a local `Date.now()` shows the wrong number on any device whose clock
- * is off — and phones are off by minutes more often than you would hope. Every
- * state message carries the server's time, so the gap between the two clocks
- * is remeasured whenever one arrives and the skew cancels out.
+ * is off, and phones are off by minutes more often than you would hope. Every
+ * state message carries the server's time, so the gap between the two clocks is
+ * remeasured whenever one arrives and the skew cancels out.
  *
  * This only ever decides what the player *sees*. Whether a move counts is the
  * server's business, and it has already made up its mind by the time this runs.
@@ -15,9 +15,9 @@ import { useEffect, useRef, useState } from "react";
  * `running` stops the interval when there is nothing counting down, so a board
  * sitting on a finished game is not re-rendering four times a second forever.
  *
- * Shared by every board on a clock — Word Hunt's round and Word Duel's shot
- * clock — because the skew correction is the subtle part and two copies of it
- * would be two chances to get it wrong.
+ * Shared by every board on a clock (Word Hunt's round, Word Duel's shot clock)
+ * because the skew correction is the subtle part and two copies of it would be
+ * two chances to get it wrong.
  */
 export function useServerNow(serverNow: number, running: boolean): number {
   const skew = useRef(0);

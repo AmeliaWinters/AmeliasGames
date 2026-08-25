@@ -1,4 +1,4 @@
-/* ── Word Duel ─────────────────────────────────────────────────────────
+/* Word Duel
    Two grids side by side on one phone: yours on the left, theirs on the
    right. That is the whole idea of the game made visible, so the panels stay
    side by side at every width rather than stacking -- a stacked layout would
@@ -25,9 +25,9 @@
     The floor used to be a flat 140px, which quietly broke the promise above
     it: two of those plus the 10px gap need 290px of panel row, and a 320px
     phone has about 270px once the board's padding is off. `auto-fit` did
-    exactly what it was asked and dropped to one column — so on the narrowest
-    phones your grid and theirs stacked, and their progress went below the
-    fold, which is the one thing this layout exists to prevent.
+    exactly what it was asked and dropped to one column, so on the narrowest
+    phones your grid and theirs stacked and their progress went below the fold,
+    the one thing this layout exists to prevent.
 
     `min()` gives the floor a ceiling: 140px where there is room for it, and
     otherwise precisely half the row, which always fits two.
@@ -98,6 +98,9 @@
   display: grid;
   place-items: center;
   min-width: 0;
+  /* The turn-over at the foot of this file hangs a veil off the tile. Here
+     rather than there so a tile has one box model, written once. */
+  position: relative;
   background: var(--hole);
   font-family: var(--display);
   font-size: clamp(0.8rem, 3.6vw, 1.15rem);
@@ -194,7 +197,7 @@
   gap: 12px;
 }
 
-/* ── Word Duel: the keyboard ───────────────────────────────────────────
+/* Word Duel: the keyboard
    Two jobs at once. It is the record of what you have learned -- green,
    yellow, tried-and-absent, untried -- and on a phone it is how you type,
    which keeps the OS keyboard from covering the grids you are meant to be
@@ -267,3 +270,78 @@
   opacity: 0.55;
 }
 
+
+/* Word Duel: turning the marks over
+   A guess is answered by five marks, and they used to appear together in one
+   frame. Which is fine to *read* and wrong to *watch*: the row is the reply,
+   and five simultaneous answers is a verdict rather than a reading. Turned one
+   at a time, left to right, the row is read the way the word was typed -- and
+   the tile that matters is nearly always the last one to go over, because that
+   is the letter you were least sure of when you pressed Enter.
+
+   Two things happen at once and they have to stay in step. The tile turns
+   about its horizontal axis, and its face is held blank until it is edge on --
+   the mark is in the class the moment the row arrives, so without the veil the
+   colour would be legible through the whole first half and the turn would be
+   decoration over an answer already given. Same bargain as Liar's Dice's
+   hands, and the same snap at the midpoint. */
+.wd-row.turning .wd-tile {
+  animation: tile-turn 300ms ease-in-out var(--turn-at, 0ms) both;
+}
+.wd-row.turning .wd-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--hole);
+  animation: tile-veil 300ms steps(1, end) var(--turn-at, 0ms) both;
+}
+/* 90ms apart: slow enough that five turns read as five, quick enough that the
+   whole row is over inside 700ms, which is the longest an opponent's panel
+   should hold your eye while you are mid-guess on your own. */
+.wd-row.turning .wd-tile:nth-child(2) {
+  --turn-at: 90ms;
+}
+.wd-row.turning .wd-tile:nth-child(3) {
+  --turn-at: 180ms;
+}
+.wd-row.turning .wd-tile:nth-child(4) {
+  --turn-at: 270ms;
+}
+.wd-row.turning .wd-tile:nth-child(5) {
+  --turn-at: 360ms;
+}
+
+@keyframes tile-turn {
+  from {
+    transform: rotateX(0deg);
+  }
+  50% {
+    transform: rotateX(90deg);
+  }
+  to {
+    transform: rotateX(0deg);
+  }
+}
+
+@keyframes tile-veil {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The marks are the reply to the guess and none of them is withheld -- the
+     row simply arrives, as it always did. The veil goes with the turn, or it
+     would sit on the tiles with nothing to lift it. */
+  .wd-row.turning .wd-tile {
+    animation: none;
+  }
+  .wd-row.turning .wd-tile::after {
+    display: none;
+  }
+}

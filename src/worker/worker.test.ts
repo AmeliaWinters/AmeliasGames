@@ -8,7 +8,7 @@ import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../sha
  * These fakes stand in for the three things the room actually depends on:
  * storage that survives the instance, per-socket attachments that survive
  * hibernation, and `getWebSockets()`. `fetch()` is the one method not covered
- * here, because it needs WebSocketPair — everything it sets up is passed in
+ * here, because it needs WebSocketPair. Everything it sets up is passed in
  * explicitly instead.
  *
  * Hibernation is the thing worth simulating: it destroys the instance while
@@ -63,7 +63,7 @@ class FakeSocket {
 
 class FakeState {
   sockets: WebSocket[] = [];
-  /** Survives "hibernation" — that is the whole point of it being out here. */
+  /** Survives "hibernation", which is the whole point of it being out here. */
   readonly store = new Map<string, unknown>();
   alarm: number | null = null;
 
@@ -203,7 +203,7 @@ describe('presence', () => {
   it('reports a departing player as away, not as still connected', async () => {
     // The closing socket is still listed by getWebSockets() while its close
     // handler runs. The broadcast exists only to raise the "away" badge, so
-    // counting the leaver made it useless — and then the room hibernates, so
+    // counting the leaver made it useless, and then the room hibernates, so
     // nothing corrects it until the next move.
     const { ctx, host, guest } = await seatTwo();
     await ctx.room.webSocketClose(host as unknown as WebSocket);
@@ -271,7 +271,7 @@ describe('hostile and malformed input', () => {
   });
 
   it('lets the host re-send a create-flagged hello for their own room', async () => {
-    // A create hello arriving twice is ordinary — a retry, or a remount in
+    // A create hello arriving twice is ordinary: a retry, or a remount in
     // development. Treating it as a collision locked the host out of the room
     // they had just made, with "that room is already someone else's game".
     const ctx = newRoom();

@@ -68,7 +68,7 @@ describe('the manifest', () => {
 
 /**
  * `canAct` is what every control on every board is now gated on, so the ways
- * it can be wrong are ways a player is locked out of their own game — or shown
+ * it can be wrong are ways a player is locked out of their own game, or shown
  * a button the server will refuse. These hold the parts that are true of all
  * ten regardless of how they are played.
  */
@@ -87,7 +87,7 @@ describe('canAct, across every game', () => {
       // Run the clock out rather than playing to a finish: every game that can
       // end on time ends here, and the ones that cannot are unchanged by it.
       state = game.expire?.(game.start?.(state, now) ?? state, now + 60 * 60 * 1000) ?? state;
-      if (!game.isOver(state)) return; // untimed — the seat check below still applies
+      if (!game.isOver(state)) return; // untimed, and the seat check below still applies
       for (let seat = 0; seat < game.maxPlayers; seat++) {
         expect(game.canAct(state, seat, now), `seat ${seat}`).toBe(false);
       }
@@ -115,7 +115,7 @@ describe('canAct, across every game', () => {
       for (let seat = 0; seat < game.minPlayers; seat++) {
         if (game.canAct(state, seat, now)) acting.push(seat);
       }
-      // Either exactly one seat is on, and it is the one `turn` names — or
+      // Either exactly one seat is on and it is the one `turn` names, or
       // several are, which is what free-simultaneous means and is why `turn`
       // is documented as a hint rather than a gate.
       if (acting.length === 1) expect(acting[0]).toBe(game.turn(state));

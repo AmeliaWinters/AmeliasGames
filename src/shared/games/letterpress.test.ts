@@ -35,7 +35,7 @@ const rng = () => 0.5;
  * Every rule below is about *which tiles turn*, and a dealt grid is the wrong
  * place to test that: the letters are random, so the word that reaches the
  * tile the test is about is different every run. These are grids whose words
- * are known, and every one of them is a real word in the list — the assertion
+ * are known, and every one of them is a real word in the list. The assertion
  * at the foot of this file holds that, because a test grid that cannot spell
  * is a test that passes by refusing everything.
  */
@@ -57,7 +57,7 @@ function owners(rows: string[]): Owner[] {
     .map((mark) => (mark === '0' ? 0 : mark === '1' ? 1 : null));
 }
 
-/** Where a word's letters are on the grid — the taps a player would make. */
+/** Where a word's letters are on the grid: the taps a player would make. */
 function tapsFor(state: LpState, word: string): number[] {
   const path: number[] = [];
   for (const letter of word) {
@@ -117,7 +117,7 @@ describe('a word', () => {
     expect(state.lastPlay).toEqual([0, 1, 2]);
   });
 
-  it('needs no adjacency at all — any tiles anywhere', () => {
+  it('needs no adjacency at all, just any tiles anywhere', () => {
     // S at 3, W at 21, A at 22, N at 23: three rows apart from the S.
     const state = board(GRID);
     const path = [3, 21, 22, 23];
@@ -147,7 +147,7 @@ describe('a word', () => {
   /**
    * There is no "too long" left to test on its own: the ceiling is the grid,
    * so a path that overruns it has to have tapped something twice to get
-   * there. What is worth pinning instead is the other end — a word past the
+   * there. What is worth pinning instead is the other end: a word past the
    * eight letters the list used to stop at, which is what was reported.
    */
   it('takes a word longer than the dictionary used to go', () => {
@@ -175,7 +175,7 @@ describe('a word that has been played', () => {
   it('takes every longer word that starts with it', () => {
     const state = say(board(GRID), 'CAT');
     expect(refuse(state, { type: 'play', path: tapsFor(state, 'CATS') })).toMatch(
-      /CATS is out — CAT has been played/,
+      /CATS is out, since CAT has been played/,
     );
   });
 
@@ -196,7 +196,7 @@ describe('a word that has been played', () => {
 });
 
 describe('defence', () => {
-  it('locks a tile whose four neighbours are all its owner’s', () => {
+  it("locks a tile whose four neighbours are all its owner's", () => {
     const owner = owners([
       '.0...',
       '000..',
@@ -243,7 +243,7 @@ describe('defence', () => {
       '.....',
       '.....',
     ]);
-    // Tile 6 is seat 1's and locked — 1, 5, 7 and 11 are all theirs. Tiles 5
+    // Tile 6 is seat 1's and locked: 1, 5, 7 and 11 are all theirs. Tiles 5
     // and 7 are theirs too, and neither is locked.
     const state = { ...board(GRID, owner), turn: 0 as const };
     expect(tally(state)).toEqual([0, 5]);
@@ -263,8 +263,8 @@ describe('defence', () => {
     /*
       The order-of-letters trap. Tile 6 is locked only because tile 5 is seat
       1's. A word that uses tile 5 and then tile 6 must not take tile 6: the
-      lock is read once, before anything turns. Written the naive way — turn
-      each tile as you reach it — tile 5 becomes seat 0's, tile 6 is no longer
+      lock is read once, before anything turns. Written the naive way, turning
+      each tile as you reach it, tile 5 becomes seat 0's, tile 6 is no longer
       surrounded, and the very same word takes two tiles instead of one.
     */
     const owner = owners([
@@ -335,7 +335,7 @@ describe('the end of the game', () => {
     /*
       The property the whole game rests on: nothing is banked. Seat 0 leads
       thirteen tiles to eleven with one free, and loses the game on the word
-      that fills the grid — a four-letter word, taking three of the leader's
+      that fills the grid: a four-letter word, taking three of the leader's
       tiles and the last free one.
 
       The bottom row is deliberately undefended: 15, 16 and 17 belong to seat 1,
@@ -416,7 +416,7 @@ describe('the reducer itself', () => {
 
   it('says the score and how much of the board is left', () => {
     const state = say(board(GRID), 'CAT');
-    expect(letterpress.status(state, ['Amelia', 'Bo'])).toBe('Bo to play — 3–0, 22 tiles free');
+    expect(letterpress.status(state, ['Amelia', 'Bo'])).toBe('Bo to play, 3-0, 22 tiles free');
   });
 
   it('says when one more pass ends it', () => {
@@ -428,7 +428,7 @@ describe('the reducer itself', () => {
     let state = say(board(GRID), 'CAT');
     state = apply(state, { type: 'pass' });
     state = apply(state, { type: 'pass' });
-    expect(letterpress.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins — 3 tiles to 0');
+    expect(letterpress.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins, 3 tiles to 0');
   });
 });
 
@@ -464,8 +464,8 @@ describe('the deal', () => {
  * the closest a test gets to two people playing it.
  *
  * It is looking for three things at once: that the game always ends, that the
- * board is conserved on every move — twenty-five tiles, no more and no fewer,
- * however many change hands — and that a locked tile is never taken. The last
+ * board is conserved on every move (twenty-five tiles, no more and no fewer,
+ * however many change hands) and that a locked tile is never taken. The last
  * is the one that would go wrong quietly: a defence that leaks would still
  * produce a game that finishes and totals correctly.
  */
@@ -498,8 +498,8 @@ describe('games played out', () => {
       let state = letterpress.setup(2, random);
 
       /*
-        The grid never changes, so the words it can spell never change either
-        — only which of them are still free. One sweep per game rather than
+        The grid never changes, so the words it can spell never change either,
+        only which of them are still free. One sweep per game rather than
         one per turn, which is the difference between this test taking seconds
         and taking minutes. Short words and long ones both, because a game
         played entirely in three-letter words never gets near a lock.
@@ -570,7 +570,7 @@ describe('games played out', () => {
 
     /*
       Every one of them so far has gone to the last tile, which is the ending
-      the game is designed around — the pass exists for the standoff, not for
+      the game is designed around. The pass exists for the standoff, not for
       the ordinary case. Asserted as a large majority rather than as all of
       them, because a player greedy for tiles is not obliged to be able to
       fill the board and holding the test to that would make it a test of the

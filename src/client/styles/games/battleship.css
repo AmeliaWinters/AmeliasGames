@@ -1,4 +1,4 @@
-/* ── Battleships ───────────────────────────────────────────────────────
+/* Battleships
    Two seas of a hundred squares each on a phone, which is the constraint the
    whole section is written around. They sit side by side rather than stacking
    for the same reason Word Duel's grids do: theirs is where you shoot and
@@ -12,39 +12,40 @@
   background: var(--board);
 }
 
-/* Stacked first, side by side once there is room to do it without shrinking
-   the squares past use.
+/* Side by side, at every width, and the squares pay for it.
 
-   The two seas sitting side by side on a phone was the original intent and it
-   did not survive measurement: at 360px it left each square 11.2px, and at
-   390px 12.7px, against a 44px floor the rest of the app holds. The placement
-   view -- one grid, alone, full width -- gives 25.9px at the same 360px, so
-   the board already knew the comfortable size; only the firing view did not
-   get it. A tap fires immediately, with no confirmation and no undo, so a
-   miss costs a turn.
+   This has been argued both ways in this file and the measurements are worth
+   keeping, because they are what the trade actually costs. Two seas across a
+   phone leave each square about 11.6px at 360px and 13.2px at 390px, against
+   a 44px touch floor the rest of the app holds to. Stacked, each sea gets the
+   full column and lands near 30px. Those are the numbers; nothing here
+   pretends otherwise.
 
-   Stacked, each sea gets the full column and lands near 30px: better than the
-   placement grid the design already accepts, at the cost of scrolling between
-   the two rather than seeing both at once.
+   What changed is not the arithmetic but the tap. The old objection was that
+   "a tap fires immediately, with no confirmation and no undo, so a miss costs
+   a turn" -- which is an argument against tiny squares that fire, not against
+   tiny squares. A press now aims, a second press on the same square fires,
+   and the button beneath the seas names the square in full before it goes.
+   An 11px square is a fine thing to aim with and a bad thing to commit with,
+   so it only does the first.
 
-   Stacked at every width, and that is not the same as "stacked on phones".
-   The first attempt at this put the two-up layout back behind
-   `@media (min-width: 720px)`, which measured worse than the phone it was
-   meant to improve on: 17.2px squares at a 760px viewport, against 29.8px
-   stacked at 390px. The reason is `.app { max-width: 480px }` -- the board is
-   480px wide on a 768px tablet and on a 4K monitor alike, because this design
-   gives a desktop margins rather than width. A viewport query cannot see that.
-   It asks how big the window is when the only thing that matters is how big
-   the container is, and here the container stopped growing at 480px.
+   And the thing that was bought: theirs is where you shoot and yours is where
+   you are being shot, and a hunt is played by reading one against the other.
+   Stacked, the second sea was a scroll away, which in practice meant it was
+   not read at all.
 
-   So: no breakpoint, because there is no width at which the split pays. If
-   the 480px cap is ever lifted for playing surfaces, two-up belongs here
-   again -- behind a container query on the board, not a media query on the
-   window. It needs about 700px of board to reach 30px squares. */
+   The coordinate gutters below cost a column of the same width, and earn it
+   back by making the shot log legible -- a log full of D4s is worth nothing
+   beside a grid you have to count across. */
 .bs-seas {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  /* Every pixel spent between or around the panels comes straight off the
+     squares, ten to one: the gap and the panel padding below were 8 and 10,
+     and trimming them took an 11.5px square to 12.1px at 390. Small, and the
+     squares are the scarce thing here. */
+  gap: 6px;
+  align-items: start;
 }
 
 .bs-panel {
@@ -52,7 +53,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 8px;
+  padding: 10px 6px;
   background: var(--surface);
 }
 
@@ -68,7 +69,7 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
-/* How many ships are left is reference, not headline — the same treatment the
+/* How many ships are left is reference, not headline: the same treatment the
    guess count gets in Word Duel. */
 .bs-count {
   flex: none;
@@ -79,27 +80,63 @@
   color: var(--muted);
 }
 
+/* One sea: a row of file numbers, then ten ranks each led by its letter.
+   Both use the same template, off one custom property, because a gutter that
+   disagrees with the header by a pixel puts every number half a square out.
+   `min-width: 0` on the grid keeps the whole thing inside a 1fr column that
+   is narrower than ten squares would like to be. */
 .bs-sea {
+  --bs-gutter: 12px;
+  --bs-gap: 2px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--bs-gap);
 }
 
+.bs-files,
 .bs-sea-row {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 2px;
+  grid-template-columns: var(--bs-gutter) repeat(10, 1fr);
+  gap: var(--bs-gap);
+}
+
+.bs-grid {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bs-gap);
+}
+
+/* A1 talk, drawn small and quiet: it is how the shot log and every spoken
+   move name a square, and it is reference the moment you have found it. */
+.bs-files,
+.bs-rank {
+  /* 9px, which is as small as this goes. At 0.5rem the letters measured 8px
+     and read as grit rather than as labels; the pixel the gutter gives up for
+     it comes off the squares and is worth it, since a coordinate you cannot
+     read is a gutter spent for nothing. */
+  font-size: 0.56rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--muted);
+}
+.bs-files span,
+.bs-rank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* A square of open water. Buttons, because every one of them is somewhere you
-   can fire — including for a keyboard, which walks them in reading order.
+   can fire, including for a keyboard, which walks them in reading order.
 
    Both minimums are reset, and that is the whole point of this rule. The
    global 44px touch floor on `button` applies here too, and against
    `aspect-ratio: 1` it won: every cell came out 44px square inside a 39px
    column, so ten of them overlapped, buried the 3px gaps and painted each row
-   as one solid black bar. `min-width: 0` alone was not enough — the floor was
-   getting in through the height.
+   as one solid black bar. `min-width: 0` alone was not enough, because the
+   floor was getting in through the height.
 
    `width: 100%` then makes the width definite, so the aspect ratio only ever
    derives the height from it. Nothing is left to be resolved from an
@@ -123,8 +160,8 @@
   cursor: default;
 }
 
-/* Your own ships, on your own sea. Never drawn on theirs — what shows there
-   is a wreck, and only once it has been sunk. */
+/* Your own ships, on your own sea. Never drawn on theirs: what shows there is
+   a wreck, and only once it has been sunk. */
 .bs-cell.ship {
   background: var(--hull);
 }
@@ -144,8 +181,8 @@
   box-shadow: inset 0 0 0 1px var(--ink);
 }
 
-/* Where the ship in hand would land. Green enough to mean "yes", and the
-   alert red — the same red as a hit — for "not there". */
+/* Where the ship in hand would land. Green enough to mean "yes", and the alert
+   red, the same red as a hit, for "not there". */
 .bs-cell.ghost {
   background: var(--mark-hit);
 }
@@ -162,17 +199,173 @@
     linear-gradient(-45deg, transparent 44%, var(--board) 44%, var(--board) 56%, transparent 56%);
 }
 
-/* ── Battleships: the harbour ─────────────────────────────────────────
+/* Where the guns are pointed, which is not where they have fired. A ring
+   rather than a fill: the square underneath may already be water, and the aim
+   has to read as something laid over the sea and liftable again, not as a
+   result. Outside the box so it survives an 11px square without eating it. */
+.bs-cell.aimed {
+  box-shadow: 0 0 0 2px var(--accent);
+  /* Above its neighbours, or the ring is clipped by the next square along on
+     three sides and reads as a bracket. */
+  position: relative;
+  z-index: 1;
+}
+
+/* The last shot of the game, wherever it fell and whoever fired it. Two dozen
+   red squares are all equally red; this is the one that is news. Dashed and
+   in the ink colour, so it cannot be mistaken for the aim ring above it. */
+.bs-cell.latest {
+  outline: 1px dashed var(--ink);
+  outline-offset: 1px;
+}
+
+/* A ship going down, for as long as the ceremony lasts. The wreck is already
+   drawn by the time this runs; this is the beat that says *look*, on the
+   squares and on the roster row at once. */
+.bs-cell.going,
+.bs-ship.going {
+  animation: bs-going 0.5s ease-in-out 3;
+}
+@keyframes bs-going {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The news, in a line of its own under both seas. Empty most of the game and
+   holding its height rather than collapsing, because a line that appears
+   pushes the shot log down a moment after the eye has settled on it. */
+.bs-sinking {
+  min-height: 1.2em;
+  margin: 0;
+  /* On --surface, not bare on --board: --alert is a 3.78:1 red against the
+     board in the daylight palette and 4.9:1 against a panel, and this line is
+     14px, too small to claim the large-text allowance. The panel ground buys
+     the contrast, and makes the line read as a bar rather than as a caption
+     that wandered off a sea. */
+  padding: 4px 8px;
+  background: var(--surface);
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--alert);
+}
+
+/* Battleships: the orders
+   What is happening, and the one control that commits to it. The button
+   names the square in words: it is the last thing between a thumb and a
+   spent turn, and "Fire" alone would not be worth reading. */
+.bs-orders {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bs-orders .bs-waiting {
+  flex: 1;
+  min-width: 0;
+}
+.bs-fire {
+  flex: none;
+  padding: 8px 16px;
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.bs-fire:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Battleships: the shot log
+   Every shot of the game, newest first. It answers the question the grid
+   cannot: not "was D4 a hit" but "was that all one turn", which is the
+   whole of reading an opponent's hunt.
+
+   Capped and scrolled rather than allowed to run: a long game is eighty
+   shots, and eighty rows below the board would bury everything under it. */
+.bs-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px;
+  background: var(--surface);
+}
+.bs-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 148px;
+  overflow-y: auto;
+}
+.bs-log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.bs-log-who {
+  flex: 0 0 4.5em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bs-log-where {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+.bs-log-what {
+  flex: 1;
+  min-width: 0;
+}
+/* A hit is the news in a log of mostly misses, and a sinking is the news in a
+   log of hits. Weight rather than a third colour: the rows are 0.74rem and
+   two reds at that size are one red. */
+.bs-log-row.hit .bs-log-what {
+  color: var(--alert);
+}
+.bs-log-row.sank .bs-log-what {
+  font-weight: 700;
+}
+
+/* Battleships: the harbour
    Placing gets one sea at a readable size, because it is the only thing
-   happening. */
-.bs-harbour .bs-sea {
+   happening and because a ship is dragged onto it, which an 11px square cannot
+   take. Roomier gaps and a larger gutter come along with the width. */
+.bs-sea-wide {
+  --bs-gutter: 16px;
+  --bs-gap: 3px;
   max-width: 420px;
   width: 100%;
   align-self: center;
-  gap: 3px;
+  font-size: 0.62rem;
 }
-.bs-harbour .bs-sea-row {
-  gap: 3px;
+.bs-sea-wide .bs-files,
+.bs-sea-wide .bs-rank {
+  font-size: 0.62rem;
+}
+/* A ship is dragged across this grid with a finger, and without this the
+   browser reads the first few pixels of that as a page scroll and takes the
+   gesture away mid-drag.
+
+   The harbour only, and that scoping is the whole point: the two firing seas
+   are most of a phone screen, and nothing is dragged across them. Blanket
+   `touch-action: none` on every `.bs-grid` would leave a player unable to
+   scroll the page by pushing on the part of it they are looking at. */
+.bs-sea-wide .bs-grid {
+  touch-action: none;
 }
 
 .bs-brief,
@@ -221,7 +414,7 @@
   padding: 6px 12px;
 }
 
-/* ── Battleships: the roster ──────────────────────────────────────────
+/* Battleships: the roster
    What is left of a fleet, which is the one thing a player tracks between
    shots and the one thing counting wrecks off a hundred squares is bad at. */
 .bs-roster {
@@ -275,3 +468,13 @@
   background: var(--alert);
 }
 
+
+/* Stillness keeps every piece of news and loses only the movement carrying it:
+   the wreck is drawn either way, the banner says which ship, and the log has
+   the row. Only the flashing goes. */
+@media (prefers-reduced-motion: reduce) {
+  .bs-cell.going,
+  .bs-ship.going {
+    animation: none;
+  }
+}

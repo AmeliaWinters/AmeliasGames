@@ -1,7 +1,7 @@
 /**
  * Draw the wheel's window to a PNG, for the same reason `render-throw3d.ts`
  * draws a throw: the preview pane is a hidden document and cannot show a
- * moving — or in this case a *clipped* — thing. Measurement said the band was
+ * moving, or in this case a *clipped*, thing. Measurement said the band was
  * geometrically right while it still looked like a fan of stripes in a card,
  * and one sheet settled it.
  *
@@ -11,7 +11,7 @@
  * the flapper laid over at the deflection `flapAngle` gives for that angle. So
  * the sheet shows both the shape of the window and the tick.
  *
- * The geometry is the board's own — `restAngle` and `flapAngle` come straight
+ * The geometry is the board's own: `restAngle` and `flapAngle` come straight
  * from `wheelGeometry.ts`, and the arcs are struck from the same RADIUS. What
  * is *not* here is the lettering: this raster has no text, and the question the
  * sheet answers is the silhouette.
@@ -34,7 +34,7 @@ import {
   restAngle,
 } from "../src/client/games/wheelGeometry.js";
 
-/** The window, in the board's own units — see VIEW_W, CROP, RIM_INNER. */
+/** The window, in the board's own units. See VIEW_W, CROP, RIM_INNER. */
 const VIEW_W = 104;
 const CROP = 64;
 const RIM_INNER = 55;
@@ -99,7 +99,7 @@ function panel(art: Raster, ox: number, oy: number, wheelAngle: number) {
     art.polygon(bandSector(from, hubX, hubY).map(hold), colour);
   });
 
-  // The rim, and the band's inner edge — struck after the wedges, as the board
+  // The rim, and the band's inner edge, struck after the wedges as the board
   // strikes them. Drawn as strips over the visible arc rather than as whole
   // circles: `ring` would carry on past the edge of the panel and into its
   // neighbour, which would make the sheet show something the app never draws.
@@ -123,7 +123,7 @@ function panel(art: Raster, ox: number, oy: number, wheelAngle: number) {
   edge(RADIUS, 1.4, INK);
   edge(RIM_INNER, 0.8, rgba("#d8d6cd"));
 
-  // The flapper, hinged on its top edge at the hub's x — the same triangle the
+  // The flapper, hinged on its top edge at the hub's x: the same triangle the
   // board draws, swung by the same function.
   const flap = (flapAngle(wheelAngle) * Math.PI) / 180;
   const hinge: Pt = [hubX, oy + 1 * SCALE];
@@ -164,7 +164,7 @@ mkdirSync("preview", { recursive: true });
 
 /*
   Default sheet: the tick. Four panels a quarter of a wedge apart, so the
-  flapper is caught at four points of one tick — hanging, lifting, about to
+  flapper is caught at four points of one tick: hanging, lifting, about to
   drop, and just dropped. This is the silhouette question.
 */
 const PANELS = 4;
@@ -176,28 +176,28 @@ writeFileSync(
   ).toPNG(),
 );
 console.log(
-  `preview/wheel.png — ${PANELS} panels, ${WHEEL.length} wedges, band ${RIM_INNER}..${RADIUS}`,
+  `preview/wheel.png: ${PANELS} panels, ${WHEEL.length} wedges, band ${RIM_INNER}..${RADIUS}`,
 );
 
 /*
   `--spin`: a whole throw, sampled at equal *times*.
 
   The other question, and the one the pane can never answer: does it slow down?
-  Panels evenly spaced in time means the gap between them is speed — a sheet
+  Panels evenly spaced in time means the gap between them is speed: a sheet
   that steps far and then close is a wheel shedding speed, and a sheet with
   even steps is the bug that got this written. The wheel is drawn at the angle
-  the CSS easing resolves to at that instant, which is the same `2t - t²` the
+  the CSS easing resolves to at that instant, which is the same `2t - t^2` the
   stylesheet carries, so this is the animation and not a model of it.
 
   Two rows are printed rather than drawn: where each sample landed, and where
-  the throw finally stopped — the fractional part is the whole point, and it is
-  a number, not a picture.
+  the throw finally stopped. The fractional part is the whole point, and it is
+  a number rather than a picture.
 */
 if (process.argv.includes("--spin")) {
   const hard = process.argv.includes("--hard");
   // Just inside the clamps rather than on them. The clamps are whole numbers
   // of wedges, so a throw sitting exactly on one stops exactly on a midpoint
-  // from a standing start — true, and the least representative sheet to draw
+  // from a standing start. True, and the least representative sheet to draw
   // when the fractional stop is half of what this is showing.
   const throwc = spinThrow(
     hard ? SPIN_MAX_SPEED * 0.98 : SPIN_MIN_SPEED * 1.02,
@@ -209,7 +209,7 @@ if (process.argv.includes("--spin")) {
   for (let i = 0; i < SAMPLES; i++) {
     // Equal slices of the duration, ending at the stop.
     const t = (i + 1) / SAMPLES;
-    // Distance covered by time t, normalised — constant deceleration.
+    // Distance covered by time t, normalised, under constant deceleration.
     const covered = 2 * t - t * t;
     angles.push(restAngle(from) - throwc.travel * WEDGE_ARC * covered);
   }
@@ -219,12 +219,12 @@ if (process.argv.includes("--spin")) {
   );
   const at = wedgeUnder(stop);
   console.log(
-    `preview/wheel-spin${hard ? "-hard" : ""}.png — ${throwc.travel.toFixed(2)} wedges ` +
+    `preview/wheel-spin${hard ? "-hard" : ""}.png: ${throwc.travel.toFixed(2)} wedges ` +
       `(${(throwc.travel / WHEEL.length).toFixed(2)} turns) in ${throwc.ms}ms, ` +
       `${SAMPLES} panels at equal times`,
   );
   console.log(
-    `  stops at ${stop.toFixed(3)} — wedge ${at} (${wedgeName(WHEEL[at])}), ` +
+    `  stops at ${stop.toFixed(3)}, wedge ${at} (${wedgeName(WHEEL[at])}), ` +
       `${Math.abs(stop - Math.round(stop)).toFixed(3)} of a wedge off its midpoint`,
   );
   const each = Array.from({ length: SAMPLES }, (_, i) => {

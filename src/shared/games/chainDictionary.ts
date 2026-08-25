@@ -16,14 +16,14 @@ import { MIN_LENGTH } from './wordChainDisplay.js';
 import type { ChainLang, ChainMode } from './wordChainDisplay.js';
 
 export interface ChainEntry {
-  /** The word as it should be read — Polish accented, Japanese in romaji. */
+  /** The word as it should be read: Polish accented, Japanese in romaji. */
   word: string;
   /** `word` folded: what the chain compares, and what it links on in a
    * cross-language game. */
   key: string;
   /**
-   * `word` folded only as far as case and punctuation — Polish diacritics
-   * kept. What the chain links on when both players are in the same language.
+   * `word` folded only as far as case and punctuation, Polish diacritics kept.
+   * What the chain links on when both players are in the same language.
    *
    * Identical to `key` for English and Japanese, which have no accented forms
    * between them: strict chaining is a Polish feature and nothing else, and
@@ -38,11 +38,11 @@ export interface ChainEntry {
    * Where the word sits in its language's frequency order, commonest first and
    * counting from one.
    *
-   * The lists were always ordered by frequency — this only writes the order
-   * down, so a word can carry it to the board and say how common it is. Rank
-   * within a list, not across them: the Japanese list is half the size of the
-   * other two, so `#900` is a rarer word in English than it is in Japanese,
-   * and the board says which language it is ranking.
+   * The lists were always ordered by frequency; this writes the order down so
+   * a word can carry it to the board and say how common it is. Rank within a
+   * list, not across them: the Japanese list is half the size of the other two,
+   * so `#900` is rarer in English than in Japanese, and the board says which
+   * language it is ranking.
    */
   rank: number;
 }
@@ -52,7 +52,7 @@ export interface ChainEntry {
  *
  * Not decoration: the accented letters are not on a phone keyboard, so a game
  * that insisted on them would be unplayable on the device it is mostly played
- * on. Typing `zolty` finds the word, and the board shows it back as **żółty** —
+ * on. Typing `zolty` finds the word and the board shows it back as **żółty**,
  * which is the moment the spelling is taught rather than demanded.
  *
  * It also decides what a word hands on. `ręką` ends in an accented letter that
@@ -70,7 +70,7 @@ const PL_FOLD: Record<string, string> = {
  * Deliberately shallow: lower case, accents off, anything that is not a letter
  * dropped. It stays close to what the player can see, because its last
  * character is the letter the next word must start with, and a fold that
- * rewrote more than this would make the chain's one rule unpredictable — `sou`
+ * rewrote more than this would make the chain's one rule unpredictable: `sou`
  * has to hand on a `u`, because `sou` is what is on the screen.
  *
  * The looser matching Japanese needs lives in `jaLoose`, which is a lookup aid
@@ -96,7 +96,7 @@ const PL_LETTERS = 'ąćęłńóśźż';
  * exists because when both players are in Polish, refusing to notice the
  * accent throws away the most Polish thing about the language. A chain that
  * links `ł` to `ł` asks for *łatwo* after *był*, and the whole family of words
- * beginning `ś` — *świat*, *światło*, *śmierć* — becomes a letter you can be
+ * beginning `ś` (*świat*, *światło*, *śmierć*) becomes a letter you can be
  * handed rather than a spelling detail the game flattens away.
  *
  * Still only ever compared against a *stored* word, never against what was
@@ -110,6 +110,9 @@ export function foldStrict(word: string): string {
     .normalize('NFC')
     .replace(new RegExp(`[^a-z${PL_LETTERS}]`, 'g'), '');
 }
+
+/** Shared, because the common case passes no cooldowns and allocating a set per call would be a set per keystroke. */
+const EMPTY: ReadonlySet<string> = new Set();
 
 /** The form the chain links on, which depends on who is playing. */
 export function chainKey(entry: ChainEntry, mode: ChainMode): string {
@@ -144,7 +147,7 @@ function jaLoose(word: string): string {
 }
 
 interface Lists {
-  /** Frequency order, commonest first — what the reveal reads. */
+  /** Frequency order, commonest first: what the reveal reads. */
   ordered: Record<ChainLang, ChainEntry[]>;
   byKey: Record<ChainLang, Map<string, ChainEntry>>;
   /** Japanese only; see `jaLoose`. */
@@ -157,8 +160,8 @@ let lists: Lists | null = null;
 function add(into: Map<string, ChainEntry>, ordered: ChainEntry[], entry: ChainEntry): boolean {
   if (entry.key.length < MIN_LENGTH || into.has(entry.key)) return false;
   // Rank is the position it lands in, which is only knowable here: the source
-  // is frequency-ordered but holds words this list drops — too short, or a
-  // second inflection folding onto a key already taken — so the source line
+  // is frequency-ordered but holds words this list drops (too short, or a
+  // second inflection folding onto a key already taken) so the source line
   // number and the rank drift apart within the first hundred words.
   entry.rank = ordered.length + 1;
   into.set(entry.key, entry);
@@ -210,7 +213,7 @@ function build(): Lists {
   return lists;
 }
 
-/** Here for the test that holds the laziness — see `words.ts`, same idea. */
+/** Here for the test that holds the laziness. See `words.ts`, same idea. */
 export function chainDictionaryIsBuilt(): boolean {
   return lists !== null;
 }
@@ -228,8 +231,8 @@ export function chainLookup(lang: ChainLang, typed: string): ChainEntry | null {
  *
  * Two jobs, and they want the same scan. It is the word revealed to a player
  * whose minute ran out, and it is how the reducer answers "does the opponent
- * have anything at all to say to this?" — the check that stops a Japanese
- * player being handed an L, which no Japanese word begins with.
+ * have anything at all to say to this?", the check that stops a Japanese player
+ * being handed an L, which no Japanese word begins with.
  *
  * A linear scan of a frequency-ordered list, which is the whole trick: the
  * first match *is* the commonest match, so there is nothing to sort and no
@@ -239,12 +242,18 @@ export function chainLookup(lang: ChainLang, typed: string): ChainEntry | null {
  * is the teaching moment and a word shown without its meaning wastes it. Only
  * a preference: English carries no glosses at all, and a thin letter in Polish
  * would rather give up an untranslated word than nothing.
+ *
+ * `blockedEndings` drops words the asker could not legally have said because
+ * of a cooldown on the letter they end in. The reveal is the whole point of
+ * losing, and showing a player a word the game would have refused is worse than
+ * showing them nothing.
  */
 export function commonestStarting(
   lang: ChainLang,
   letter: string,
   used: ReadonlySet<string>,
   mode: ChainMode = 'loose',
+  blockedEndings: ReadonlySet<string> = EMPTY,
 ): ChainEntry | null {
   const l = lists ?? build();
   const first = foldLetter(letter, mode);
@@ -254,6 +263,9 @@ export function commonestStarting(
     // and its accents have nothing to do with it.
     if (used.has(entry.key)) continue;
     if (first !== '' && !chainKey(entry, mode).startsWith(first)) continue;
+    // Unlike `used`, this is matched on the *mode's* key: a cooldown on `ś` in
+    // a strict game must not swallow every word ending in a plain `s`.
+    if (blockedEndings.size > 0 && blockedEndings.has(chainKey(entry, mode).slice(-1))) continue;
     if (entry.gloss) return entry;
     fallback ??= entry;
   }
@@ -263,9 +275,9 @@ export function commonestStarting(
 /**
  * How many words in `lang` start with `letter` and have not been said.
  *
- * The number the board shows a player while they are thinking — "412 words
- * left" — and the number the reducer gates on, so that a letter with four
- * obscure answers behind it is never handed to anybody. Same scan as
+ * The number the board shows a player while they are thinking ("412 words
+ * left") and the number the reducer gates on, so a letter with four obscure
+ * answers behind it is never handed to anybody. Same scan as
  * `commonestStarting`, counted rather than stopped at the first hit; an empty
  * `letter` counts the whole language, which is what an opening word may choose
  * from.
@@ -292,23 +304,23 @@ export function countStarting(
   return n;
 }
 
-/** How many words each language contributes — for the tests that hold the sizes. */
+/** How many words each language contributes, for the tests that hold the sizes. */
 export function chainListSizes(): Record<ChainLang, number> {
   const l = lists ?? build();
   return { en: l.ordered.en.length, pl: l.ordered.pl.length, ja: l.ordered.ja.length };
 }
 
 /**
- * A language's whole list, commonest first — the same array `commonestStarting`
- * scans, handed out read-only.
+ * A language's whole list, commonest first: the same array
+ * `commonestStarting` scans, handed out read-only.
  *
  * Vocab Race needs the list by *rank* rather than by letter: it asks "what is
  * the hundredth commonest Polish word, and what does it mean", which is a
  * question neither lookup above answers. Exposing the array rather than a
- * `nth()` accessor is deliberate — the clue index it builds is a single pass
+ * `nth()` accessor is deliberate: the clue index it builds is a single pass
  * over the whole thing, and an accessor called sixty thousand times to hand
- * back the elements of an array that is already sitting here would be a worse
- * version of the same thing.
+ * back the elements of an array already sitting here would be a worse version
+ * of the same thing.
  *
  * Read-only because it is the live array. `add` writes `rank` onto entries as
  * it fills it, and a caller that spliced this would silently renumber a list

@@ -1,4 +1,4 @@
-/* ── Header ────────────────────────────────────────────────────────── */
+/* Header */
 .topbar {
   display: flex;
   align-items: center;
@@ -11,9 +11,9 @@
 .topbar h1 {
   font-family: var(--display);
   /* Shrinks with the screen rather than off it. The middle term only bites
-     below about 366px, so on every ordinary phone this is still 1.35rem —
-     it is there for the narrow ones, where "Wheel of Fortune" is sixteen
-     characters and the bar has a room code in it too. */
+     below about 366px, so on every ordinary phone this is still 1.35rem. It is
+     there for the narrow ones, where "Wheel of Fortune" is sixteen characters
+     and the bar has a room code in it too. */
   font-size: clamp(1.05rem, 5.9vw, 1.35rem);
   font-weight: 700;
   line-height: 1;
@@ -25,7 +25,7 @@
     The row's spare width, rather than what the button inside claims to need.
     A <button> with `overflow: hidden` reports an intrinsic width a few pixels
     short of the word in it, so the heading was sized to less than its own
-    text and ellipsised YAHTZEE to YAHTZE… with a third of the bar standing
+    text and ellipsised YAHTZEE to YAHTZE... with a third of the bar standing
     empty beside it. Growing into the space that is actually there settles it,
     and the ellipsis stays for the case it was meant for: a name genuinely too
     long for the room left.
@@ -39,9 +39,9 @@
   color: var(--accent);
 }
 
-/* The brand, above the game's name — see `TopMark`. Small and quiet: it is
-   the half of the title the player already knows, and it is here to say where
-   they are rather than to be read again every turn. */
+/* The brand, above the game's name, see `TopMark`. Small and quiet: it is the
+   half of the title the player already knows, and it is here to say where they
+   are rather than to be read again every turn. */
 .topbar h1 .brand {
   font-size: 0.56em;
   line-height: 1.1;
@@ -59,8 +59,8 @@
   white-space: nowrap;
 }
 
-/* The wordmark is the way back to the start, so it is a real button — but it
-   has to keep looking like the heading it sits in, not like a control. */
+/* The wordmark is the way back to the start, so it is a real button, but it
+   has to keep looking like the heading it sits in rather than like a control. */
 .topbar h1 .home {
   font: inherit;
   letter-spacing: inherit;
@@ -81,10 +81,10 @@
   min-height: 44px;
   /*
     No side padding, and none to outdent. It was six pixels each way, with a
-    matching negative margin so the text still started at the page's edge — so
-    the padding bought nothing but hit area, and cost twelve pixels of the
+    matching negative margin so the text still started at the page's edge, so
+    the padding bought nothing but hit area and cost twelve pixels of the
     name. That was the difference between WHEEL OF FORTUNE and WHEEL OF
-    FORTUN… on a 320px phone: the heading had 165px, the name wanted 160, and
+    FORTUN... on a 320px phone: the heading had 165px, the name wanted 160, and
     the padding left it 153. A control that is already 44px tall and the width
     of its own title is not short of somewhere to press.
   */
@@ -106,7 +106,7 @@
   letter-spacing: 0.14em;
   color: var(--muted);
   background: none;
-  /* The single most important action in the waiting state — sharing the room —
+  /* The single most important action in the waiting state is sharing the room,
      so it gets a real touch target rather than the size of its label. */
   min-height: 44px;
   padding: 6px 11px;
@@ -187,7 +187,7 @@
   background: var(--alert);
 }
 
-/* ── Messages ──────────────────────────────────────────────────────── */
+/* Messages */
 .banner {
   padding: 10px 12px;
   font-size: 0.88rem;
@@ -201,7 +201,7 @@
    toast's close button carries the "real button, not a div with a click
    handler" lesson that one was written for. */
 
-/* ── Players ───────────────────────────────────────────────────────── */
+/* Players */
 .players {
   display: flex;
   flex-wrap: wrap;
@@ -209,8 +209,8 @@
 }
 
 /* Two to a row rather than however many are playing. Four seats sharing one
-   row of a phone leaves ~80px each, which the name loses to the "you" badge —
-   at four players the strip was rendering "A…" for Ann. */
+   row of a phone leaves ~80px each, which the name loses to the "you" badge: at
+   four players the strip was rendering "A..." for Ann. */
 .player {
   flex: 1 1 42%;
   min-width: 0;
@@ -267,7 +267,7 @@
   flex: none;
 }
 
-/* ── Status ────────────────────────────────────────────────────────── */
+/* Status */
 .status {
   font-family: var(--display);
   font-size: 1.3rem;

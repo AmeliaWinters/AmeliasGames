@@ -1,7 +1,7 @@
-/* ── Dice ──────────────────────────────────────────────────────────────
+/* Dice
    Pips rather than numerals: a die reads as a die, and a hand is countable at
-   a glance without being read — which is also what makes a face-down die read
-   as a die rather than as an empty box.
+   a glance without being read, which is also what makes a face-down die read as
+   a die rather than as an empty box.
 
    Cream with dark pips in *either* palette, deliberately. Dice are objects
    sitting on the stage rather than interface, and one that inverted with the
@@ -65,7 +65,7 @@
 .pips[data-face="6"] i:nth-child(5) { grid-area: 3 / 1; }
 .pips[data-face="6"] i:nth-child(6) { grid-area: 3 / 3; }
 
-/* ── A die lying flat ──────────────────────────────────────────────────
+/* A die lying flat
    For dice that sit in a row and are there to be counted: the hands in Liar's
    Dice, where nothing is ever thrown and twenty cubes would be twenty times
    the elements for a picture of the same six faces. */
@@ -93,7 +93,7 @@
 .die .pips[data-face="0"] {
   background: var(--board);
 }
-/* The dice a call turned out to be counting — the same green that marks a
+/* The dice a call turned out to be counting, in the same green that marks a
    letter in the right place, doing the same job. */
 .die.match .pips {
   background: var(--mark-hit);
@@ -102,17 +102,16 @@
   background: var(--mark-text);
 }
 
-/* ── A tray of dice ────────────────────────────────────────────────────
+/* A tray of dice
    The dice used to be CSS: six `<span>`s a cube under `preserve-3d`, turned by
    a `matrix3d` written straight onto the parent, and deliberately no
-   `perspective` — which made the camera orthographic. That was right for what
-   it was and it fixed a real bug (five dice at rest each apparently tipped a
-   different way, because the vanishing point sat a hand's width in front of
-   the tray). What it could not do was give anything depth, or let light fall
-   on it, and a flat shape with a number on it is what "the dice look fake"
-   was about.
+   `perspective`, which made the camera orthographic. That was right for what it
+   was and it fixed a real bug (five dice at rest each apparently tipped a
+   different way, because the vanishing point sat a hand's width in front of the
+   tray). What it could not do was give anything depth, or let light fall on it,
+   and a flat shape with a number on it is what "the dice look fake" was about.
 
-   They are drawn by WebGL now — `src/client/dice3d/scene.ts`. What is left
+   They are drawn by WebGL now, in `src/client/dice3d/scene.ts`. What is left
    here is the box it happens in, and the controls that ride on top of it. */
 .dice-tray {
   position: relative;
@@ -170,10 +169,10 @@
   border-radius: 50%;
   background: none;
   /*
-    `button` carries `min-height: 44px` — the touch floor the whole app is held
-    to — and a minimum beats any size set on the element. Under the old cube
-    that made a die-slot 35px wide come out 35 × 44, an upright slab rather
-    than a cube, and it only showed on a phone. Here the element is positioned
+    `button` carries `min-height: 44px`, the touch floor the whole app is held
+    to, and a minimum beats any size set on the element. Under the old cube that
+    made a die-slot 35px wide come out 35 x 44, an upright slab rather than a
+    cube, and it only showed on a phone. Here the element is positioned
     and sized in pixels from the projection, so the minimum would fight it the
     same way. The 44px is honoured by the size the tray computes instead, which
     is `max(projected, 44)`.
@@ -192,14 +191,14 @@
    you.
 
    Two rings, though, not one colour. A die face is a fixed cream in both
-   palettes — deliberately, it is the colour of an object rather than of the
-   interface — and Yahtzee's accent is `--seat-3`, which in `stage` is #ffc24b:
-   about 1.4:1 against that cream, which is a mark you cannot see, in the
-   palette most people play in. (It passes in daylight, where the same token is
-   #9a6a00 — which is how it came to be written this way.) The ink ring is what
-   makes the state visible at all, at roughly 18:1, and being a difference in
-   lightness rather than hue it survives colour blindness too; the accent still
-   says whose choice it was.
+   palettes, deliberately, being the colour of an object rather than of the
+   interface, and Yahtzee's accent is `--seat-3`, which in `stage` is #ffc24b:
+   about 1.4:1 against that cream, a mark you cannot see, in the palette most
+   people play in. (It passes in daylight, where the same token is #9a6a00,
+   which is how it came to be written this way.) The ink ring is what makes the
+   state visible at all, at roughly 18:1, and being a difference in lightness
+   rather than hue it survives colour blindness too; the accent still says whose
+   choice it was.
 
    Drawn as a ring around the die rather than inset into its face, because the
    face is now a texture on a cube that may be turned any way at all. */
@@ -214,7 +213,7 @@
   outline-offset: 2px;
 }
 
-/* ── The dice as numbers ───────────────────────────────────────────────
+/* The dice as numbers
    Shown only when the tray cannot say it on its own: a die resting on another
    one, or hidden behind one from where the camera stands. Real cubes do that,
    the physics is left alone about it, and this is what stops it costing the
@@ -222,7 +221,7 @@
 
    Along the far edge, which is where a die is drawn smallest and read worst,
    so the bar covers the least. The scrim is what keeps the faces legible over
-   whatever is behind them — the tray's own board colour is close to a die's
+   whatever is behind them, the tray's own board colour being close to a die's
    cream in daylight. */
 .dice-readout {
   position: absolute;
@@ -239,7 +238,7 @@
   --die: 26px;
 }
 /* A chip is a button where the game has something to do with a die, and a
-   plain mark where it does not — Backgammon and Liar's Dice never keep one. */
+   plain mark where it does not. Backgammon and Liar's Dice never keep one. */
 .readout-die {
   display: block;
   padding: 0;
@@ -286,27 +285,28 @@ button.readout-die:not(:disabled) {
 }
 
 
-/* ── The beats of a throw ──────────────────────────────────────────────
-   A layer carrying the two things that happen *to* a throw rather than in it:
-   the moment it slows down for the contact that settles the last die, and the
-   flourish when the dice turn out to have done something worth marking.
+/* The beats of a throw
+   A layer carrying what happens *to* a throw rather than in it: the flourish
+   when the dice turn out to have done something worth marking. It also carried
+   a ring marking the throw's slow-motion moment, until that was removed; see
+   `beats.ts` for why.
 
    It is the tray's *first* child and the canvas is appended last, so this is
-   painted underneath the picture — and is visible anyway for the same reason
-   the die handles above it are: the canvas is cleared to alpha zero, so
-   everything but the dice and their shadows is see-through. Measured in the
+   painted underneath the picture, and is visible anyway for the same reason the
+   die handles above it are: the canvas is cleared to alpha zero, so everything
+   but the dice and their shadows is see-through. Measured in the
    running app rather than assumed. Do not "fix" this with a `z-index`: over the
    canvas, the rim would also sit over the dice at the near edge of the tray.
 
-   Its own element rather than a class on `.dice-tray`, and that is not
-   decoration — `Dice3DTray.tsx` writes these classes straight onto the node
-   sixty times a second to keep a border colour out of React's render path, and
-   React rewrites `className` on any element whose class it computes. This
-   one's is a constant, so what is written by hand stays written.
+   Its own element rather than a class on `.dice-tray`, and not decoration:
+   `Dice3DTray.tsx` writes these classes straight onto the node sixty times a
+   second to keep a border colour out of React's render path, and React rewrites
+   `className` on any element whose class it computes. This one's is a constant,
+   so what is written by hand stays written.
 
-   `pointer-events: none` throughout: the flick belongs to the tray, and a
-   layer over the top of it that swallowed the pointer would take the gesture
-   with it — the same lesson `.dice-canvas` above records. */
+   `pointer-events: none` throughout: the flick belongs to the tray, and a layer
+   over the top of it that swallowed the pointer would take the gesture with it,
+   the same lesson `.dice-canvas` above records. */
 .dice-beat {
   position: absolute;
   inset: 0;
@@ -314,21 +314,12 @@ button.readout-die:not(:disabled) {
   border-radius: inherit;
 }
 
-/* The slow moment. Deliberately almost nothing: the emphasis is the *time*,
-   and the job of anything visual here is to confirm that the slowdown was
-   meant rather than to compete with the die it is drawing attention to. A ring
-   just inside the tray's own rule, and no motion of its own. */
-.dice-beat.slowed {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-  transition: box-shadow 90ms ease-out;
-}
-
-/* ── The flourish ──────────────────────────────────────────────────────
+/* The flourish
    Five alike, or a double. `--cheer` is set by the tray from `beats.ts` and is
    how much of this to spend: 1 for a Yahtzee, about half for a Backgammon
    double, so the same gesture can be big or small without being two gestures.
 
-   The dice themselves light up from the inside — that is `emissive` in
+   The dice themselves light up from the inside, which is `emissive` in
    `scene.ts`, on the cubes, where it belongs. This is the room around them. */
 .dice-beat.cheering {
   animation: dice-cheer 620ms ease-out;
@@ -358,10 +349,10 @@ button.readout-die:not(:disabled) {
 }
 
 /* Asked for less movement.
-   The moment is still reported — a rare thing happened, and the player least
-   able to watch it happen is the one who most needs telling — but it is
-   reported by a colour that arrives and leaves rather than by a pulse. The
-   dice do not hop at all; `beats.ts` never computes a pose for them. */
+   The moment is still reported, a rare thing having happened and the player
+   least able to watch it being the one who most needs telling, but it is
+   reported by a colour that arrives and leaves rather than by a pulse. The dice
+   do not hop at all; `beats.ts` never computes a pose for them. */
 .dice-beat.cheering.still {
   animation: none;
   box-shadow: inset 0 0 0 3px rgba(255, 207, 106, 0.85);
@@ -371,8 +362,5 @@ button.readout-die:not(:disabled) {
   .dice-beat.cheering {
     animation: none;
     box-shadow: inset 0 0 0 3px rgba(255, 207, 106, 0.85);
-  }
-  .dice-beat.slowed {
-    transition: none;
   }
 }

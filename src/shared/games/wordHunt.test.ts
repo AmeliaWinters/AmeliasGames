@@ -54,7 +54,7 @@ const DURING = START + 30_000;
 const AFTER = START + ROUND_MS;
 
 /**
- * A grid dealt and the whistle blown — which is what the room does the moment
+ * A grid dealt and the whistle blown, which is what the room does the moment
  * its last seat is taken, and the state every test below that is not about
  * the clock itself wants.
  */
@@ -78,7 +78,7 @@ function onGrid(grid: string, players = 2): WhState {
   return { ...fresh(players), grid: letters };
 }
 
-/** Trace `word` on the state's grid, or fail — mirrors what the board does. */
+/** Trace `word` on the state's grid, or fail. Mirrors what the board does. */
 function pathFor(state: WhState, word: string): number[] {
   const target = word.toUpperCase();
   const path: number[] = [];
@@ -167,7 +167,7 @@ describe('tracing a path', () => {
     expect(isLegalPath([0, 1, 2])).toBe(true);
     expect(isLegalPath([0, 1, 2, 3, 7])).toBe(true);
     expect(isLegalPath([0, 1, 2, 3, 7, 6, 5, 4])).toBe(true);
-    // Diagonals count — that is what makes this a hunt, not a word search.
+    // Diagonals count, which is what makes this a hunt and not a word search.
     expect(isLegalPath([0, 5, 10, 15, 14])).toBe(true);
   });
 
@@ -313,7 +313,7 @@ describe('finishing', () => {
     expect(wordHunt.turn(state)).toBeNull();
     expect(state.winner).toBe(0);
     expect(state.draw).toBe(false);
-    expect(wordHunt.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins on 800 — 1 word');
+    expect(wordHunt.status(state, ['Amelia', 'Bo'])).toBe('Amelia wins on 800, 1 word');
   });
 
   it('hands it to the better words, not to the most of them', () => {
@@ -366,8 +366,8 @@ describe('what each seat is shown', () => {
     const seen = wordHunt.view!(state, 1);
     expect(seen.found[0]).toEqual([maskWord('CRANE')]);
     expect(seen.found[0].every(isMasked)).toBe(true);
-    // Masked to the same length, so the score survives redaction — which is
-    // the point: you watch their total climb without learning their words.
+    // Masked to the same length, so the score survives redaction, which is the
+    // point: you watch their total climb without learning their words.
     expect(scoreOf(seen, 0)).toBe(scoreOf(state, 0));
     expect(countOf(seen, 0)).toBe(1);
     // Their own list is untouched, and the grid is everybody's.

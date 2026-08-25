@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-// Values from liarsDiceDisplay.js, which imports nothing — the board must never
+// Values from liarsDiceDisplay.js, which imports nothing: the board must never
 // pull the reducer into the client bundle. The types below are type-only, so
-// they are erased and carry no runtime import.
+// they carry no runtime import.
 import {
   DICE_PER_PLAYER,
   FACES,
@@ -31,26 +31,26 @@ type Props = BoardProps<LdState, LdMove>;
  * Liar's Dice is played from three things: your own five dice, how many dice
  * everyone else is holding, and what has already been said this round. All
  * three are on the board at all times, which is why the hands are drawn as
- * face-down dice rather than written out as a number — "four dice" is something
- * to read, four dice is something to count — and why the bidding stays visible
+ * face-down dice rather than written out as a number ("four dice" is something
+ * to read, four dice is something to count) and why the bidding stays visible
  * as a run rather than as whatever happened to be said last.
  *
  * The reveal is the other half. When a call settles a round the board keeps
  * showing the table exactly as it stood, every hand face up, with the dice that
- * counted marked — so a player can see *why* the die moved before the next
- * round is dealt.
+ * counted marked, so a player can see *why* the die moved before the next round
+ * is dealt.
  */
 
 /**
- * What each seat is holding right now: their real hand, or the reveal — and
- * for a seat the reveal has not reached yet, still the face-down row it was
- * showing a moment ago.
+ * What each seat is holding right now: their real hand, or the reveal, or for
+ * a seat the reveal has not reached yet the face-down row it was showing a
+ * moment ago.
  *
  * `inTheAir` is your own hand while your own throw is still running. The move
- * is sent the instant the physics has settled *in the background* — a second
- * run of the same seed is what you are watching — so the state knows your five
- * numbers a whole animation before the cubes do, and drawing them here would
- * print the answer beside the dice that are still finding it.
+ * is sent the instant the physics has settled *in the background*, a second run
+ * of the same seed being what you are watching, so the state knows your five
+ * numbers a whole animation before the cubes do and drawing them here would
+ * print the answer beside the dice still finding it.
  */
 function handFor(
   state: LdState,
@@ -69,7 +69,7 @@ function handFor(
  * everyone who never said anything.
  *
  * It ends on the seat that was challenged, because that is the hand the call
- * was about — and the run is what a call is reasoned from, so replaying it is
+ * was about, and the run is what a call is reasoned from, so replaying it is
  * the reveal saying *why* before it says what.
  */
 function revealOrder(state: LdState): number[] {
@@ -92,7 +92,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
     Every other tray in the app replays a `Toss` out of the game state, because
     both players are meant to watch the same dice land. Here they are emphatically
     not: your hand is yours, `view()` redacts it from everybody else, and a
-    throw on the wire would be the hand on the wire. So the toss is local — this
+    throw on the wire would be the hand on the wire. So the toss is local. This
     client makes it, this client animates it, and the only thing that leaves is
     the five numbers it came up with.
 
@@ -106,7 +106,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
     The tray stays while the dice are still moving.
 
     `owesRoll` goes false the moment the `roll` move lands, which is the moment
-    the throw *starts* animating — so gating the tray on it alone unmounted the
+    the throw *starts* animating, so gating the tray on it alone unmounted the
     cubes mid-flight and put the settled row underneath in their place. You
     threw, and the dice vanished before they stopped.
   */
@@ -114,13 +114,13 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const throwing = owed || rolling;
 
   /*
-    Your own hand, all showing the same number — the same event Yahtzee marks,
+    Your own hand, all showing the same number: the same event Yahtzee marks,
     given the same flourish, because it is the same five dice doing the same
     thing and only the rulebook around them differs.
 
     Safe to show even though hands are secret: this is your tray, on your
     client, drawn from the hand the server already told you is yours. Nobody
-    else has one of these on screen — Liar's Dice puts up a tray only while
+    else has one of these on screen, since Liar's Dice puts up a tray only while
     *you* owe a throw.
 
     Three at least, because "every die alike" is not news when you are down to
@@ -171,7 +171,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   // person needs its own possessive, and its own verb.
   const possessiveOf = (index: number) =>
     index === seat ? "your" : `${nameFor(index)}'s`;
-  /** "You lose" but "Bo loses" — the whole of English subject agreement, here. */
+  /** "You lose" but "Bo loses": the whole of English subject agreement, here. */
   const verb = (index: number, plural: string, singular: string) =>
     index === seat ? plural : singular;
 
@@ -184,10 +184,10 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const canCall = bidding && state.bid !== null;
   const showdown = state.showdown;
   /*
-    Turning the hands over, one at a time. The key changes exactly when there
-    is a new call to settle — the round it settled plus who made it, since a
-    round can only ever produce one — so a re-render for any other reason does
-    not start the reveal again.
+    Turning the hands over, one at a time. The key changes exactly when there is
+    a new call to settle (the round it settled plus who made it, since a round
+    can only produce one) so a re-render for any other reason does not start the
+    reveal again.
   */
   const order = useMemo(
     () => revealOrder(state),
@@ -214,7 +214,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const mine =
     seat !== null && !isOut(state, seat) && !rolling ? countInHand(state, seat, face) : null;
 
-  /** What the call cost, or paid — the line under the count it turned up. */
+  /** What the call cost, or paid: the line under the count it turned up. */
   const consequence = (call: Showdown) => {
     if (call.loser === null) {
       // A spot-on call that was right. Nobody pays; the caller is owed a die,
@@ -230,7 +230,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   return (
     <div className="ld">
       <p className="ld-round">
-        Round {state.round} · {total} {total === 1 ? "die" : "dice"} on the table ·{" "}
+        Round {state.round} - {total} {total === 1 ? "die" : "dice"} on the table -{" "}
         {nameFor(state.starter)} opened
       </p>
 
@@ -261,12 +261,12 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
             disabled={!owed}
             onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}
           >
-            {rolling ? "Rolling…" : "Roll"}
+            {rolling ? "Rolling..." : "Roll"}
           </button>
         </div>
       )}
 
-      {/* Every hand, yours face up and theirs face down — until a call turns
+      {/* Every hand, yours face up and theirs face down, until a call turns
           them all over. */}
       <div className="ld-hands">
         {state.dice.map((_, index) => {
@@ -287,7 +287,12 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
             >
               <span className="chip" aria-hidden="true" />
               <span className="who">{nameFor(index)}</span>
-              <span className="ld-dice">
+              {/* `up` is the turn, not the state of being up. It goes on only
+                  during a showdown, because `shown` answers true for everybody
+                  when there is nothing to reveal, and a hand that turned over
+                  keeps the class, so the animation fires once, on the frame the
+                  reveal reaches this seat, and not again on the next message. */}
+              <span className={showdown && turned ? "ld-dice up" : "ld-dice"}>
                 {out ? (
                   <span className="note">out</span>
                 ) : (
@@ -329,7 +334,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
                 when the answer arrives. */}
             <span className="ld-outcome">
               {!counted
-                ? "Turning them over…"
+                ? "Turning them over..."
                 : showdown.call === "exact" && showdown.loser === null
                   ? `Exactly ${describeCount(showdown.actual, showdown.bid.face)}`
                   : `There ${showdown.actual === 1 ? "was" : "were"} ${describeCount(
@@ -382,7 +387,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
         !state.over && (
           <>
             {/* The bid, built in two pieces: how many, and of what. Both are
-                spinners rather than free text — there are ten legal quantities
+                spinners rather than free text: there are ten legal quantities
                 and six faces, and a number pad on a phone is a keyboard in the
                 way of a two-tap decision. */}
             <div className="ld-bid">
@@ -394,7 +399,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
                   aria-label="One fewer die"
                   onClick={() => setQuantity((n) => Math.max(1, n - 1))}
                 >
-                  −
+                  -
                 </button>
                 <span className="ld-quantity" aria-live="off">
                   {quantity}
@@ -451,14 +456,14 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
 
             <p className="ld-legend">
               {!canAct
-                ? "Ones are just ones — a bid counts only the face it names."
+                ? "Ones are just ones. A bid counts only the face it names."
                 : state.bid === null
                   ? "Open the round: name how many of a face are on the whole table."
                   : bidsExhausted
-                    ? `Every die is claimed already — call ${describeBid(state.bid)} a lie, or spot on.`
+                    ? `Every die is claimed already. Call ${describeBid(state.bid)} a lie, or spot on.`
                     : legal
-                      ? `Raise past ${describeBid(state.bid)}, call it a lie, or call it spot on — exactly right wins a die back.`
-                      : `That is not a raise on ${describeBid(state.bid)} — more dice, or a higher face.`}
+                      ? `Raise past ${describeBid(state.bid)}, call it a lie, or call it spot on. Exactly right wins a die back.`
+                      : `That is not a raise on ${describeBid(state.bid)}. More dice, or a higher face.`}
             </p>
           </>
         )

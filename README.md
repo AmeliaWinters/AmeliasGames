@@ -14,7 +14,7 @@ npm run dev
 
 - App: http://localhost:5173
 - Game server: ws://localhost:8787 (Vite proxies `/ws` to it, so the browser
-  only ever talks to one origin — which is what makes LAN and tunnel testing
+  only ever talks to one origin, which is what makes LAN and tunnel testing
   painless)
 
 `npm test` runs the rules and server tests. `npm run typecheck` checks types.
@@ -23,7 +23,7 @@ npm run dev
 
 Vite listens on the LAN, so phones on your wifi can hit `http://<your-ip>:5173`
 directly. A tunnel (`cloudflared tunnel --url http://localhost:5173`) reaches
-friends elsewhere — but only while your computer is on. For anything permanent,
+friends elsewhere, but only while your computer is on. For anything permanent,
 deploy (below).
 
 ### Testing both sides on one machine
@@ -40,8 +40,8 @@ http://localhost:5173/?as=b#ABCD     <- player 2
 
 ```
 src/shared/    rules, room engine, wire format  (imported by EVERYTHING)
-src/server/    Node dev server      — thin adapter over RoomEngine
-src/worker/    Cloudflare Worker    — thin adapter over RoomEngine (production)
+src/server/    Node dev server      thin adapter over RoomEngine
+src/worker/    Cloudflare Worker    thin adapter over RoomEngine (production)
 src/client/    React UI
 ```
 
@@ -54,17 +54,17 @@ the two drifting apart.
 `src/shared/session.ts` is the layer just above it, and it exists for the same
 reason. Reading a frame, checking the protocol version, clamping a name,
 deciding which room a create-flagged `hello` may have, and running one of the
-four action messages without letting an exception escape — all of that used to
+four action messages without letting an exception escape: all of that used to
 live in *both* adapters, in the same order, with the same reasoning written out
 twice. That is the security-critical surface and the worst possible thing to
 keep two copies of: each adapter had its own tests proving its own copy, so a
 rule tightened on one side and missed on the other passed everywhere.
 
 Everything in `session.ts` is pure and synchronous, which is what lets the
-Durable Object — whose engine arrives from storage, asynchronously, and may not
-arrive at all — share it with a dev server holding engines in a `Map`. The
+Durable Object, whose engine arrives from storage asynchronously and may not
+arrive at all, share it with a dev server holding engines in a `Map`. The
 split falls where the `await` does: the adapter fetches the engine, `session.ts`
-decides what to do with it. What stays per-adapter is what genuinely differs —
+decides what to do with it. What stays per-adapter is what genuinely differs:
 seat bookkeeping, persistence, and waking up.
 
 On the client, `src/client/games/boards.ts` does the equivalent job for the
@@ -72,7 +72,7 @@ board components. `RoomView.state` comes off a socket as JSON, so somewhere a
 human has to assert which game's state it is; that assertion used to be made
 ten times, once per case of a switch, each pairing a `gameId` string with a
 cast by hand and nothing checking that the two matched. Now the pairing is a
-type the compiler checks, and exactly one cast survives — in `boardFor`, which
+type the compiler checks, and exactly one cast survives, in `boardFor`, which
 is the single point where the wire is taken at its word.
 
 **`src/shared/games/*.ts` is the important part.** Each game is a pure reducer
@@ -92,13 +92,13 @@ That single constraint is what makes everything else easy:
 The server holds room state in memory, keyed by a 4-character code, and
 broadcasts after every accepted move. Players are identified by a persistent
 `playerId`, so a dropped connection reclaims its seat and gets the current
-state pushed back — a locked phone screen is a non-event.
+state pushed back. A locked phone screen is a non-event.
 
 ## The games
 
-**Connect Four** — two players, open information, no randomness.
+**Connect Four.** Two players, open information, no randomness.
 
-**Backgammon** — the full rules: blocked points, hitting and the bar, bearing
+**Backgammon.** The full rules: blocked points, hitting and the bar, bearing
 off (exact rolls, and larger rolls only from the furthest point), gammons and
 backgammons. Including the two rules casual implementations usually drop:
 
@@ -112,12 +112,12 @@ so the engine will refuse a move that *looks* legal in isolation.
 Not implemented: the doubling cube.
 
 Backgammon needs dice, which is why `GameDefinition` takes an `Rng`. It only
-ever runs on the server — the client renders the state it is sent and never
+ever runs on the server; the client renders the state it is sent and never
 applies moves locally, so nobody can re-roll until they like the answer. What
 that rng is used *for* is described under "The dice" below: it seeds a throw
 rather than picking a pair.
 
-**Wheel of Fortune** — two to four players, three rounds, most money wins.
+**Wheel of Fortune.** Two to four players, three rounds, most money wins.
 Spin and name a consonant, buy a vowel for $250 out of what you have won this
 round, or solve. Bankrupt takes the round's money but never what you have
 already banked. Rounds rotate who opens, so taking one does not compound into
@@ -129,7 +129,7 @@ turns on:
 - **You get three guesses to a turn.** A consonant that is not there, a vowel
   that is not there and a wrong stab at the phrase all cost one; the turn moves
   on at the third. Under one-and-out, calling a letter you were not sure of
-  cost you the turn, so the game quietly rewarded not guessing — a strange
+  cost you the turn, so the game quietly rewarded not guessing, a strange
   thing for a guessing game to do. Bankrupt and Lose a Turn still end a turn
   outright: those are the wheel's doing, not a guess.
 - **Everyone banks what they won**, not only whoever solved it. That money was
@@ -139,34 +139,34 @@ turns on:
   frightening.
 - **Solving pays $2,000**, on top of whatever the round already won. With
   everyone keeping their money, spotting the phrase has to be the thing that
-  decides a game — otherwise the winner is whoever happened to spin the biggest
+  decides a game, or the winner is whoever happened to spin the biggest
   numbers.
 
 The wheel is a wheel: twenty-four wedges the board draws and spins, coming to
 rest on the one the server picked. The server is the only thing here holding an
-rng, so it sends back the index it landed on and the board animates *to* it —
-watching the wheel and then being told a different number is the one thing that
+rng, so it sends back the index it landed on and the board animates *to* it.
+Watching the wheel and then being told a different number is the one thing that
 would make the whole game feel rigged. Two spins running can land on the same
 wedge, which is why `spins` counts upwards: without it the wheel would sit
 still on the second one and read as broken.
 
 It is the game that proves out `view()`. The phrase lives in `state.answer` on
 the server and is masked on the way out to every client, letter by letter, as
-letters are called — because the client is *sent* the state, so an answer that
+letters are called, because the client is *sent* the state, so an answer that
 reaches it is an answer anyone can read out of devtools. Masking preserves
 length and punctuation, since knowing the shape of the phrase is the game.
 
 The two hundred-odd puzzles are the other half of the same problem: masking the
 current answer achieves nothing if the browser is holding the list it came
 from, since the shape would pick it out. They stay out of the bundle because
-nothing in the client's import graph reaches the reducer — the board takes
-only types and display helpers, and the lobby reads `manifest.js` rather than
+nothing in the client's import graph reaches the reducer: the board takes only
+types and display helpers, and the lobby reads `manifest.js` rather than
 the registry. That is load-bearing rather than incidental, and worth a
 `grep` of `dist/` after any change to those imports.
 
-**Word Duel** — two players, head-to-head Wordle. Each sets a five-letter word
+**Word Duel.** Two players, head-to-head Wordle. Each sets a five-letter word
 for the other, then both hunt the word they were given. Six guesses; fewer
-guesses wins, the same count is a draw, and solving does not end the game —
+guesses wins, the same count is a draw, and solving does not end the game;
 your opponent still plays out the guesses they have left. Its word list is
 `duelWords()`: the five-letter half of the shared dictionary, about sixteen
 thousand words from dwyl/english-words plus a short hand-kept list of slang the
@@ -178,7 +178,7 @@ tried first and was not fit for purpose: it was missing `below`, `being` and
 
 It is the game that broke the turn model, and the reason the contract now has
 two questions rather than one. Play is *free-simultaneous*: nobody waits, so
-`GameDefinition.turn` — which assumes one active seat — reports whoever is
+`GameDefinition.turn`, which assumes one active seat, reports whoever is
 furthest behind purely to give the status line something to say. Whether a
 player may act is `canAct(state, seat)`, which every game answers and the
 server sends to each client as `RoomView.canAct`. The reducer never consults
@@ -187,7 +187,7 @@ server sends to each client as `RoomView.canAct`. The reducer never consults
 Both players' guesses and marks are open, which costs nothing and is worth
 saying why: you are each guessing the *other's* word, so their attempts on
 yours tell you only what you could already mark yourself. `view()` hides
-exactly one thing — the word your opponent set for you — and stops hiding it
+exactly one thing, the word your opponent set for you, and stops hiding it
 once you have solved it or the game is over. The word list is server-only for
 size rather than secrecy: it is the largest thing in the repo, moves are
 validated on the server, and one convenience import in the board would put a
@@ -195,22 +195,22 @@ dictionary on every phone that opens the lobby. `bundle.test.ts` holds that
 line.
 
 There is a shot clock, and it does not start with the game. Guessing runs
-untimed for as long as nobody has cracked their word — working one out from
-cold is the game, not a stall. The first solve puts everyone still hunting on
+untimed for as long as nobody has cracked their word, since working one out
+from cold is the game rather than a stall. The first solve puts everyone still hunting on
 a minute, refreshed by each guess they get in, and letting it go finishes
 them. That way the clock only ever polices the thing worth policing: a result
 standing on the board with someone who has walked away in front of it.
 
-**Yahtzee** — two to four players, thirteen rounds, highest total wins. Roll
+**Yahtzee.** Two to four players, thirteen rounds, highest total wins. Roll
 five dice, keep what you like, roll the rest up to twice more, then write the
 hand into one of your thirteen boxes. Every box takes one hand and no more,
 which is the game: a hand that fits nowhere useful still has to go somewhere.
 
 The full rules, including the two most implementations quietly drop:
 
-- **the Yahtzee bonus** — a second Yahtzee is worth 100 on top of whatever box
+- **the Yahtzee bonus**: a second Yahtzee is worth 100 on top of whatever box
   it fills, but only to a player whose Yahtzee box actually scored 50;
-- **the joker rules** — which constrain the *choice*, not only the score. A
+- **the joker rules**, which constrain the *choice* and not only the score. A
   Yahtzee rolled once that box is filled goes in its own upper box if that is
   open, otherwise in any open lower box (where full house and the straights
   pay face value, since five of a kind cannot form them), and only with the
@@ -226,9 +226,9 @@ The scoring table lives in `yahtzeeDisplay.ts` because the board needs it: a
 player picking a box is shown what the hand is worth in each one, and thirteen
 sums in your head on a phone is a worse game than the one on the box.
 
-**Liar's Dice** — two to four players, five dice each, last player holding any
+**Liar's Dice.** Two to four players, five dice each, last player holding any
 wins. Everyone rolls behind their hand; round the table you either raise the
-bid — "four 3s" claims four 3s on the *whole table*, not in your hand — or call
+bid ("four 3s" claims four 3s on the *whole table*, not in your hand) or call
 it. The dice come up, the face is counted, and whoever was wrong loses a die.
 Losing a die also hands you the next round, which is the merciful rule: the
 initiative goes to whoever is furthest behind.
@@ -236,11 +236,11 @@ initiative goes to whoever is furthest behind.
 There are two calls, and the difference between them is the difference between
 the two ways a bid can be wrong:
 
-- **liar** says the bid is too high, and is settled by "at least" — a bid stands
+- **liar** says the bid is too high, settled by "at least": a bid stands
   the moment the count *reaches* it, so "four 3s" against exactly four 3s costs
   the caller rather than splitting a tie;
 - **spot on** says the count is the bid to the die. Right, and you take a die
-  *back* — never past the five you started with — and nobody pays anything,
+  *back*, never past the five you started with, and nobody pays anything,
   which makes it the one move in the game that costs no one. Wrong, and you lose
   one like anybody else.
 
@@ -249,8 +249,8 @@ than worth pitying, and it is the only call that can be right while the bidder
 is also right.
 
 The round's bidding stays on the board as a run rather than as whatever was said
-last, because that is most of what a call is reasoned from — who climbed eagerly
-and who was dragged — and it survives the call, so the reveal can be read
+last, because that is most of what a call is reasoned from (who climbed eagerly
+and who was dragged) and it survives the call, so the reveal can be read
 against the bidding that led to it.
 
 Ones are not wild. The Perudo variant everyone half-remembers from a film
@@ -261,7 +261,7 @@ first call.
 
 It is the second game to lean on `view()`, and it leans harder than the Wheel:
 there is not one secret but one per seat. Every hand but your own is replaced
-with `HIDDEN_FACE` dice — not a face, so a hand that reaches the wrong client
+with `HIDDEN_FACE` dice, which is not a face, so a hand that reaches the wrong client
 cannot be counted even by accident, and a counting bug shows up as a zero
 rather than as a plausible wrong answer. The *lengths* survive the redaction,
 because how many dice each player is holding is public and is most of what any
@@ -269,38 +269,38 @@ bid is reasoned from.
 
 Hands go public exactly once, in the `Showdown` a call produces. It is a
 snapshot rather than a flag, which is what lets the board keep showing the
-table as it stood — every hand face up, the dice that counted marked — while
+table as it stood, every hand face up with the dice that counted marked, while
 the next round is already dealt behind it.
 
-**Battleships** — two players, five ships each, ten by ten. Set out your fleet,
+**Battleships.** Two players, five ships each, ten by ten. Set out your fleet,
 then take one shot each until one fleet is gone. Touching is allowed and
 overlapping is not, exactly as in the boxed game.
 
 The two halves behave quite differently, and everything about this game follows
 from that. **Placing is free-simultaneous**: both admirals set out at once and
 neither waits on the other. **Firing strictly alternates**, one shot each, hit
-or miss — the "another go after a hit" variant is a real way to play and
+or miss. The "another go after a hit" variant is a real way to play and
 deliberately not this one, because a lucky opening run can end the game before
 the other player has fired a shot. `room.turn` is therefore wrong about placing
 and right about firing, so nothing asks it: `canAct` is the single predicate
 that covers both, and here it is `turn` that is derived from `canAct` rather
-than the other way about — during placing there is no turn to derive from.
+than the other way about, because during placing there is no turn to derive from.
 
 `view()` keeps the one secret. Every shot either player has fired is already
-drawn on both boards, so all that is redacted is where the enemy ships *are* —
+drawn on both boards, so all that is redacted is where the enemy ships *are*,
 and a ship that has gone down is revealed outright, since the hits that sank
 her already spelled out her position. Ships keep their damage but lose their
 coordinates, which is what lets the board tell "ready" from "still setting out"
 without being told anything it should not know.
 
-**Word Hunt** — two to four players, one 4x4 grid, everybody hunting it at
-once, **two minutes on the clock**. Trace a word through touching letters —
-diagonals included, never the same cell twice — and it is yours. Biggest score
+**Word Hunt.** Two to four players, one 4x4 grid, everybody hunting it at once,
+**two minutes on the clock**. Trace a word through touching letters, diagonals
+included and never the same cell twice, and it is yours. Biggest score
 wins, and the same grid is there for everybody, so nobody is racing anyone to
 a particular word.
 
 The clock is the server's, and it starts when the last player sits down rather
-than when the room is opened — a round started at setup would tick away while
+than when the room is opened, since a round started at setup would tick away while
 the second player was still opening the link, and could be over before they
 arrived. The board holds the grid shut until then and shows a full 2:00.
 
@@ -309,19 +309,19 @@ Three things enforce it, and only the first two decide anything:
 - The reducer refuses a word that arrives after the whistle, so a client with a
   slow connection or a doctored clock cannot sneak one in.
 - `RoomEngine.tick()` settles the round when the deadline passes, and both
-  adapters arm a timer on `deadline()` — a `setTimeout` in the dev server, a
+  adapters arm a timer on `deadline()`: a `setTimeout` in the dev server, a
   Durable Object alarm in the worker. That is what makes the round end on time
   with nobody watching, which a reducer alone cannot do: a game nobody is
   playing gets no moves to notice the time in.
 - The board counts down, and does not decide anything at all. Every state
   message carries the server's clock, so the countdown measures the gap between
-  the two rather than trusting the device's own — a phone that is minutes out
+  the two rather than trusting the device's own. A phone that is minutes out
   would otherwise show a timer that disagrees with the game it is counting.
 
 Words run from three letters to eight, and length is the whole of the scoring:
 100, 400, 800, 1400, 1800, 2200. It climbs faster than length does on purpose,
 and those are the numbers the version everyone has already played on a phone
-uses — a player who knows them should not have to learn new ones. Two threes
+uses, and a player who knows them should not have to learn new ones. Two threes
 losing to one five is the game working.
 
 The dictionary is the one Word Duel validates against, cut to the same range:
@@ -340,7 +340,7 @@ three-letter words are dense enough on any sixteen letters that counting them
 measures nothing, and a grid with three hundred of them and nothing longer
 plays like a typing exercise.
 
-Like Word Duel it is free-simultaneous — `canAct`, never `turn` — and
+Like Word Duel it is free-simultaneous (`canAct`, never `turn`) and
 `wordHuntDisplay.ts` exists for the same reason `wordleDisplay.ts` does: the
 board has to know whether the letters under a dragging finger form a legal
 path, and routing that through the reducer would put the whole dictionary on
@@ -349,14 +349,14 @@ matters more here than it did: the list is a megabyte.
 
 `view()` hides one thing: the words other people have already found, since a
 list of their words is a list of yours for the copying. They are masked rather
-than dropped, and the mask is as long as the word it stands for — length is
+than dropped, and the mask is as long as the word it stands for. Length is
 what a word is worth, so the *score* survives redaction while the word does
 not. Watching an opponent's total climb while you are stuck is most of the
 tension. The answer key at the end is not redacted but uncomputed: `solve()`
 runs when the last player stops, so there is never a complete list of the
 grid's words sitting in the state for a `view()` bug to leak.
 
-Tracing works by drag or by tap and they are the same gesture underneath —
+Tracing works by drag or by tap and they are the same gesture underneath:
 cells are appended to a path, and lifting a finger submits, as does the button
 the tapping player presses, which is the one a keyboard reaches. There is no
 length at which a trace can submit itself, so something has to say "that is the
@@ -364,7 +364,7 @@ word". A trace too short to be a word is dropped in silence rather than
 refused: it is nearly always a tap on the way to somewhere else, and an error
 for that is the app telling the player off for touching it.
 
-**Nine Men's Morris** — two players, no randomness, nine men each. Place them
+**Nine Men's Morris.** Two players, no randomness, nine men each. Place them
 one at a time, then move them along the lines a point at a time; three of yours
 on one of the sixteen lines is a mill, and closing one takes an opposing man off
 the board for good. Down to two men, or out of moves, and you have lost.
@@ -373,11 +373,11 @@ Five rules make it the game rather than a drawing of one, and each is a place
 implementations usually go wrong:
 
 - **The phases are per player, not per board.** You place while you have men in
-  hand and move once you have none — and the two do not change over on the same
+  hand and move once you have none, and the two do not change over on the same
   turn, because seat 0 plays their ninth man a turn before seat 1 does. There
   is no `phase` field for that reason; `hand` is the phase.
 - **Taking is a move of its own.** The mill leaves the turn where it is and
-  waits. It is a real decision — usually the sharpest one in the game — and a
+  waits. A real decision, usually the sharpest one in the game, and a
   client that chose for you would be choosing the thing you came to play.
 - **A man in a mill is safe, until every man they have is in one.** Without the
   second half a player whose men were all milled could never be taken from
@@ -393,22 +393,22 @@ implementations usually go wrong:
 Two draws, because without them two stubborn players never finish: the same
 position for the third time, and fifty moves each with nobody taking a man.
 Both counters reset when a man comes off, since a take makes every earlier
-position unreachable — which is also what keeps the record of seen positions
+position unreachable, which is also what keeps the record of seen positions
 from growing all game.
 
 Losing is measured on men in hand *and* on the board. A player with two men out
 and five still to place is not beaten, and counting only the board is the bug
 that ends placing-phase games two moves early.
 
-**Ultimate Tic-Tac-Toe** — two players, no randomness, and one rule on top of
+**Ultimate Tic-Tac-Toe.** Two players, no randomness, and one rule on top of
 a game everybody already knows. Nine small boards in a three by three grid.
-Play a square in the small board you were sent to; the square you pick — top
-left, centre, whichever — is the small board your opponent has to play in next.
+Play a square in the small board you were sent to; the square you pick, top
+left or centre or whichever, is the board your opponent has to play in next.
 Win three small boards in a row and you win the game.
 
 That single sentence is the whole of it, and it is the reason this game is
 here: it explains in thirty seconds and does not run out of depth, because
-every move is two moves — the one you make and the one you hand over.
+every move is two moves: the one you make and the one you hand over.
 
 Three variants exist and the code picks one of each, which is the part worth
 writing down:
@@ -420,28 +420,28 @@ writing down:
   only question is "somewhere, or anywhere?" rather than a rule it could get
   wrong on its own.
 - **A small board that fills with no line in it counts for nobody.** Dead
-  ground. That is why a board's result is not a seat-or-null but a third thing
-  — `'drawn'` and `null` both mean "nobody owns this", and only one of them is
+  ground. That is why a board's result is not a seat-or-null but a third thing:
+  `'drawn'` and `null` both mean "nobody owns this", and only one of them is
   still worth playing in.
 - **All nine settled with no line is decided on boards won**, level being the
   only draw. A game that goes the distance still ends with a result.
 
 A stalemate cannot happen, and it is worth seeing why: a settled board frees
 the mover to go anywhere, and a board that is not settled has an empty square
-in it by definition. So the only ways play stops are the three endings above —
+in it by definition. So the only ways play stops are the three endings above,
 which is what the two hundred random games in `ultimate.test.ts` check, one
 ply at a time.
 
-**Letterpress** — two players, one 5x5 grid of letters, no clock and no
-randomness after the deal. Spell a word from any tiles anywhere on the grid —
-adjacency does not exist here — and every tile you used turns your colour,
+**Letterpress.** Two players, one 5x5 grid of letters, no clock and no
+randomness after the deal. Spell a word from any tiles anywhere on the grid,
+since adjacency does not exist here, and every tile you used turns your colour,
 including tiles your opponent had already taken. The grid fills up; most tiles
 wins.
 
 The one defence is the whole game. A tile with every orthogonal neighbour held
 by its own owner is **locked**: it still spells, but it cannot be taken. "All
 four sides" means all the sides it has, so a corner locks on two and an edge on
-three — which is why corners are worth taking early, and why a wall along an
+three, which is why corners are worth taking early, and why a wall along an
 edge is a structure rather than a decoration.
 
 Three consequences, and they are what make this a positional game wearing a
@@ -455,7 +455,7 @@ word game's clothes:
   position out: a leader who spent a turn taking a fourteenth tile instead of
   locking their bottom row, and lost the game to one four-letter word.
 - **Every tile is judged before any tile turns.** Otherwise the *order of the
-  letters within a word* would decide what the word took — claim a tile beside
+  letters within a word* would decide what the word took: claim a tile beside
   a locked one and the lock breaks, so the sixth letter could unlock the
   seventh. `claim()` in `letterpressDisplay.ts` reads the whole board first and
   only then writes, which is what makes "a surrounded tile is safe" true for
@@ -463,7 +463,7 @@ word game's clothes:
 
 A word is spent once anybody has played it, and so is every word that starts
 with it: CAT played means CATS and CATTLE are gone too. That second half is not
-fussiness — without it the endgame becomes PIN, PINS, PINE, PINES, one stem
+fussiness. Without it the endgame becomes PIN, PINS, PINE, PINES, one stem
 farmed for a dozen turns while the board barely moves. It does not run the
 other way, because CAT after CATS takes different tiles and is not the same
 trick twice.
@@ -476,9 +476,9 @@ a lead: a player who is ahead can offer to stop, and the one who is behind
 simply plays on.
 
 The grid is dealt rather than drawn. One seven- or eight-letter word is planted
-first — twenty-five random tiles will spell plenty of five-letter words, but the
-long word that takes a defended corner apart in a single turn is not guaranteed
-by any letter distribution — then the rest comes from a vowel-leaning bag, with
+first, because twenty-five random tiles will spell plenty of five-letter words
+but the long word that takes a defended corner apart in a single turn is not
+guaranteed by any letter distribution. The rest comes from a vowel-leaning bag, with
 the vowel count dragged into range if the bag misbehaves. The result is measured
 and redealt if it is thin. Forty measured deals ran from 766 long words to
 26,429, so the floor of 400 is a guard against the deal that goes wrong rather
@@ -488,7 +488,7 @@ than a target.
 board has to draw which tiles are locked, count what a word would take, and
 refuse a replayed word before sending it, and routing that through the reducer
 would put the whole dictionary on every phone that opens the lobby.
-`bundle.test.ts` holds that line. Nothing is hidden — there is no `view()` —
+`bundle.test.ts` holds that line. Nothing is hidden and there is no `view()`,
 because the grid, the ownership and the list of words played are the same
 information for both players, and the game is what you can see in them.
 
@@ -506,13 +506,13 @@ pointing at the player when they stop**. The throw decides.
 seen from above, separating-axis collisions, impulses with the angular term so
 a corner strike spins the die, Coulomb friction, and a damping ramp that
 guarantees every throw is over inside a second. About two hundred lines and no
-dependency — five squares in a rectangle does not need a constraint graph, and
+dependency, since five squares in a rectangle does not need a constraint graph, and
 the APK has to work offline.
 
 It lives in `shared/` **because the server runs it**. That is the whole design:
 
 - the reducer simulates the throw, reads the faces off the resting cubes, and
-  puts the throw itself on the wire as a `Toss` — a seed, the flick that threw
+  puts the throw itself on the wire as a `Toss`: a seed, the flick that threw
   them, and where the dice were standing;
 - every client re-runs the identical simulation for the animation and arrives
   at the same dice on the same faces.
@@ -523,7 +523,7 @@ table watches the *same* throw rather than each seeing dice move: the throw is
 state, like everything else here.
 
 That only works because the simulation is exactly reproducible, which is a real
-constraint on that file and not a preference. No `Math.random` — every random
+constraint on that file and not a preference. No `Math.random`: every random
 number comes from a generator seeded by the server. No `Date.now`, and a fixed
 timestep, so a 120Hz phone and a 60Hz phone agree. And the tray is measured in
 its own units rather than pixels, because a phone's tray is half the width of a
@@ -535,7 +535,7 @@ holds the reducer's faces against a replay of its own toss.
 **The odds are still even, and not because the tumble looks fair.** Each die
 starts in one of the cube's 24 orientations, drawn uniformly from the server's
 rng and independently of everything else. The simulation then applies some
-rotation to it — a complicated one, but a fixed one, because the tumbling is
+rotation to it, a complicated one but a fixed one, because the tumbling is
 driven entirely by where the die slides and never feeds back into it. A
 uniformly random orientation composed with any fixed rotation is still
 uniformly random. The physics decides which face; the draw decides that it is
@@ -548,7 +548,7 @@ flick arrives, so no amount of aiming lets a player pick their roll. It is
 clamped anyway, because "cannot be aimed" is not "can be anything".
 
 Two things about throwing them, both of which sound small and are not. The dice
-start **where they already are** — dice on a table that you throw to the left
+start **where they already are**. Dice on a table that you throw to the left
 are dice that were on the table and are now going left, not dice that gathered
 at your finger first. And a die you are keeping in Yahtzee becomes a static
 body: it stays exactly where it stopped and the others bounce off it, which is
@@ -556,13 +556,13 @@ what keeping a die actually looks like.
 
 Everything a throw decides then waits for it. Yahtzee's thirteen score previews
 stay blank, Backgammon draws no legal-move marks, and Liar's Dice holds its
-count — because a sheet that reads "full house" while a die is still rolling
+count, because a sheet that reads "full house" while a die is still rolling
 makes the die stopping into theatre. That is the rule the Wheel already
 follows, and `useLanding` is how a board says it.
 
 Liar's Dice has no tray, deliberately: nothing there is thrown across a table,
 it is rattled under a hand. What it has instead is the reveal, which is the
-same idea at the other end — the hands turn over one at a time in the order the
+same idea at the other end: the hands turn over one at a time in the order the
 bidding went, ending on the hand that was challenged, and the count waits for
 the last one. You watch the count build against the bid instead of being handed
 it.
@@ -571,7 +571,7 @@ Sound and haptics split the same way: **sound is the table, haptics are your
 hand.** Everyone hears a throw, because a throw happens at the table; only the
 player who threw feels it, because a phone that buzzed on every opponent's roll
 would be a phone face-down by the third round. The dice are synthesised rather
-than sampled — the gain and pitch of a knock come from the impulse the solver
+than sampled, so the gain and pitch of a knock come from the impulse the solver
 actually resolved, so no two are alike, which is the one thing a recording
 cannot do.
 
@@ -591,9 +591,9 @@ Two things keep it from becoming noise:
   dice too: a cue asks `feel.ts` for the audio context and gets null back while
   the preference is off, so a player who never turns it on never downloads a
   byte of this.
-- **One cue per moment.** `useTableSounds` reads `RoomView` — the same shape
-  for all eleven games, so a new game gets dealt/moved/your-turn/joined/over
-  without touching the file — and it picks *either* "your turn" or the move
+- **One cue per moment.** `useTableSounds` reads `RoomView`, the same shape for
+  all eleven games, so a new game gets dealt/moved/your-turn/joined/over
+  without touching the file, and it picks *either* "your turn" or the move
   sound, never both. A board with a better answer says so: Battleships maps to
   null and plays its own hit and miss, and then the generic rule stands down
   entirely, because in a two-player game their shot landing already is your
@@ -601,50 +601,50 @@ Two things keep it from becoming noise:
 
 ## Adding a game
 
-1. Add it to `src/shared/games/manifest.ts` — id, name, and how many can play.
+1. Add it to `src/shared/games/manifest.ts`: id, name, and how many can play.
    The manifest deliberately imports no reducer, which is what lets the lobby
    list the games without pulling every rule into the browser.
 2. Write `src/shared/games/<name>.ts` implementing `GameDefinition`, reading
    its id, name and seat range back from the manifest. Take the `rng` argument
    if the game needs chance; ignore it otherwise.
-3. Write its tests. Do this before touching any UI — it's the cheap place to
+3. Write its tests. Do this before touching any UI, the cheap place to
    get rules right.
 4. Register it in `src/shared/games/index.ts`.
-5. Write a board component in `src/client/games/` and add it to `boards.ts` —
+5. Write a board component in `src/client/games/` and add it to `boards.ts`:
    the `BOARDS` table plus a line in each of `GameStates` and `GameMoves`, so
    the compiler is the thing checking that the board and the state match.
-6. Give it a channel colour in all three places that hold the map — the two
-   `[data-game=…]` blocks in `styles.css` and `CHANNELS` in `palette.ts`.
+6. Give it a channel colour in all three places that hold the map: the two
+   `[data-game=...]` blocks in `styles.css` and `CHANNELS` in `palette.ts`.
 7. Draw its card motif, against [`docs/card-motifs.md`](docs/card-motifs.md).
 
 The lobby, rooms, join links, reconnection, turn handling and rematch are all
 game-agnostic and come for free.
 
 **Player counts are per room, not per game.** A game declares a range
-(`minPlayers`–`maxPlayers`); whoever opens the room picks a number inside it,
+(`minPlayers`-`maxPlayers`); whoever opens the room picks a number inside it,
 and that is fixed for the room's life. `setup(playerCount, rng)` is told which
 it got, seats are sized to it, and a rematch replays at the same table. Games
 with no range never show the picker. Write the reducer for the count it is
-handed rather than for two — Wheel of Fortune's turn walks `% seats`, and its
+handed rather than for two. Wheel of Fortune's turn walks `% seats`, and its
 `bank` is as long as there are players.
 
 For hidden-information games (Hearts, poker), implement the optional
 `view(state, seat)` to redact state per player. The server already calls it
-before sending — that's why each player gets their own payload rather than a
+before sending, which is why each player gets their own payload rather than a
 shared broadcast. Wheel of Fortune is the worked example, and its tests
 include the assertion worth copying: that the redaction is *applied by the
 room*, not merely available to be.
 
 ## Design
 
-**Playbill: one dark stage, four channels.** Two palettes, one design — only
+**Playbill: one dark stage, four channels.** Two palettes, one design: only
 colour changes between them; type, layout and motion are shared. The switch is
 on the setup screen and remembers your choice.
 
 Stage is the design's default, but it is not forced on a first visit: with
 nothing saved, the app opens in whichever palette `prefers-color-scheme` asks
 for, and only Stage when the system has no opinion. That opening guess is not
-written down — pressing the switch is what makes it a choice, and a choice
+written down. Pressing the switch is what makes it a choice, and a choice
 outranks the system from then on.
 
 | | Stage (default) | Daylight |
@@ -656,36 +656,66 @@ outranks the system from then on.
 
 Five neutrals and four hues, and the four do double duty: as **seats** they sit
 on pieces, as **channels** they identify a game. Each game owns one, and the
-channel themes exactly four things — the game's card, the second half of the
+channel themes exactly four things: the game's card, the second half of the
 wordmark, the emphasised word in the status line, and the primary button. Let
 it onto borders and dividers and it stops meaning anything. No gradients, no
 glows, no glassmorphism.
 
 **Type** is condensed caps for display, the system sans for body, monospace for
 data. All system stacks on purpose: the APK has to work with no network, so
-nothing may be fetched at runtime. Numbers break the rule deliberately — a
+nothing may be fetched at runtime. Numbers break the rule deliberately: a
 score takes the body face with tighter tracking and tabular figures, because it
 is a number rather than a name.
 
 **Layout** is one primitive repeated: a hairline-ruled panel at
-`--panel-radius`. Playing surfaces are the only exception — a rounder corner
+`--panel-radius`. Playing surfaces are the only exception, with a rounder corner
 and a border you can actually see. That one rule is where the hierarchy comes
 from.
 
-**Motion** is four animations, each carrying information — a counter falling so
-you can see where it landed, a ring closing on the winning line, a puzzle tile
-turning over as a letter is revealed, and the clock ticking down. On the
-winning counter the first two run in sequence. The third earns its place the
-same way: one called letter can land in four places at once, and without it you
-are left comparing the board to your memory of it. Everything decorative was
-deleted, and `prefers-reduced-motion` disables all of it.
+**Motion** carries information or it is deleted, and the test it has to pass is
+the same one every time: something arrived, and without the movement you would
+have to *notice* it rather than being shown it.
+
+The original four were a counter falling so you can see where it landed, a ring
+closing on the winning line, a Wheel of Fortune tile turning over as a letter is
+revealed, and the clock ticking down. On the winning counter the first two run
+in sequence. The third earns its place the way all of them have to: one called
+letter can land in four places at once, and without it you are left comparing
+the board to your memory of it.
+
+Four more are the same argument applied where a *reveal* was arriving in a
+single frame, and they share one mechanism worth knowing about: the thing being
+revealed is already in the DOM when the movement starts, so each of them hangs a
+veil over its own face for the first half of the turn and drops it at the
+midpoint. Without that the animation would be decoration laid over an answer
+already given, which is the exact fault it exists to fix.
+
+- **Liar's Dice** deals the hands out one at a time (`useReveal`) and now turns
+  each one over: five dice rotating in a short cascade, face down until each is
+  edge on. `REVEAL_MS` has to clear the cascade, because if the next hand starts while
+  this one is mid-flip, the reveal has no order in it.
+- **Word Duel** turns a guess's five marks over left to right rather than
+  handing them all across at once. The letter you were least sure of is nearly
+  always the last tile to go.
+- **Ultimate Tic-Tac-Toe** stamps a won small board with the winner's mark: it
+  falls, lands hard enough to raise dust, and lifts off again after half a
+  second. It has to lift, because a permanent big mark over nine small ones is two
+  shapes in one colour, which is the whole reason the board wears a tint
+  instead. This is the announcement; the tint is the record.
+- **The result panel** arrives in three beats rather than one: the border
+  closes, the winner's name drops and overshoots, the line saying why follows.
+  No confetti, and it plays identically for the winner and for whoever lost.
+
+Everything decorative was deleted, and `prefers-reduced-motion` disables all of
+it: every reveal hands over its whole answer at once, and nothing is withheld
+from anyone who asked for stillness.
 
 **Whose turn it is gets weight, not a colour wash.**
 
 ### Card motifs
 
 Each game's card in the lobby carries a crop of that game's own table,
-mid-play — built from its pieces in CSS rather than drawn as artwork, because
+mid-play, built from its pieces in CSS rather than drawn as artwork, because
 the Android build ships offline with no image assets and a disc grid says
 "Connect Four" more honestly than an illustration would. The rules they follow,
 and the register of which game owns which silhouette, are in
@@ -696,7 +726,7 @@ game, or the lobby drifts back towards eleven variations on "coloured squares".
 
 Ember and amber are the closest pair in hue, and both are used as seats. Every
 chip sits beside a name, so at four-player tables colour reinforces identity
-rather than carrying it alone — which is not true of the Connect Four board,
+rather than carrying it alone, which is not true of the Connect Four board,
 and is why the counters there also differ by ring. Seats 1 and 3 carry that
 ring everywhere they sit on a piece.
 
@@ -709,12 +739,12 @@ node scripts/make-icons.mjs   # launcher icons at every density, plus the favico
 
 Both use `scripts/png.mjs`, a small raster with a hand-rolled PNG encoder, so
 the images come from the same palette as the app with no image dependency to
-install. The launcher icon is a two-by-two of counters — the smallest fragment
+install. The launcher icon is a two-by-two of counters, the smallest fragment
 of a board that still reads as one at 48px. minSdkVersion is 24, so it ships
 both as an adaptive icon (API 26+) and as pre-baked legacy PNGs.
 
 All three are drawn in Stage, from the same six tokens the stylesheet sets on
-`:root` — `scripts/png.mjs` holds the one copy of them. They carried the
+`:root`, and `scripts/png.mjs` holds the one copy of them. They carried the
 pre-Playbill raspberry and violet for a while, which mattered more than an
 internal inconsistency usually would: the favicon and the link preview are the
 only parts of the design most people see before the app loads, so they were
@@ -724,7 +754,7 @@ advertising a palette the app no longer had.
 
 The APK is a Capacitor shell: the UI ships inside the app, and only the game
 socket goes over the network to the deployed worker. **It still needs the
-worker deployed** — the APK replaces the browser, not the server.
+worker deployed**, because the APK replaces the browser and not the server.
 
 ```
 npm run apk
@@ -739,7 +769,7 @@ by `--mode android`), so the site keeps talking to whatever origin served it.
 Installing: copy the APK to the phone and open it, accepting the "install from
 unknown sources" prompt. Both phones install the same file. It's debug-signed,
 which is fine for sideloading between friends but is not a Play Store
-artifact — and later builds install over the top as long as the debug keystore
+artifact, and later builds install over the top as long as the debug keystore
 doesn't change.
 
 Requires Android Studio's SDK; the build uses its bundled JDK. If Gradle can't
@@ -751,7 +781,7 @@ Production is Cloudflare Workers with **one Durable Object per room**, which
 means the games are always on and your own machine can be switched off.
 
 ```
-npx wrangler login     # once — opens your browser
+npx wrangler login     # once, opens your browser
 npm run deploy
 ```
 
@@ -769,12 +799,12 @@ Why this shape:
   nothing, then wakes on the next message. Turn-based games are idle almost all
   the time, so this is most of why it's free.
 - Room state is written to `state.storage`, so games survive eviction and
-  redeploys — unlike the in-memory Node dev server.
+  redeploys, unlike the in-memory Node dev server.
 - The worker serves the built client too, so the app and the socket share one
   origin and `/ws` needs no CORS or extra config.
 
-The `[[migrations]]` block uses `new_sqlite_classes`, not `new_classes` —
-SQLite-backed Durable Objects are the ones included on the free plan.
+The `[[migrations]]` block uses `new_sqlite_classes` and not `new_classes`,
+because SQLite-backed Durable Objects are the ones on the free plan.
 
 To exercise the real Workers runtime locally before deploying:
 
@@ -785,7 +815,7 @@ npm run preview:worker
 ### Free alternatives
 
 If you'd rather not use Cloudflare, `src/server/index.ts` is an ordinary Node
-process and will run on any always-on box — an Oracle Cloud Always Free VM, or
+process and will run on any always-on box: an Oracle Cloud Always Free VM, or
 a Raspberry Pi at home. You'd want to add persistence; the Durable Object gets
 it for free.
 
@@ -814,19 +844,19 @@ Run the panel with `/review`, which lives in `.claude/commands/review.md`:
 
 It routes by which files changed, spawns the relevant agents in parallel, and
 merges their findings into one report grouped by severity. Agents can also be
-invoked directly by describing a change — the `description` on each is written
+invoked directly by describing a change, and the `description` on each is written
 for that.
 
 They are read-only by design: they report, they do not edit. Each one is
 written around this project's real invariants and the bugs it has actually
-shipped — the hibernation trap, the disabled-button dimming, sticky `:hover` on
-touch — so they check for recurrences rather than reciting generic advice.
+shipped (the hibernation trap, the disabled-button dimming, sticky `:hover` on
+touch) so they check for recurrences rather than reciting generic advice.
 
 ## Bugs worth remembering
 
 **Disabling a button dims everything inside it.** Board columns are `<button>`
 elements, so a blanket `button:disabled { opacity: .45 }` washed out every
-counter on the board whenever it wasn't your turn — and completely, once the
+counter on the board whenever it wasn't your turn, and completely once the
 game ended. Unplayable is a statement about interaction, not legibility. The
 same trap applies to backgammon points, which are buttons too.
 
@@ -839,7 +869,7 @@ check. They were only found by looking at a screenshot of the running app.
 
 **A class name is global, and `.ghost` was taken.** Connect Four names its
 drop preview `.ghost` and styles it `position: absolute; inset: 0`. Battleships
-named its placement preview `.ghost` too — and this is one stylesheet, so a
+named its placement preview `.ghost` too, and this is one stylesheet, so a
 square of sea inherited the absolute positioning, left its grid, stretched to
 the size of the whole document and painted the entire page red at 55% opacity.
 `pointer-events: none` came with it, so the squares the preview was pointing at
@@ -851,19 +881,19 @@ games reach for it has to say which board it belongs to.
 **`aspect-ratio` loses to a `min-height` you forgot to reset.** The global 44px
 touch floor on `button` applies to board squares too. `.bs-cell` reset
 `min-width: 0` to escape it and did not reset `min-height`, so every square came
-out 44px tall — and `aspect-ratio: 1` then made it 44px *wide* inside a 39px
+out 44px tall, and `aspect-ratio: 1` then made it 44px *wide* inside a 39px
 grid column. Ten of them overlapped, buried the 3px gaps, and each row rendered
 as one solid black bar. The firing view was worse: 44px squares in 25px columns.
 
 Both of these were found by measuring `getBoundingClientRect()` against
 `grid-template-columns` on the running page. Checking that a move was accepted
-and no error banner appeared said nothing at all about it — the server was
+and no error banner appeared said nothing at all about it; the server was
 perfectly happy the whole time. When a report says a board "looks wrong",
 measure the boxes; do not re-verify the state machine.
 
 **"Wait for the other player" is not the same rule for every game.** The room
 turns every move away until each seat it laid out is taken, which is right for
-every game where a move is a turn — and wrong for Battleships, where setting
+every game where a move is a turn, and wrong for Battleships, where setting
 out your fleet is private, simultaneous, and precisely what there is to do
 while the invite goes unanswered. The effect was that every single tap during
 placing came back as a red error banner, so the game read as completely broken:
@@ -871,13 +901,13 @@ you could not put a ship down until your opponent happened to arrive.
 
 The fix is a game-level opt-out, `allowsEarlyMove`, rather than a special case
 in the room: the room still owns the rule, and Battleships names the three
-moves it does not apply to. Firing is not among them, and could not be anyway —
+moves it does not apply to. Firing is not among them, and could not be anyway:
 `fire` refuses during `placing`, and the phase cannot leave `placing` until
 both fleets are down.
 
 The same question has a different answer one game over. Word Hunt is
 free-simultaneous too, but its round is a race, so it wants no early moves at
-all — and its clock starts when the room fills for exactly the same reason.
+all, and its clock starts when the room fills for exactly the same reason.
 The generalisation to resist is "simultaneous games should accept early moves";
 the real one is that only the game knows.
 
@@ -885,7 +915,7 @@ the real one is that only the game knows.
 build kept the `RoomEngine` in a plain `this.engine` property and only loaded
 it from storage on join. That works right up until the room goes idle: the
 object is evicted, the sockets stay alive, and the next move arrives at a fresh
-instance where `this.engine` is null — so a perfectly legitimate player gets
+instance where `this.engine` is null, so a perfectly legitimate player gets
 told "Join a room first."
 
 Turn-based games are idle almost all the time, so this would have hit within
@@ -904,12 +934,12 @@ taken Hearts' job of proving out `view()`, and Battleships is the second game
 to lean on it.
 
 Live at https://amelias-games.anonylunt.workers.dev and shipping as a
-sideloadable Android APK, with 700 tests — including forty full random games
+sideloadable Android APK, with 700 tests, including forty full random games
 of backgammon played to completion with checker-conservation checked on every
 move, a hundred and twenty random Wheel of Fortune matches across tables of
 two, three and four, and two hundred games each of Nine Men's Morris,
 Ultimate Tic-Tac-Toe and Letterpress played out against the move list their own
-boards offer — Letterpress's checking on every ply that no locked tile ever
+boards offer, with Letterpress's checking on every ply that no locked tile ever
 changed hands.
 
 Not done yet: no PWA manifest, so the browser version won't install to the home

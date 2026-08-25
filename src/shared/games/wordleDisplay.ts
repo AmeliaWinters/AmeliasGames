@@ -33,7 +33,7 @@ export const HIDDEN = '?????';
 
 export interface WordleState {
   /**
-   * No phase has one player choosing while another guesses — the first guess
+   * No phase has one player choosing while another guesses: the first guess
    * would be against a word that does not exist yet.
    */
   phase: 'setup' | 'play' | 'over';
@@ -56,6 +56,15 @@ export interface WordleState {
   /** Guesses seat `s` needed to solve, or null if they have not solved it. */
   solvedIn: Array<number | null>;
   /**
+   * Epoch ms when seat `s`'s most recent guess landed, or null if they have
+   * not guessed. For a seat that solved this *is* the solve, since a solved
+   * seat cannot guess again, which is why one field covers both the "fastest
+   * to it" tiebreak and the one between players who never got there.
+   * See `decide` in `wordle.ts`; this game has no draws, so something has to
+   * separate two players who spent the same guesses.
+   */
+  guessedAt: Array<number | null>;
+  /**
    * Epoch ms by which seat `s` owes a guess, or null if no clock is on them.
    * Null for everyone until the first solve. Per seat: a player refreshes only
    * their own by guessing, and cannot hand anyone else a fresh minute. See
@@ -68,8 +77,11 @@ export interface WordleState {
    * argument, and the status line has to say plainly what happened.
    */
   timedOut: number[];
+  /**
+   * Always set once `phase` is `over`. There is no `draw` beside it: every
+   * finish this game can reach comes down to one seat, see `decide`.
+   */
   winner: number | null;
-  draw: boolean;
 }
 
 export type WordleMove =
@@ -78,13 +90,13 @@ export type WordleMove =
 
 /**
  * Replaced an `opponentOf` that was `seat === 0 ? 1 : 0`. Who you guess is now
- * drawn at setup, so it must be read from state — there is no "the" opponent.
+ * drawn at setup, so it must be read from state. There is no "the" opponent.
  */
 export function targetOf(state: WordleState, seat: number): number {
   return state.target[seat];
 }
 
-/** The seat guessing `seat`'s word — the other direction along the ring. */
+/** The seat guessing `seat`'s word: the other direction along the ring. */
 export function guesserOf(state: WordleState, seat: number): number {
   return state.target.findIndex((t) => t === seat);
 }
@@ -96,7 +108,7 @@ export function seatsOf(state: WordleState): number[] {
 
 /**
  * Solved, out of guesses, or out of time. The game ends when *everyone* is
- * finished, not on the first solve — the rest keep the guesses they have left.
+ * finished, not on the first solve; the rest keep the guesses they have left.
  */
 export function isFinished(state: WordleState, seat: number): boolean {
   return (
@@ -118,9 +130,9 @@ export function canAct(state: WordleState, seat: number): boolean {
 }
 
 /**
- * Ms left, or null if no clock is on them — a different thing from zero, and
- * not flattened together. Floored at zero, measured against a caller-supplied
- * `now`, because the only clock that decides anything is the server's.
+ * Ms left, or null if no clock is on them, which is a different thing from
+ * zero and not flattened together. Floored at zero, measured against a
+ * caller-supplied `now`, because the only clock that decides is the server's.
  */
 export function msLeftFor(state: WordleState, seat: number, now: number): number | null {
   if (state.phase !== 'play') return null;
@@ -139,8 +151,8 @@ export const KEY_ROWS: readonly string[] = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'
 
 /**
  * A letter keeps the *best* news it has ever had. CRANE against ABIDE marks A
- * yellow; ABIDE next turns it green and it must stay green — a downgraded key
- * would lie about a letter already placed. Own guesses only; an opponent's
+ * yellow; ABIDE next turns it green and it must stay green, since a downgraded
+ * key would lie about a letter already placed. Own guesses only; an opponent's
  * marks are against a different word.
  */
 export function keyMarks(rows: Row[]): Record<string, Mark> {

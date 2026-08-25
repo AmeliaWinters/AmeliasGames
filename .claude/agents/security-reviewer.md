@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Reviews the trust boundary — server authority, input validation, what a hostile client can do, secrets, and dependency and platform exposure. Use before deploying, and after changing the protocol, either adapter, or anything touching player identity.
+description: Reviews the trust boundary: server authority, input validation, what a hostile client can do, secrets, and dependency and platform exposure. Use before deploying, and after changing the protocol, either adapter, or anything touching player identity.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -24,7 +24,7 @@ What genuinely matters:
 ## The trust boundary
 
 Everything arriving over the WebSocket is attacker-controlled. The client is
-not a security control — disabled buttons and hidden UI are conveniences.
+not a security control; disabled buttons and hidden UI are conveniences.
 
 Verify, for both `src/server/index.ts` and `src/worker/index.ts`:
 
@@ -37,7 +37,7 @@ Verify, for both `src/server/index.ts` and `src/worker/index.ts`:
   Durable Object takes the room down for both players.
 - Room codes are validated before `idFromName`.
 - Name input is trimmed and length-capped, and rendered as text (React escapes
-  by default — flag any `dangerouslySetInnerHTML`).
+  by default, so flag any `dangerouslySetInnerHTML`).
 - A player cannot join a full room, act before joining, or act out of turn.
 
 There is an integration suite in `src/server/server.test.ts` that attacks the
@@ -49,7 +49,7 @@ deserves a hostile test there.
 Dice are the one place a player could gain real advantage. `Rng` must only ever
 be invoked server-side. Check that no code path lets a client supply, re-run,
 or observe a roll before committing to a move. `Math.random` is fine for a
-friendly game — say so rather than proposing a CSPRNG, unless a client can
+friendly game, so say so rather than proposing a CSPRNG, unless a client can
 influence it.
 
 ## Hidden information
@@ -72,7 +72,7 @@ broadcast path that would send one shared state to everyone.
 
 - No API keys, tokens or account identifiers in the repo. `.env.android` holds
   only the public deployed URL and is committed deliberately.
-- Anything in `VITE_*` is public by definition — it ships in the bundle.
+- Anything in `VITE_*` is public by definition, since it ships in the bundle.
 - Check `npm audit` and whether any dependency is doing more than it needs to.
 - `android/local.properties` must stay untracked.
 

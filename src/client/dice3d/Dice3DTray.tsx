@@ -11,9 +11,7 @@ import {
   cheerFlash,
   cheerLength,
   cheerPose,
-  inSlowMoment,
   landedBetween,
-  paceOf,
   windUp,
   WINDUP_MS,
   type CheerKind,
@@ -24,11 +22,11 @@ import {
  *
  * The replacement for `dice/DiceTray.tsx`, which drew cubes as six CSS faces
  * under `preserve-3d` and turned them by writing a `matrix3d`. Same job, same
- * props, same gesture — `flick.ts` is reused unchanged, because a flick was
- * always measured in tray widths a second and never in anything this file
- * knows about.
+ * props, same gesture: `flick.ts` is reused unchanged, because a flick was
+ * always measured in tray widths a second and never in anything this file knows
+ * about.
  *
- * ── The picture is a canvas; the interface is not ─────────────────────
+ * The picture is a canvas; the interface is not
  *
  * The dice are drawn by WebGL, but everything a player *operates* is still
  * HTML sitting on top of it: one `<button>` per die, positioned each frame
@@ -38,24 +36,24 @@ import {
  * "the dice got prettier and stopped being reachable by keyboard" is not a
  * trade anyone asked for.
  *
- * ── Who runs the simulation, and when ────────────────────────────────
+ * Who runs the simulation, and when
  *
  * The client that throws runs it **twice**. Once immediately, all the way to
- * rest, to find out what it rolled — that is what gets sent, because the
- * server no longer has a simulation to find out for itself. Then again, from
- * the same seed and the same starting places, as the animation. Two runs of
- * two milliseconds, and the second is guaranteed to agree with the first
- * because `startingFrom` is shared with the reducer.
+ * rest, to find out what it rolled, which is what gets sent because the server
+ * no longer has a simulation to find out for itself. Then again, from the same
+ * seed and the same starting places, as the animation. Two runs of two
+ * milliseconds, and the second is guaranteed to agree with the first because
+ * `startingFrom` is shared with the reducer.
  *
- * Everyone else in the room gets the seed and replays it. That was a deliberate
- * choice — see `toss.ts` — and it is why the dice are *placed* from `toss.rest`
- * whenever they are not in flight: the animation is the local replay, and the
- * record is what the scoresheet is reading.
+ * Everyone else in the room gets the seed and replays it. A deliberate choice,
+ * see `toss.ts`, and it is why the dice are *placed* from `toss.rest` whenever
+ * they are not in flight: the animation is the local replay, and the record is
+ * what the scoresheet is reading.
  */
 
 export interface Dice3DTrayProps {
   count: number;
-  /** The tray's own units. Shared with the reducer — see `dice.ts`. */
+  /** The tray's own units. Shared with the reducer, see `dice.ts`. */
   tray: Tray;
   /** What the dice landed on. Used for the spoken labels, not for the picture. */
   faces: readonly number[];
@@ -75,8 +73,8 @@ export interface Dice3DTrayProps {
    * Counted rather than compared, like every other repeatable event in this
    * app: two Yahtzees in two rounds are two of them, and `{ kind: "all" }`
    * twice running is indistinguishable from `{ kind: "all" }` once. The board
-   * decides *whether* — it is the one that knows the rules — and this decides
-   * when and what it looks like, which is why three games can share it.
+   * decides *whether*, being the one that knows the rules, and this decides when
+   * and what it looks like, which is why three games can share it.
    */
   cheer?: { n: number; kind: CheerKind } | null;
   /** What the tray is, for anyone who cannot see it. */
@@ -105,8 +103,8 @@ export type { CheerKind };
  * What a board can ask the tray to do.
  *
  * One thing, and it exists because the physics now lives in here. Both dice
- * games put a "Roll" button beside the tray — the floor, not the ceiling: the
- * same throw for a thumb that would rather press something, and the one a
+ * games put a "Roll" button beside the tray, the floor rather than the ceiling:
+ * the same throw for a thumb that would rather press something, and the one a
  * keyboard reaches without focusing the tray. That button is outside this
  * component and cannot run a simulation, and having it send a move with no
  * throw in it would quietly give the keyboard player the server's fallback
@@ -128,7 +126,7 @@ function dieLabel(index: number, face: number, held: boolean, flying: boolean): 
  * A dynamic `import()` so that Wheel, Letterpress, Word Hunt and the other six
  * games never download a physics engine and a 3D renderer to draw a board that
  * has no dice on it. Cached as the promise rather than the result, so two trays
- * mounting together — Liar's Dice shows one per player — make one request.
+ * mounting together (Liar's Dice shows one per player) make one request.
  */
 let loading: Promise<{ engine: typeof Engine; scene: typeof import("./scene.js") }> | null = null;
 function load() {
@@ -181,13 +179,13 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     The slow moment and the flourish are marked by writing classes straight
     onto a node, sixty times a second, because routing them through React would
     re-render every die button on the tray to catch a border colour. React,
-    though, owns `className` on any element it renders — the moment `armed` or
+    though, owns `className` on any element it renders: the moment `armed` or
     `throwable` changes it rewrites the whole attribute and takes anything
     written by hand with it. This element's `className` is a constant, so React
     never writes it after the first render and never has anything to take.
   */
   const beat = useRef<HTMLDivElement>(null);
-  /* Two trays can be on screen at once — Liar's Dice shows every player's — so
+  /* Two trays can be on screen at once, Liar's Dice showing every player's, so
      the hint's id has to be unique per instance or `aria-describedby` points
      every tray at the first one's line. */
   const hintId = useId();
@@ -252,7 +250,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
   );
 
   // Build the renderer once the modules are here, and give the GPU back when
-  // this tray goes away — a dropped WebGL context still counts against a small
+  // this tray goes away. A dropped WebGL context still counts against a small
   // per-page limit, and Liar's Dice plus a rematch is enough to reach it.
   useLayoutEffect(() => {
     if (!ready || !box.current || !kit.current) return;
@@ -268,9 +266,9 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     Where the dice sit when nothing is happening: where the last throw left
     them, or in a row if there has not been one.
 
-    One expression, used by both the effect below and the resize observer.
-    They used to differ — the effect fell back to a row and the observer only
-    redrew `if (idle)` — so a tray that had never been thrown into resized its
+    One expression, used by both the effect below and the resize observer. They
+    used to differ, the effect falling back to a row and the observer only
+    redrawing `if (idle)`, so a tray that had never been thrown into resized its
     canvas and then never repainted, leaving five dice drawn for the old width
     and five buttons sitting wherever they had been. It showed at 320px, which
     is where everything in this project shows.
@@ -280,14 +278,14 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     [toss, tray, count],
   );
   /* Where the dice are lying, reachable from a loop that outlived the render
-     that knew. A ref rather than a dependency so `startCheer` stays stable —
-     it is held by the throw's own loop, and a new identity every time the dice
+     that knew. A ref rather than a dependency so `startCheer` stays stable: it
+     is held by the throw's own loop, and a new identity every time the dice
      move would mean the loop holding a stale one for the length of a throw. */
   const lie = useRef(resting);
   lie.current = resting;
 
   // Where the dice are when nothing is happening. Not while a throw is running,
-  // and not for a throw about to start either — this effect is declared before
+  // and not for a throw about to start either: this effect is declared before
   // that one and would otherwise stand the dice on their finishing places a
   // moment before the throw put them back.
   useLayoutEffect(() => {
@@ -297,8 +295,8 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     place(resting);
   }, [ready, place, resting, toss]);
 
-  // And again whenever the tray changes size — the positions are in tray
-  // units, so a phone turning sideways only changes the scale.
+  // And again whenever the tray changes size. The positions are in tray units,
+  // so a phone turning sideways only changes the scale.
   useLayoutEffect(() => {
     const el = box.current;
     if (!el || typeof ResizeObserver !== "function") return;
@@ -322,9 +320,9 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
    * Its own animation loop and its own handle, because it is not part of the
    * throw: the dice have already been reported, the scoresheet beside the tray
    * has already been written, and nothing this does is ever read back. That is
-   * also the safety argument — see `beats.ts` for why the hop is scripted
-   * rather than thrown, and why a turn about the world's vertical axis is the
-   * one kind of spin that cannot change the number on top.
+   * also the safety argument: see `beats.ts` for why the hop is scripted rather
+   * than thrown, and why a turn about the world's vertical axis is the one kind
+   * of spin that cannot change the number on top.
    */
   const startCheer = useCallback(
     (kind: CheerKind) => {
@@ -339,9 +337,9 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       if (wantsStillness()) {
         /*
           The moment still happens; it simply does not move. The rim takes its
-          tint — a colour is not motion, and the one player who most needs to
-          be told something rare occurred is the one who cannot watch it do so —
-          and the dice are left lying exactly where they are.
+          tint, a colour not being motion, and the one player who most needs
+          telling something rare occurred is the one who cannot watch it. The
+          dice are left lying exactly where they are.
         */
         el.classList.add("cheering", "still");
         clatter(0.85, false, 1.35);
@@ -360,7 +358,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         if (opened === 0) opened = now;
         const ms = now - opened;
         // Each die is heard as it touches down, a little higher than the one
-        // before it — which is what makes a row of identical knocks a run.
+        // before it, which is what makes a row of identical knocks a run.
         for (const i of landedBetween(kind, many, was, ms)) {
           clatter(0.8, false, 1 + i * 0.13);
         }
@@ -391,8 +389,8 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     in this app exists: two Yahtzees in two rounds are two events, and one
     compared by value would fire once. Held back while a throw is running,
     because the move that says "five alike" arrives while the dice that say so
-    are still in the air — celebrating a number before it is on the table gives
-    the result away and then plays the reveal.
+    are still in the air, and celebrating a number before it is on the table
+    gives the result away and then plays the reveal.
   */
   useLayoutEffect(() => {
     if (!ready || !cheer || cheer.n === cheered.current) return;
@@ -410,8 +408,8 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     const keeping = latest.current.held ?? [];
 
     if (wantsStillness()) {
-      // The dice still land where and how they landed — they just get there at
-      // once, and nothing is held back. The bargain the Wheel already strikes.
+      // The dice still land where and how they landed, they just get there at
+      // once and nothing is held back. The bargain the Wheel already strikes.
       place(toss.rest);
       clatter(0.6, false);
       if (latest.current.mine) buzz(10);
@@ -422,12 +420,11 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     /*
       The whole flick, aim included.
 
-      `ax`/`ay` used to be dropped here — the spec was built as a fresh
-      `{ x, y }` literal — and that is not a tidier way of saying the same
-      thing. `entryOf` reads the aim to decide which edge of the tray the dice
-      come in by, and a replay without it enters them somewhere else entirely,
-      runs a different throw, and then snaps to the reported resting places at
-      the end. `toss.ts` says it in as many words where it stores the field:
+      `ax`/`ay` used to be dropped here, the spec being built as a fresh
+      `{ x, y }` literal, and that is not a tidier way of saying the same thing.
+      `entryOf` reads the aim to decide which edge of the tray the dice come in
+      by, and a replay without it enters them somewhere else entirely, runs a
+      different throw, and then snaps to the reported resting places at the end. `toss.ts` says it in as many words where it stores the field:
       "a re-run missing where the dice came in from lands them somewhere else."
     */
     const spec = {
@@ -439,19 +436,14 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       held: keeping,
     };
 
-    // Run it once with nobody watching, to find out where its beats are — see
-    // `scoutThrow`. Two milliseconds, and it is what lets the slow moment start
-    // *before* the contact it is there for.
-    const beats = mods.engine.scoutThrow(spec);
-
     const world = mods.engine.openThrow(spec);
     live.current = world;
 
     /*
       The handful leaving the table.
 
-      `placedOf` is where `openThrow` put the dice — up in the air, already
-      moving — and `toss.from` is where they were lying before it. The wind-up
+      `placedOf` is where `openThrow` put the dice, up in the air and already
+      moving, and `toss.from` is where they were lying before it. The wind-up
       draws the journey between the two, and until it is over the physics has
       not been stepped at all: `last` stays zero, so the first stepped frame
       measures its delta from the release rather than from the wind-up's start
@@ -483,26 +475,21 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         // buzz at the top of the wind-up is a buzz for the pick-up.
         if (latest.current.mine) buzz(16);
       }
-      // Capped, so a tab that was hidden for a minute does not try to simulate
-      // a minute of dice the moment it comes back.
       /*
-        Real time, remapped.
+        Real time, and only real time.
 
-        `paceOf` runs the clock slowly through the contact that settles the last
-        die and then faster than life through the tail behind it. It is time
-        being handed out, not physics being changed: the same steps happen in
-        the same order and compute the same thing, so the dice still land
-        exactly where the throw already reported they did.
+        The clock used to be remapped here (a third of life through the throw's
+        decisive contact, four times life through the tail) and it is now handed
+        out exactly as it arrives. `beats.ts` keeps the note on why that went;
+        the short version is that dice are a thing everyone has watched land,
+        and a throw that changes speed partway through reads as broken rather
+        than as emphasis.
+
+        Capped, so a tab that was hidden for a minute does not try to simulate a
+        minute of dice the moment it comes back.
       */
-      carried +=
-        (Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000) *
-        paceOf(running.steps, beats);
+      carried += Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000;
       last = now;
-      // Directly on the node rather than through state: this changes on the
-      // frame the beat starts and again on the frame it ends, and routing two
-      // class toggles through React would re-render the whole tray sixty times
-      // a second to catch them.
-      beat.current?.classList.toggle("slowed", inSlowMoment(running.steps, beats));
 
       let moving = 1;
       let steps = 0;
@@ -519,8 +506,13 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       let loudest: Engine.Hit | null = null;
       for (const hit of heard) if (!loudest || hit.impulse > loudest.impulse) loudest = hit;
       if (loudest) {
-        clatter(Math.min(loudest.impulse / 900, 1), loudest.wall);
-        if (latest.current.mine && loudest.impulse > 300) buzz(7);
+        // 10,000 is the median loudest contact of a throw, measured, see
+        // `QUIET`, so a typical throw's hardest hit is a full-volume one and
+        // the unusually hard ones clamp rather than the ordinary ones being
+        // quiet. Both numbers moved by the same factor when the physics was
+        // rescaled to centimetres, and neither means anything on its own.
+        clatter(Math.min(loudest.impulse / 10000, 1), loudest.wall);
+        if (latest.current.mine && loudest.impulse > 3300) buzz(7);
       }
 
       paint(mods.engine.placedOf(running));
@@ -530,15 +522,14 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         return;
       }
       if (steps === 0) {
-        // Nothing was stepped this frame — the accumulator has not filled yet.
-        // Not the end of the throw; just a frame that arrived early.
+        // Nothing was stepped this frame; the accumulator has not filled yet.
+        // Not the end of the throw, just a frame that arrived early.
         pending.current = requestAnimationFrame(frame);
         return;
       }
       pending.current = 0;
       mods.engine.disposeThrow(running);
       live.current = null;
-      beat.current?.classList.remove("slowed");
       /*
         Placed from the record rather than left where the local replay stopped.
 
@@ -608,8 +599,8 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
 
   const { handlers, armed } = useFlick({
     // A tap on a die is this gesture too, so the tray has to be listening even
-    // when there is nothing to throw — otherwise keeping all five in Yahtzee
-    // disables the throw and takes releasing one down with it.
+    // when there is nothing to throw, or keeping all five in Yahtzee disables
+    // the throw and takes releasing one down with it.
     enabled: (Boolean(onThrow) || Boolean(onTapDie && keepable)) && ready,
     onThrow: onThrow ? throwNow : undefined,
     onTapDie,
@@ -621,17 +612,17 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
     Whether any die is hard to read where it lies.
 
     Real cubes may finish on top of one another, wedged against a wall, or
-    simply nose to nose from where this camera is standing — and a die under
-    another one is a number the player cannot read and a target they cannot
-    hit. The physics is left alone about it, deliberately: shoving the dice
-    apart afterwards would mean the tray showing something the throw did not
-    do. What changes is the *reading*, and only when there is something to fix.
+    simply nose to nose from where this camera is standing, and a die under
+    another one is a number the player cannot read and a target they cannot hit.
+    The physics is left alone about it, deliberately: shoving the dice apart
+    afterwards would mean the tray showing something the throw did not do. What
+    changes is the *reading*, and only when there is something to fix.
 
     Two ways to be buried, and both are asked at rest rather than in flight,
     where every die is briefly on top of every other one:
 
-      · standing above the floor at all, which means on top of something;
-      · overlapping another die on screen, which is the same problem arriving
+      - standing above the floor at all, which means on top of something;
+      - overlapping another die on screen, which is the same problem arriving
         through the camera rather than through the pile.
   */
   const buried = useMemo(() => {
@@ -664,20 +655,20 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
       role={throwable ? "button" : "group"}
       tabIndex={throwable ? 0 : undefined}
       aria-label={label}
-      // The hint below says how — flick to throw, tap a die to keep it.
-      // Described rather than labelled: the label is the state, this is the
-      // instruction, and a screen reader reads the two in that order.
+      // The hint below says how: flick to throw, tap a die to keep it.
+      // Described rather than labelled, since the label is the state and this
+      // is the instruction, and a screen reader reads the two in that order.
       aria-describedby={hint ? hintId : undefined}
       {...handlers}
     >
-      {/* The beats. Empty and inert until a class is written onto it — see the
+      {/* The beats. Empty and inert until a class is written onto it, see the
           ref's note above, and `dice.css` for why being under the canvas is
           where this belongs rather than a stacking bug. */}
       <div ref={beat} className="dice-beat" aria-hidden="true" />
       {Array.from({ length: count }, (_, i) => {
         const spot = spots[i];
         /*
-          A die with nowhere to be is a die that was not thrown — Backgammon
+          A die with nowhere to be is a die that was not thrown: Backgammon
           draws a double as four moves but only ever throws two cubes. The
           canvas hides the cube; this hides its button, so a screen reader is
           not offered a die that is not on the table.
@@ -712,9 +703,9 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
               : { "aria-pressed": Boolean(held?.[i]), "aria-label": dieLabel(i, faces[i] ?? 0, Boolean(held?.[i]), flying) })}
             style={style}
             /*
-              Keyboard only. A tap is already the flick gesture's business —
-              the tray captures the pointer, so a click here would either never
-              arrive or arrive as well, and toggling twice is worse than
+              Keyboard only. A tap is already the flick gesture's business,
+              since the tray captures the pointer, so a click here would either
+              never arrive or arrive as well, and toggling twice is worse than
               either. Stopped from bubbling, or the tray would read Enter on a
               die as Enter on the tray and throw them.
             */
@@ -735,7 +726,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         drawn smallest and read worst, and a bar over it covers less than one
         over the near end would. `data-die` rather than an `onClick`, because
         the tray takes the pointer capture on the way down and a click handler
-        on a child of it either never fires or fires twice — the same reason
+        on a child of it either never fires or fires twice, the same reason
         the cubes' own buttons are keyboard-only.
       */}
       {buried && (

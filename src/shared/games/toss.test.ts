@@ -2,8 +2,8 @@
  * A throw as it arrives from a client, which is to say: anything at all.
  *
  * `readThrow` and `readFlick` are the whole of what the rules still check
- * about a throw, now that the simulation runs on the client that threw it —
- * see the note in `toss.ts` about what that does and does not buy. This file
+ * about a throw, now that the simulation runs on the client that threw it.
+ * See the note in `toss.ts` about what that does and does not buy. This file
  * is about the part that is still enforceable: the shape.
  */
 
@@ -101,7 +101,7 @@ describe('the next throw', () => {
     /*
       The property that makes a replay a replay. The reducer stores a `Toss`
       and every other client re-runs it, so anything `openThrow` reads has to
-      survive the trip — the aim was added to `Flick` after `x` and `y`, and
+      survive the trip. The aim was added to `Flick` after `x` and `y`, and
       dropping it here would have lost it silently on every device but the one
       that threw.
     */

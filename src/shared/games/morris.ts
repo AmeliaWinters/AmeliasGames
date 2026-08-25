@@ -21,27 +21,26 @@ import {
 } from './morrisDisplay.js';
 
 /**
- * Nine Men's Morris — mills, and the whole of the rest of it.
+ * Nine Men's Morris: mills, and the whole of the rest of it.
  *
  * The board, the mills and every predicate over a position live in
  * `morrisDisplay.ts`, which the client's board imports too; this file is the
- * rules on top of them. Everything it re-exports below is so the tests and the
- * server carry on importing a game from one module.
+ * rules on top of them. The re-exports below let the tests and the server
+ * import a game from one module.
  *
- * The game runs in two phases, and they are per player rather than global:
- * while you have men in hand you place one, and once your hand is empty you
- * move one. Those do not change over on the same ply — seat 0 places their
- * ninth man a ply before seat 1 does — so a single `phase` field on the state
- * would be wrong for one of the two players for exactly one move. `hand` is
- * the phase, and `mustPlace` asks it.
+ * The game runs in two phases, per player rather than global: while you have
+ * men in hand you place one, and once your hand is empty you move one. They do
+ * not change over on the same ply, since seat 0 places their ninth man a ply
+ * before seat 1 does, so a single `phase` field would be wrong for one of the
+ * players for exactly one move. `hand` is the phase, and `mustPlace` asks it.
  *
- * Closing a mill — three of your men on one of the sixteen lines — takes one
- * of the opponent's men off the board for good. That take is a move of its
- * own, so the sequence for a mill is two moves by the same seat.
+ * Closing a mill, three of your men on one of the sixteen lines, takes one of
+ * the opponent's men off for good. That take is a move of its own, so a mill
+ * is two moves by the same seat.
  *
- * A player loses when they are down to two men, or when they cannot move.
- * Both are checked when the turn changes hands rather than when the damage is
- * done, which is the only moment either can become true.
+ * A player loses when they are down to two men, or when they cannot move. Both
+ * are checked when the turn changes hands, the only moment either can become
+ * true.
  *
  * Two draws exist because the game needs them: threefold repetition, and fifty
  * moves each without a man being taken. Without those, two players who both
@@ -92,15 +91,15 @@ function isOver(state: MmState): boolean {
 /**
  * Hand the turn over, and see whether that is the end of the game.
  *
- * Everything that can finish a game finishes it here, because the moment the
- * turn changes is the only moment any of it can become true. A player is not
- * beaten for being down to two men *during* their opponent's mill — they are
- * beaten when it is their turn and they have two men and nothing to do with
- * them.
+ * Everything that can finish a game finishes it here, because the turn
+ * changing is the only moment any of it can become true. A player is not
+ * beaten for being down to two men *during* their opponent's mill; they are
+ * beaten when it is their turn, they have two men, and there is nothing to do
+ * with them.
  *
- * `irreversible` marks a ply that no later position can undo: a placement, or
- * a man taken off. Both reset the two draw counters, since nothing before them
- * can ever come round again.
+ * `irreversible` marks a ply no later position can undo: a placement, or a man
+ * taken off. Both reset the draw counters, since nothing before them can come
+ * round again.
  */
 function handOver(state: MmState, mover: 0 | 1, irreversible: boolean): MmState {
   const next = other(mover);
@@ -121,7 +120,7 @@ function handOver(state: MmState, mover: 0 | 1, irreversible: boolean): MmState 
   }
 
   // The draw counters only run once both players are moving men about. While
-  // anybody still has a man in hand the position cannot repeat — every
+  // anybody still has a man in hand the position cannot repeat, because every
   // placement puts one more man on the board than the last time round.
   const settled = passed.hand[0] === 0 && passed.hand[1] === 0;
   if (!settled || irreversible) {
@@ -150,13 +149,13 @@ function handOver(state: MmState, mover: 0 | 1, irreversible: boolean): MmState 
  * Follow a man landing on `to` with whatever it caused: a mill and the take it
  * owes, or the turn passing on.
  *
- * A line through `to` that is complete now is a line that was not complete
- * before, whatever the man did to get there — `to` was empty a moment ago, so
- * it could not have held the third man of its own mill. That is why closing a
- * mill needs no comparison against the previous position, and why stepping a
- * man out of a mill and straight back in closes it again. The repetition rule
- * is what stops that being an infinite supply of men, and it is the reason
- * this reducer counts positions at all.
+ * A line through `to` that is complete now was not complete before, whatever
+ * the man did to get there, because `to` was empty a moment ago and could not
+ * have held the third man of its own mill. That is why closing a mill needs no
+ * comparison against the previous position, and why stepping a man out of a
+ * mill and straight back in closes it again. The repetition rule is what stops
+ * that being an infinite supply of men, and the reason this reducer counts
+ * positions at all.
  */
 function afterLanding(state: MmState, mover: 0 | 1, to: number, irreversible: boolean): MmState {
   const closed = millsThrough(state.board, to);
@@ -167,8 +166,8 @@ function afterLanding(state: MmState, mover: 0 | 1, to: number, irreversible: bo
   const marked: MmState = { ...state, closed: [...new Set(closed.flat())] };
 
   // Two mills at once still take one man: it is one mill-closing move, not
-  // two. And a mill closed against an opponent with nothing takeable — which
-  // needs them to have no men on the board at all — takes nothing rather than
+  // two. And a mill closed against an opponent with nothing takeable (which
+  // needs them to have no men on the board at all) takes nothing rather than
   // stalling the game on a move that cannot be made.
   if (takeable(marked.board, other(mover)).length === 0) {
     return handOver(marked, mover, irreversible);
@@ -217,7 +216,7 @@ export const morris: GameDefinition<MmState, MmMove> = {
     // carry on is told what the board is actually waiting for.
     if (state.taking !== null) {
       if (move.type !== 'take') {
-        return { ok: false, error: 'You closed a mill — take one of their men.' };
+        return { ok: false, error: 'You closed a mill, so take one of their men.' };
       }
       if (!isPoint(move.at)) {
         return { ok: false, error: 'That point does not exist.' };
@@ -276,7 +275,7 @@ export const morris: GameDefinition<MmState, MmMove> = {
     }
 
     if (move.type !== 'move') {
-      return { ok: false, error: 'You have no men left to place — move one.' };
+      return { ok: false, error: 'You have no men left to place, so move one.' };
     }
     if (!isPoint(move.from) || !isPoint(move.to)) {
       return { ok: false, error: 'That point does not exist.' };
@@ -310,7 +309,7 @@ export const morris: GameDefinition<MmState, MmMove> = {
   },
 
   turn(state) {
-    // Deliberately not `this.isOver` — GameDefinition promises nothing about
+    // Deliberately not `this.isOver`: GameDefinition promises nothing about
     // method binding, so a destructured `turn` would throw.
     return isOver(state) ? null : state.turn;
   },
@@ -328,7 +327,7 @@ export const morris: GameDefinition<MmState, MmMove> = {
       const loser = nameFor(other(state.winner));
       const how =
         state.ending === 'blocked' ? `${loser} has no move left` : `${loser} is down to two men`;
-      return `${nameFor(state.winner)} wins — ${how}`;
+      return `${nameFor(state.winner)} wins: ${how}`;
     }
     if (state.draw) {
       return state.ending === 'repetition'
@@ -336,14 +335,14 @@ export const morris: GameDefinition<MmState, MmMove> = {
         : 'A draw. Fifty moves each and nobody has taken a man.';
     }
     if (state.taking !== null) {
-      return `${nameFor(state.taking)} has a mill — taking one of their men`;
+      return `${nameFor(state.taking)} has a mill and is taking one of their men`;
     }
     if (mustPlace(state, state.turn)) {
       const left = state.hand[state.turn];
-      return `${nameFor(state.turn)} to place — ${left} ${left === 1 ? 'man' : 'men'} in hand`;
+      return `${nameFor(state.turn)} to place, ${left} ${left === 1 ? 'man' : 'men'} in hand`;
     }
     if (canFly(state, state.turn)) {
-      return `${nameFor(state.turn)} to fly — three men left`;
+      return `${nameFor(state.turn)} to fly, three men left`;
     }
     return `${nameFor(state.turn)} to move`;
   },

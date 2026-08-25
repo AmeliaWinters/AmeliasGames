@@ -40,38 +40,37 @@ export type { Mark, Row, WordleMove, WordleState } from './wordleDisplay.js';
  * Wordle as a duel. Everybody sets a five-letter word, everybody is pointed at
  * somebody else's, and they all work on it at once.
  *
- * Two to eight play. The pointing is a random ring drawn at setup — see
- * `target` on `WordleState` — which is what guarantees nobody is handed their
- * own word and nobody is left without one. At two players there is only one
- * such ring, which is how this game spent its first life as a head-to-head
- * with `opponentOf(seat)` hardcoded to `seat === 0 ? 1 : 0`.
+ * Two to eight play. The pointing is a random ring drawn at setup (see
+ * `target` on `WordleState`), which guarantees nobody is handed their own word
+ * and nobody is left without one. At two players there is only one such ring,
+ * which is how this game spent its first life as a head-to-head with
+ * `opponentOf(seat)` hardcoded to `seat === 0 ? 1 : 0`.
  *
  * Two things here are unlike every other game in this repo:
  *
  * 1. **Nobody waits.** Play is free-simultaneous: a player may guess whenever
  *    they have a guess left, regardless of what the opponent is doing. The
  *    `turn` field of `GameDefinition` assumes one active seat, so it reports
- *    whoever is furthest behind purely as a hint for the status line —
+ *    whoever is furthest behind purely as a hint for the status line and
  *    `applyMove` never consults it. Anything deciding whether a player may act
- *    must ask `canAct`, not `turn`.
+ *    asks `canAct`, not `turn`.
  *
  * 2. **The only secret is the word.** Everyone's guesses and marks are open,
  *    and that costs nothing: their guesses at a word tell you only what you
  *    could work out by marking them yourself. `view()` therefore hides the
- *    words themselves, and only until they can no longer help — the one you
- *    are guessing is revealed once you are finished with it, because losing
- *    without ever learning the word is the unsatisfying ending.
+ *    words themselves, and only until they can no longer help: the one you are
+ *    guessing is revealed once you are finished with it, because losing without
+ *    ever learning the word is the unsatisfying ending.
  *
  * 3. **There is a shot clock, and a solve is what starts it.** Until somebody
  *    cracks the word they were pointed at, the game is untimed and everyone
  *    may think as long as they like. The first solve puts everyone still
- *    playing on `GUESS_MS` — one minute — and from then on a player's own
- *    guess is what buys them the next minute: see `reclock` for the whole of
- *    the rule. `expire` catches a minute that has gone, which the room calls
- *    off a timer, so a player who walks away once the race is on is finished
- *    rather than leaving everyone else waiting forever. A client counting down
- *    is showing the player a number; the server's clock is the one that
- *    decides.
+ *    playing on `GUESS_MS`, one minute, and from then on a player's own guess
+ *    buys them the next minute. See `reclock` for the whole rule. `expire`
+ *    catches a minute that has gone, which the room calls off a timer, so a
+ *    player who walks away once the race is on is finished rather than leaving
+ *    everyone else waiting forever. A client counting down is showing the
+ *    player a number; the server's clock decides.
  */
 
 /**
@@ -108,32 +107,52 @@ export function markGuess(guess: string, secret: string): Mark[] {
 }
 
 /**
- * Fewer guesses wins; solving beats not solving; a shared best is a draw, and
- * so is nobody solving at all. Nothing here breaks a tie by who finished
- * first — under free-simultaneous play that would hand the game to the faster
- * typist rather than the better guesser.
+ * Fewer guesses wins; solving beats not solving; and nothing here ends level,
+ * because this game has no draw. Every finish comes down to one seat.
  *
- * The last clause is the one that is easy to get wrong. When nobody solved,
- * a player who was still trying beats one who walked away, so a game where
- * everyone but one player let their clock go is a win for whoever was left —
- * not the draw that ranking solvers alone would produce.
+ * The tiebreak is the clock: two players who spent the same guesses are
+ * separated by who got there first, read off `guessedAt`. Play is
+ * free-simultaneous and everybody starts the moment the last word is set, so
+ * "first" and "fastest" are the same measurement. It cuts against the old rule
+ * here, which refused to break a tie on time because it hands the game to the
+ * faster typist. True, and the price of never ending level.
+ *
+ * The same ladder settles a game nobody won, since nobody solving *is* a tie
+ * on guesses: a player who was still trying beats one who walked away, and
+ * beyond that it is again whoever finished sooner. A seat that never guessed
+ * is last, and two seats that match on every rung go to the lower one:
+ * arbitrary, but it has to be something and it has to be pure.
  */
-function decide(state: WordleState): { winner: number | null; draw: boolean } {
-  const seats = seatsOf(state);
-  const solvers = seats.filter((seat) => state.solvedIn[seat] !== null);
+function decide(state: WordleState): number {
+  return seatsOf(state).reduce((best, seat) => (ahead(state, seat, best) ? seat : best));
+}
 
-  if (solvers.length > 0) {
-    const best = Math.min(...solvers.map((seat) => state.solvedIn[seat] as number));
-    const winners = solvers.filter((seat) => state.solvedIn[seat] === best);
-    return winners.length === 1
-      ? { winner: winners[0], draw: false }
-      : { winner: null, draw: true };
+/**
+ * Whether `a` finishes ahead of `b`. Strictly: equal on every count keeps `b`,
+ * which is how `decide`'s reduce lands on the lower seat.
+ */
+function ahead(state: WordleState, a: number, b: number): boolean {
+  const solvedA = state.solvedIn[a];
+  const solvedB = state.solvedIn[b];
+
+  if ((solvedA === null) !== (solvedB === null)) return solvedB === null;
+  if (solvedA !== null && solvedB !== null && solvedA !== solvedB) return solvedA < solvedB;
+
+  if (solvedA === null) {
+    // Neither got there. Still trying beats walking away, so a game where
+    // everyone but one player let their clock go is a win for whoever was
+    // left, not a tie on the six guesses nobody landed.
+    const goneA = state.timedOut.includes(a);
+    const goneB = state.timedOut.includes(b);
+    if (goneA !== goneB) return goneB;
   }
 
-  const standing = seats.filter((seat) => !state.timedOut.includes(seat));
-  return standing.length === 1
-    ? { winner: standing[0], draw: false }
-    : { winner: null, draw: true };
+  return endedAt(state, a) < endedAt(state, b);
+}
+
+/** When a seat last guessed, which is its solve if it solved. Never guessed is last. */
+function endedAt(state: WordleState, seat: number): number {
+  return state.guessedAt[seat] ?? Infinity;
 }
 
 /**
@@ -171,7 +190,7 @@ function readWord(raw: unknown): MoveResult<string> {
     return { ok: false, error: `Words are ${WORD_LENGTH} letters.` };
   }
   if (!/^[A-Z]+$/.test(word)) {
-    return { ok: false, error: 'Letters only — no spaces, digits or punctuation.' };
+    return { ok: false, error: 'Letters only, no spaces, digits or punctuation.' };
   }
   if (!isDuelWord(word)) {
     return { ok: false, error: `${word} is not in the word list.` };
@@ -213,14 +232,14 @@ function setWord(state: WordleState, word: string, seat: number): MoveResult<Wor
  *    it is the one that starts them.
  * 2. **Once somebody has solved, everyone still playing is on a clock.** The
  *    game now has a result standing and the only thing between it and the
- *    scoreboard is the players who have not answered it — which is exactly the
+ *    scoreboard is the players who have not answered it, which is exactly the
  *    stall worth putting a whistle on. The mover buys their own next minute by
  *    guessing; everyone else keeps the clock they are already on rather than
- *    being handed a fresh one, so a player firing off guesses cannot top up
- *    the others and a player under pressure cannot buy time by making somebody
- *    else move.
+ *    being handed a fresh one, so a player firing off guesses cannot top up the
+ *    others and a player under pressure cannot buy time by making somebody else
+ *    move.
  * 3. **A seat that can no longer act has no clock.** Solved, out of guesses or
- *    timed out — there is nothing left for it to be late for.
+ *    timed out, there is nothing left for it to be late for.
  *
  * At two players this reads simply: guess away untimed, and the moment one of
  * you gets it the other has a minute per guess to catch up.
@@ -254,7 +273,7 @@ function guess(
     return { ok: false, error: 'You are out of guesses.' };
   }
   // Belt and braces. The room settles the clock before every move it applies,
-  // so a guess this late normally meets a game that is already over — but the
+  // so a guess this late normally meets a game that is already over. The
   // reducer is not entitled to assume its caller did that.
   if (outOfTime(state, seat, now)) {
     return { ok: false, error: 'Your minute is up.' };
@@ -273,14 +292,24 @@ function guess(
   const solvedIn = state.solvedIn.slice();
   if (word === secret) solvedIn[seat] = rows.length;
 
-  const next: WordleState = { ...state, guesses, solvedIn };
+  // When this guess landed, which is what separates two players who spend the
+  // same number of them. Stamped on every guess rather than only on a solve:
+  // a game nobody solves is a tie on guesses too, and needs the same tiebreak.
+  const guessedAt = state.guessedAt.slice();
+  guessedAt[seat] = now;
+
+  const next: WordleState = { ...state, guesses, solvedIn, guessedAt };
   if (seatsOf(next).every((s) => isFinished(next, s))) {
-    const { winner, draw } = decide(next);
     // No clock survives the end of a game: `deadline` would otherwise keep
     // asking the room to wake up for a game there is nothing left to settle.
     return {
       ok: true,
-      state: { ...next, dueBy: next.dueBy.map(() => null), phase: 'over', winner, draw },
+      state: {
+        ...next,
+        dueBy: next.dueBy.map(() => null),
+        phase: 'over',
+        winner: decide(next),
+      },
     };
   }
   return { ok: true, state: { ...next, dueBy: reclock(next, seat, now) } };
@@ -293,9 +322,9 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
   maxPlayers: 8,
 
   /**
-   * The words come from the players, so there is nothing to draw but the ring
-   * — and that is the one thing here that needs the rng, because who is
-   * guessing whose word must not be predictable from the seating.
+   * The words come from the players, so there is nothing to draw but the ring,
+   * and that is the one thing here needing the rng: who is guessing whose word
+   * must not be predictable from the seating.
    */
   setup(playerCount, rng): WordleState {
     const count = Math.max(2, Math.min(playerCount, 8));
@@ -305,6 +334,7 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
       target: ring(count, rng),
       guesses: Array.from({ length: count }, () => [] as Row[]),
       solvedIn: Array<number | null>(count).fill(null),
+      guessedAt: Array<number | null>(count).fill(null),
       // Nobody is on a clock yet, and nobody is until a word is cracked.
       // There is no `start` here for the same reason: the room is dealt,
       // everyone picks a word, and the guessing runs untimed until the first
@@ -312,7 +342,6 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
       dueBy: Array<number | null>(count).fill(null),
       timedOut: [],
       winner: null,
-      draw: false,
     };
   },
 
@@ -333,9 +362,9 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
   },
 
   /**
-   * A hint for the status line only — see the note at the top of this file.
-   * Whoever has played fewer rows is the one the game is waiting on; ties go
-   * to seat 0 so this stays a pure function of the state.
+   * A hint for the status line only, see the note at the top of this file.
+   * Whoever has played fewer rows is who the game is waiting on; ties go to
+   * seat 0 so this stays a pure function of the state.
    */
   turn(state) {
     if (isOver(state)) return null;
@@ -364,9 +393,8 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
 
   /**
    * The soonest anyone's minute runs out. Only one clock is ever running, so
-   * in practice this is that clock — written as the earliest of the two
-   * anyway, so it cannot quietly start returning the wrong one if that ever
-   * changes.
+   * in practice this is that clock, written as the earliest of the two anyway
+   * so it cannot quietly start returning the wrong one if that changes.
    */
   deadline(state) {
     if (state.phase !== 'play') return null;
@@ -376,8 +404,8 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
 
   /**
    * A minute gone finishes the player it ran out on. Called by the room off a
-   * timer, so it lands whether or not anyone is still watching — which is the
-   * point of a clock — and again before any move that arrives late.
+   * timer, so it lands whether or not anyone is watching, which is the point of
+   * a clock, and again before any move that arrives late.
    *
    * Whether that also ends the *game* is the interesting part. A timeout is a
    * player abandoning the duel rather than playing it out, so once it leaves
@@ -386,8 +414,8 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
    * of the old rule: one clock goes, the other player wins, immediately. Above
    * two, the rest carry on without the player who stopped.
    *
-   * Note what this does *not* do: a player finishing honestly — solving, or
-   * spending their guesses — never ends anyone else's game early, because the
+   * Note what this does *not* do: a player finishing honestly, by solving or
+   * spending their guesses, never ends anyone else's game early, because the
    * others are still entitled to the guesses they have left. A solve starts
    * their clock; it does not stop their game.
    */
@@ -402,14 +430,18 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
     const live = seats.filter((seat) => canAct(stopped, seat));
 
     if (live.length <= 1) {
-      const { winner, draw } = decide(stopped);
-      return { ...stopped, dueBy: stopped.dueBy.map(() => null), phase: 'over', winner, draw };
+      return {
+        ...stopped,
+        dueBy: stopped.dueBy.map(() => null),
+        phase: 'over',
+        winner: decide(stopped),
+      };
     }
 
     // Still a game. Everyone left who is not already on a clock goes on one:
     // the clock that just expired may have been the only one running, and
     // once a word has been cracked a game with no clock at all is the stall
-    // this mechanism exists to stop. Only reachable past the first solve —
+    // this mechanism exists to stop. Only reachable past the first solve:
     // before that no clock is running, so none can expire.
     const dueBy = stopped.dueBy.map((due, seat) =>
       canAct(stopped, seat) ? (due ?? now + GUESS_MS) : null,
@@ -430,29 +462,36 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
     }
 
     if (state.phase === 'over') {
-      // A game won on the clock is reported as one. The winner's guess count
-      // is beside the point and may not exist — they can win on time without
-      // ever having solved anything.
-      if (state.winner !== null) {
-        const count = state.solvedIn[state.winner];
-        if (count === null) {
-          // Won by being the last one still trying. Saying "in 0 guesses"
-          // would be worse than saying nothing about the guessing at all.
-          if (state.timedOut.length === 1) {
-            return `${nameFor(state.timedOut[0])} ran out of time — ${nameFor(state.winner)} wins`;
-          }
-          const gone = state.timedOut.map(nameFor).join(', ');
-          return `${nameFor(state.winner)} wins — ${gone} ran out of time`;
-        }
-        return `${nameFor(state.winner)} wins in ${count} ${count === 1 ? 'guess' : 'guesses'}`;
+      // `winner` is always set once the game is over, there being no draw to
+      // report, but the type says otherwise and a status line is no place to
+      // throw.
+      const winner = state.winner;
+      if (winner === null) return 'Game over';
+
+      const count = state.solvedIn[winner];
+      if (count !== null) {
+        const guesses = `${count} ${count === 1 ? 'guess' : 'guesses'}`;
+        // Somebody else matched the count and lost on the clock, so say what
+        // actually decided it. "Wins in 3" over a table of threes reads like an
+        // error.
+        const shared = seats.some((seat) => seat !== winner && state.solvedIn[seat] === count);
+        return shared
+          ? `${nameFor(winner)} wins in ${guesses}, first to it`
+          : `${nameFor(winner)} wins in ${guesses}`;
       }
-      const best = seats
-        .map((seat) => state.solvedIn[seat])
-        .filter((count): count is number => count !== null);
-      if (best.length > 0) {
-        return `A draw — shared at ${Math.min(...best)}`;
+
+      // Won without solving. Their guess count is beside the point and may not
+      // exist, so the line is about how everyone else went out instead.
+      const gone = state.timedOut.filter((seat) => seat !== winner);
+      if (gone.length === 1) {
+        return `${nameFor(gone[0])} ran out of time, so ${nameFor(winner)} wins`;
       }
-      return 'A draw. Not one word was cracked.';
+      if (gone.length > 1) {
+        return `${nameFor(winner)} wins. ${gone.map(nameFor).join(', ')} ran out of time`;
+      }
+      // Nobody solved and nobody walked away: six guesses each and the clock
+      // is all that is left to separate them.
+      return `Not one word was cracked, so ${nameFor(winner)} wins on speed`;
     }
 
     const live = seats.filter((seat) => canAct(state, seat));
@@ -466,16 +505,15 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
   },
 
   /**
-   * The secrets are the only hidden thing in the game. Everything else —
-   * everyone's guesses, their marks, how close they are — is information you
-   * could derive yourself, so hiding it would only cost you the tension of
-   * watching people close in.
+   * The secrets are the only hidden thing in the game. Everyone's guesses,
+   * their marks and how close they are you could derive yourself, so hiding
+   * them would only cost the tension of watching people close in.
    *
    * A player who has chosen shows as `HIDDEN` rather than `null`, so the board
    * can tell "chosen, not for your eyes" from "still thinking". You always see
    * your own, which you typed. You see the one you are guessing once you are
    * finished with it, because losing without ever learning the word is the
-   * unsatisfying ending — and everything is open once the game is over.
+   * unsatisfying ending. Everything is open once the game is over.
    *
    * What you never see, while it could still matter, is a word somebody *else*
    * is guessing. At two players that distinction did not exist; above two it

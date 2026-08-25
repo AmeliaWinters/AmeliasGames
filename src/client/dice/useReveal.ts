@@ -2,8 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { buzz, clatter } from "../feel.js";
 import { wantsStillness } from "../motion.js";
 
-/** Between one hand turning over and the next. */
-export const REVEAL_MS = 260;
+/**
+ * Between one hand turning over and the next.
+ *
+ * It has to clear the turn itself, which `liarsdice.css` draws: a 240ms flip
+ * per die, cascading 34ms apart, so the fifth die of a full hand is still
+ * moving 376ms after its hand's step arrived. At the old 260 the next hand
+ * started while the last one was mid-flip, and two hands turning at once is not
+ * a reveal in an order, it is the single frame this hook exists to replace,
+ * only blurrier. Change one of the three numbers and check the other two.
+ */
+export const REVEAL_MS = 380;
 /** And after the last one, before the count says what it found. */
 export const COUNT_MS = 260;
 
@@ -15,14 +24,14 @@ export const COUNT_MS = 260;
  * count appeared beside them, all at once, so the answer arrived before any of
  * the evidence for it. This deals the evidence out in the order the bidding
  * went, ending on the hand that was challenged, and holds the count until the
- * last one is up — so you watch the count build against the bid instead of
- * being handed it.
+ * last one is up, so you watch the count build against the bid instead of being
+ * handed it.
  *
  * Not a throw and no solver in it: the dice are already on the table, and what
  * happens to them is a turn-over rather than a tumble.
  *
  * Returns which seats are face up, and whether the reveal has finished. Both
- * are everything at once under `prefers-reduced-motion` — the same bargain the
+ * are everything at once under `prefers-reduced-motion`: the same bargain the
  * Wheel strikes, where the flourish goes and no fact is withheld.
  */
 export function useReveal(
@@ -35,7 +44,7 @@ export function useReveal(
   const seen = useRef(key);
   /*
     The order is rebuilt from the state on every render, so it is a new array
-    every time a message arrives — and an effect that depended on it would be
+    every time a message arrives, and an effect that depended on it would be
     torn down and set up again mid-reveal, clearing its own timers and leaving
     the table half turned over. It is read through a ref for that reason: the
     reveal depends on *which* showdown it is, and nothing else.
@@ -66,7 +75,7 @@ export function useReveal(
       setTimeout(() => {
         setStep(seats.length + 1);
         // A settled round is worth feeling once, in the hand of whoever is
-        // holding the phone — this is the moment a die changes hands.
+        // holding the phone. This is the moment a die changes hands.
         buzz([0, 14, 60, 22]);
       }, seats.length * REVEAL_MS + COUNT_MS),
     );

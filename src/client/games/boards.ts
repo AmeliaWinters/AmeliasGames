@@ -36,19 +36,19 @@ export type GameId = keyof typeof GAME_MANIFEST;
 /**
  * What the server sends for each game, and what each board sends back.
  *
- * This exists because `RoomView.state` arrives as `unknown` — it came off a
+ * This exists because `RoomView.state` arrives as `unknown`: it came off a
  * socket as JSON, and no amount of wishing makes that a `BgState`. Somewhere a
  * human has to assert which game's state it is. That assertion used to be made
  * ten times over, once per case in a switch, each one pairing a `gameId`
  * string with a cast by hand:
  *
  * ```
- * case "morris":  <MorrisBoard state={room.state as MmState} … />
+ * case "morris":  <MorrisBoard state={room.state as MmState} ... />
  * ```
  *
  * Nothing checked that the two halves of that line matched. Pairing the wrong
  * state with a board is not a type error there, it is a board reading fields
- * that are not on the object — which shows up as a white screen on somebody's
+ * that are not on the object, which shows up as a white screen on somebody's
  * phone, mid-game, and never in a test.
  *
  * Below, the pairing is the thing the compiler checks. `BOARDS` is keyed by
@@ -74,7 +74,7 @@ export interface GameStates {
   vocab: VocabState;
 }
 
-/** The other half of the pair — see `GameStates`. */
+/** The other half of the pair. See `GameStates`. */
 export interface GameMoves {
   connect4: C4Move;
   backgammon: BgMove;
@@ -92,8 +92,8 @@ export interface GameMoves {
 }
 
 /**
- * What every board is handed. The same five things for all eleven, whether or not
- * a given board wants all five — a uniform shape is what lets them be looked
+ * What every board is handed. The same five things for all eleven, whether or
+ * not a given board wants all five: a uniform shape is what lets them be looked
  * up in a table rather than spelled out one `case` at a time.
  */
 export interface BoardProps<S, M> {
@@ -103,7 +103,7 @@ export interface BoardProps<S, M> {
   seat: number | null;
   names: string[];
   /**
-   * Whether this player may act right now — the server's own answer, from the
+   * Whether this player may act right now: the server's own answer, from the
    * same predicate `applyMove` will consult. Gate every control on this.
    *
    * It replaced a `myTurn` prop computed as `room.turn === seat`, which was
@@ -111,20 +111,51 @@ export interface BoardProps<S, M> {
    * boards had to refuse the prop and import a predicate of its own, with a
    * comment explaining why. There is nothing left to explain.
    *
-   * True as of `now`. A board on a clock still owns the last second — see
-   * Word Hunt, which checks the running countdown as well.
+   * True as of `now`. A board on a clock still owns the last second, see Word
+   * Hunt, which checks the running countdown as well.
    */
   canAct: boolean;
+  /**
+   * Which seats still have somebody on the end of the socket, by seat index.
+   *
+   * Only a board drawing its own seat strip needs this, see `OWNS_SEATS`. The
+   * shell's strip usually says "away", and a board that replaces it has to be
+   * able to say it too, or reconnecting is the one piece of news that goes
+   * missing on exactly the tables that hid the strip.
+   */
+  connected: boolean[];
   /** The server's clock as of this state. Boards off the clock ignore it. */
   now: number;
   onMove(move: M): void;
+}
+
+/**
+ * Games whose board draws the players itself, so the shell does not draw them
+ * too.
+ *
+ * The shell's strip is chip, name, "you", "away". The Wheel's purses are chip,
+ * name, and the two totals that *are* the score of that game, which made the
+ * top of a Wheel table two rows of the same four names, one carrying the money
+ * and one carrying nothing the other could not. At four players that is a
+ * hundred and forty pixels of duplicate on a phone, and the duplicate is why
+ * the keyboard was below the fold.
+ *
+ * A set rather than a flag on the board component, because the shell has to
+ * answer this *before* it has a board: the strip is drawn above the point where
+ * a game is dealt, and an undealt room has no board at all.
+ */
+const OWNS_SEATS: ReadonlySet<string> = new Set<GameId>(["wheel"]);
+
+/** Whether this game's board draws its own seat strip. See `OWNS_SEATS`. */
+export function ownsSeats(gameId: string): boolean {
+  return OWNS_SEATS.has(gameId);
 }
 
 export type Board<K extends GameId> = ComponentType<BoardProps<GameStates[K], GameMoves[K]>>;
 
 /**
  * The one place that knows which board goes with which game. Everything above
- * it — the lobby, seating, reconnection, the rematch — is game-agnostic, so
+ * it (the lobby, seating, reconnection, the rematch) is game-agnostic, so
  * adding a game means an entry here and a line in each map above.
  */
 const BOARDS: { [K in GameId]: Board<K> } = {
@@ -146,9 +177,9 @@ const BOARDS: { [K in GameId]: Board<K> } = {
 };
 
 /**
- * The board for a game id, or null for one this build has never heard of —
- * an old tab against a newer server, which is a real thing that happens and
- * not a reason to throw.
+ * The board for a game id, or null for one this build has never heard of: an
+ * old tab against a newer server, which is a real thing that happens and not a
+ * reason to throw.
  *
  * The cast is the one place the wire is taken at its word, and it is confined
  * to this function on purpose: everything above has been checked, and the only

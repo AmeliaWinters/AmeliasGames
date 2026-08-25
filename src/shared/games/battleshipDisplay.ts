@@ -1,5 +1,5 @@
 /**
- * The parts of Battleships the board may know — see the boundary note in
+ * The parts of Battleships the board may know. See the boundary note in
  * `types.ts`. Everything here is shape, geometry or a pure predicate over
  * state the client already holds, so none of it reveals anything new.
  *
@@ -7,7 +7,7 @@
  * lives in `view()`, and every helper copes with a ship it cannot see.
  */
 
-/** Ten by ten, lettered A–J down and numbered 1–10 across. */
+/** Ten by ten, lettered A-J down and numbered 1-10 across. */
 export const BOARD_SIZE = 10;
 
 export type ShipKind = 'carrier' | 'battleship' | 'cruiser' | 'submarine' | 'destroyer';
@@ -19,7 +19,7 @@ export interface ShipClass {
 }
 
 /**
- * The standard five, longest first — which is also the order they are easiest
+ * The standard five, longest first, which is also the order they are easiest
  * to place in, since the carrier is the one that runs out of room.
  */
 export const FLEET: readonly ShipClass[] = [
@@ -50,8 +50,8 @@ export interface Ship {
  * What `view()` puts where an enemy ship's position used to be. A sentinel
  * rather than dropping the ship from the fleet, because "they have five ships
  * placed" and "they are still setting out" are different things to the player
- * waiting on them — and a fleet with holes in it would make the readiness
- * check below a lie.
+ * waiting on them, and a fleet with holes in it would make the readiness check
+ * below a lie.
  *
  * Off the board by construction, so it can never collide with a real square.
  */
@@ -73,7 +73,7 @@ export interface BsState {
    * shot would be at an empty sea.
    */
   phase: 'placing' | 'firing' | 'over';
-  /** `fleets[s]` is what seat `s` owns — the fleet their opponent is hunting. */
+  /** `fleets[s]` is what seat `s` owns: the fleet their opponent is hunting. */
   fleets: Ship[][];
   /** `shots[s]` is what seat `s` has fired AT their opponent. */
   shots: Shot[][];
@@ -144,7 +144,7 @@ export function afloat(fleet: Ship[]): Ship[] {
 }
 
 /**
- * Why a ship cannot go there, or null if it can — the single arbiter of a
+ * Why a ship cannot go there, or null if it can: the single arbiter of a
  * legal placement, so the reducer's answer and the board's hover preview can
  * never disagree. The reason is specific because "invalid" tells a player
  * nothing about whether to rotate or to move.
@@ -180,7 +180,7 @@ export function squareName(row: number, col: number): string {
 }
 
 /**
- * Whether `seat` may move right now — the only question the UI should ask.
+ * Whether `seat` may move right now: the only question the UI should ask.
  *
  * Placing is free-simultaneous, so `room.turn` says nothing about whether you
  * personally may set a ship down; once firing starts it says everything, and a
@@ -192,4 +192,46 @@ export function canAct(state: BsState, seat: number): boolean {
   if (state.phase === 'placing') return !fleetReady(state.fleets[seat]);
   if (state.phase === 'firing') return state.turn === seat;
   return false;
+}
+
+/** A shot, with the seat that fired it and where it fell in the whole game. */
+export interface LoggedShot extends Shot {
+  seat: number;
+  /** 1-based, counting both seats: what the log prints down its left edge. */
+  ordinal: number;
+}
+
+/**
+ * Every shot of the game in the order it was fired, from the two per-seat
+ * logs the state actually keeps.
+ *
+ * Nothing records that order, and nothing needs to: it is implied. Seat 0
+ * fires first, a hit keeps the guns and a miss hands them over, so replaying
+ * that one rule over the two lists reconstructs the sequence exactly. This is
+ * the same rule `fire` applies, so if the two ever disagree the log is wrong,
+ * which is why `battleship.test.ts` walks a played game through both.
+ *
+ * Derived rather than stored on purpose. A `history` array on `BsState` would
+ * be a second account of what happened, free to drift from the first, and it
+ * would have to be redacted in `view()` like everything else. This needs no
+ * redaction because it reveals nothing the two shot logs did not already say.
+ *
+ * A malformed pair of lists (one longer than the alternation can explain,
+ * which the server cannot produce but a replayed old snapshot might) ends the
+ * walk rather than looping. Whatever is left over is dropped, because a short
+ * log is readable and a hanging one is not.
+ */
+export function shotLog(shots: Shot[][]): LoggedShot[] {
+  const taken = [0, 0];
+  const total = (shots[0]?.length ?? 0) + (shots[1]?.length ?? 0);
+  const log: LoggedShot[] = [];
+  let seat = 0;
+  for (let n = 0; n < total; n++) {
+    const shot = shots[seat]?.[taken[seat]];
+    if (!shot) break;
+    taken[seat]++;
+    log.push({ ...shot, seat, ordinal: n + 1 });
+    if (!shot.hit) seat = opponentOf(seat);
+  }
+  return log;
 }

@@ -1,6 +1,6 @@
 # Working in this repo
 
-`README.md` explains what the project *is* — the one-brain-two-transports
+`README.md` explains what the project *is*: the one-brain-two-transports
 architecture, why every game is a pure reducer, how the dice and the wheel
 decide what they decide. Read it before changing anything in `src/shared/`.
 
@@ -18,7 +18,7 @@ npm run render:throw draw a dice throw to preview/*.png  (see below)
 
 **Measure at a phone width first.** Nearly every visual bug reported here has
 been a phone bug, and several of them invert on a desktop viewport. A die slot
-measured 58 × 58 at 1280px and 19.8 × **44** at 375px — the same CSS, because
+measured 58 x 58 at 1280px and 19.8 x **44** at 375px, from the same CSS, because
 `button { min-height: 44px }` beats `aspect-ratio` only once the element is
 under 44px. Checking the wide case first produced a confident wrong answer.
 Reproduce at 320, 375 and 390 before forming a theory.
@@ -29,10 +29,10 @@ a second, and `computer` actions and screenshots both time out after 30s with
 "the pane is not displayed, so the page is not compositing frames". `read_page`,
 `find`, `navigate` and `javascript_tool` all work. So:
 
-- **Layout, colour and contrast** — measure, don't look. `getBoundingClientRect`
+- **Layout, colour and contrast**: measure, don't look. `getBoundingClientRect`
   for geometry, `getComputedStyle` for colour, a WCAG ratio computed in-page for
   contrast. Stricter than looking, and it works.
-- **Anything that moves** — render it. See below.
+- **Anything that moves**: render it. See below.
 - `form_input` does not work on React-controlled fields; it sets the DOM
   property without the event React listens for. Use the native setter and
   dispatch `input`/`change` yourself. Plain `element.click()` on a button is fine.
@@ -52,16 +52,16 @@ npm run render:throw -- --old   # the same seed, before the last retune
 contributes nothing to the projection, since the tray has no `perspective` and a
 cube under `preserve-3d` without one is drawn orthographically.
 `scripts/render-throw3d.ts` runs the real simulation, projects it the same way,
-and writes contact sheets to `preview/` — one panel per sampled frame, time left
+and writes contact sheets to `preview/`, one panel per sampled frame, time left
 to right. Read the PNG.
 
 This is worth the trouble because measurement has already been confidently
-wrong here. A retune moved every number the right way — travel up three
-quarters, wall contacts doubled — while the dice were using a fifth of the tray
-and dying in the corner they started beside. One sheet made it obvious.
+wrong here. A retune moved every number the right way, travel up three quarters
+and wall contacts doubled, while the dice were using a fifth of the tray and
+dying in the corner they started beside. One sheet made it obvious.
 
 Where a visual property turns out to be measurable, **pin it in a test** rather
-than relying on someone re-rendering. `dice.test.ts` → "a throw uses the tray it
+than relying on someone re-rendering. `dice.test.ts` -> "a throw uses the tray it
 is thrown into" is the worked example, thresholds and all.
 
 ## Traps
@@ -77,7 +77,7 @@ curl -s http://localhost:5173/src/client/styles/dice.css | grep -c 'the-thing-yo
 ```
 
 Touching anything under `src/shared/` or `src/server/` restarts `tsx watch`,
-which drops every in-memory room — test rooms have to be recreated.
+which drops every in-memory room, so test rooms have to be recreated.
 
 **Two version constants, and they mean different things.** `SNAPSHOT_VERSION`
 in `src/shared/room.ts` covers the *shape and meaning* of persisted state;
@@ -92,14 +92,14 @@ author working in it at once.
 ## House style
 
 Comments here say *why*, not what, and several of them are the only record of a
-bug that has already been shipped once. Match that register — a change that
+bug that has already been shipped once. Match that register: a change that
 removes the reasoning and leaves the code is a net loss.
 
 New game? `src/shared/games/*.ts` is a pure reducer with no I/O and no
 randomness it did not receive; the manifest, the display module and the reducer
 are separate on purpose, and `bundle.test.ts` enforces the part that matters.
 Four places, and the compiler names three of them if you miss one: the reducer,
-a line in `manifest.ts`, an entry in `GAMES`, and an entry in `boards.ts` —
+a line in `manifest.ts`, an entry in `GAMES`, and an entry in `boards.ts`,
 which also wants the game's state and move types, so a board paired with the
 wrong game's state does not compile.
 
@@ -107,6 +107,6 @@ Two predicates, and they are not interchangeable. `turn` is a hint for the
 status line; `canAct(state, seat)` is whether that seat may move, it is what
 every control on every board is gated on, and the server sends its answer as
 `RoomView.canAct`. A strictly alternating game implements it as
-`turn(state) === seat` and that is the whole of it — but write it, because four
+`turn(state) === seat` and that is the whole of it, but write it, because four
 of the ten games are not alternating and the contract has to be honest about
 which kind this one is.

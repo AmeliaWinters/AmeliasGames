@@ -20,7 +20,7 @@ import { vocab } from './vocab.js';
  * the board component is per-game.
  *
  * Importing this module pulls in every reducer, which is right on the server
- * and wasteful in the client — the lobby should import `manifest.js` instead.
+ * and wasteful in the client. The lobby should import `manifest.js` instead.
  */
 export const GAMES: Record<string, GameDefinition<any, any>> = {
   [connect4.id]: connect4,

@@ -1,19 +1,19 @@
 /**
- * The parts of Letterpress the board may know — see the boundary note in
+ * The parts of Letterpress the board may know. See the boundary note in
  * `types.ts`. The board draws which tiles are locked, counts what a word would
- * take before it is played, and refuses a word the grid has seen — none of it
- * worth a megabyte of dictionary on a phone.
+ * take before it is played, and refuses a word the grid has seen. None of that
+ * is worth a megabyte of dictionary on a phone.
  */
 
-/** The board is SIZE × SIZE tiles. Five, as Letterpress has always been. */
+/** The board is SIZE x SIZE tiles. Five, as Letterpress has always been. */
 export const GRID_SIZE = 5;
 export const CELL_COUNT = GRID_SIZE * GRID_SIZE;
 
 /**
  * The lengths a word may be. The floor is three because two-letter words are
- * mostly noise on a grid this size — there are twenty-five tiles and no
- * adjacency, so every pair of letters on the board is available every turn,
- * and a game where both players open with AX is not a game.
+ * mostly noise on a grid this size: twenty-five tiles and no adjacency means
+ * every pair of letters on the board is available every turn, and a game where
+ * both players open with AX is not a game.
  *
  * The ceiling is the grid itself. It used to be eight, which was where the
  * dictionary stopped rather than anything about the game, and it reached the
@@ -48,7 +48,7 @@ export interface LpState {
   lastWord: string | null;
   lastPlay: number[] | null;
   /**
-   * Consecutive passes. Two in a row ends the game — see `pass()` in the
+   * Consecutive passes. Two in a row ends the game. See `pass()` in the
    * reducer for why a pass exists at all.
    */
   passes: number;
@@ -59,7 +59,7 @@ export interface LpState {
 
 export type LpMove =
   /**
-   * The tiles used, in the order they spell the word. Any tiles anywhere —
+   * The tiles used, in the order they spell the word. Any tiles anywhere:
    * there is no adjacency in this game, which is the whole difference between
    * it and Word Hunt.
    */
@@ -73,7 +73,7 @@ export function cellAt(index: number): { row: number; col: number } {
 }
 
 /**
- * The tiles orthogonally touching this one — two at a corner, three along an
+ * The tiles orthogonally touching this one: two at a corner, three along an
  * edge, four in the middle.
  *
  * Diagonals are deliberately not neighbours. Defence is what this feeds, and a
@@ -90,7 +90,7 @@ export function neighbours(cell: number): number[] {
   return out;
 }
 
-/** Worked out once — the grid never changes shape. */
+/** Worked out once, since the grid never changes shape. */
 const NEIGHBOURS: readonly (readonly number[])[] = Array.from({ length: CELL_COUNT }, (_, cell) =>
   neighbours(cell),
 );
@@ -105,7 +105,7 @@ const NEIGHBOURS: readonly (readonly number[])[] = Array.from({ length: CELL_COU
  * along an edge is a real structure rather than a decoration.
  *
  * Read against a board rather than a state, because the reducer has to ask it
- * of the board *before* a word lands — see `claim` below.
+ * of the board *before* a word lands. See `claim` below.
  */
 export function isLocked(owner: readonly Owner[], cell: number): boolean {
   const holder = owner[cell];
@@ -117,8 +117,8 @@ export function isLocked(owner: readonly Owner[], cell: number): boolean {
  * Whether playing this tile would turn it, for `mover`.
  *
  * Two ways to answer no: it is already theirs, or it is locked. Everything
- * else turns, including a tile nobody holds — an unheld tile cannot be locked,
- * because there is nobody for it to be surrounded by.
+ * else turns, including a tile nobody holds, since an unheld tile cannot be
+ * locked when there is nobody for it to be surrounded by.
  */
 export function flips(owner: readonly Owner[], cell: number, mover: 0 | 1): boolean {
   if (owner[cell] === mover) return false;
@@ -149,7 +149,7 @@ export function claim(owner: readonly Owner[], path: readonly number[], mover: 0
  * Whether a run of tiles could be a word: a workable length, on the board, and
  * never the same tile twice.
  *
- * Says nothing about whether the letters spell anything — only the server
+ * Says nothing about whether the letters spell anything, since only the server
  * holds the dictionary. Note what is *not* here: adjacency. A word may be
  * built from any tiles anywhere, which is why a locked tile in the far corner
  * is still worth its letter to you.
@@ -180,8 +180,8 @@ export function spell(grid: readonly string[], path: readonly number[]): string 
  * A word is spent once anybody has played it, and so is every word that starts
  * with it: CAT played means CATS, CATTLE and CATAMARAN are all gone. That
  * second half is not fussiness, it is the rule that stops the endgame becoming
- * PIN, PINS, PINE, PINES — a player who has found one useful stem could
- * otherwise farm it for a dozen turns while the board barely moves.
+ * PIN, PINS, PINE, PINES, where a player who found one useful stem could farm
+ * it for a dozen turns while the board barely moves.
  *
  * It does not run the other way: CAT is still there after CATS, because CAT
  * takes different tiles and finding the short word inside a long one you have
@@ -191,7 +191,7 @@ export function blockedBy(played: readonly string[], word: string): string | nul
   return played.find((old) => word.startsWith(old)) ?? null;
 }
 
-/** Tiles held by each seat — the score, and the whole of it. */
+/** Tiles held by each seat: the score, and the whole of it. */
 export function tally(state: LpState): [number, number] {
   return [
     state.owner.filter((holder) => holder === 0).length,
@@ -210,8 +210,8 @@ export function isFull(state: LpState): boolean {
 
 /**
  * Whether `seat` may move right now. Strictly alternating, so this is exactly
- * `turn(state) === seat` — but written out, because the contract says which
- * kind of game this is and a reader should not have to go and find out.
+ * `turn(state) === seat`, written out because the contract says which kind of
+ * game this is and a reader should not have to go and find out.
  */
 export function canAct(state: LpState, seat: number): boolean {
   if (state.winner !== null || state.draw) return false;

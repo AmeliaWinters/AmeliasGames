@@ -16,7 +16,7 @@ import { MAX_FLICK, type Flick } from "../../shared/games/toss.js";
  * the gesture came from, the way it was aimed, as hard as it was thrown. A tap
  * carries none of the three and gets the tray's own throw instead.
  *
- * What the flick decides is how the dice got there — never what they landed
+ * What the flick decides is how the dice got there, never what they landed
  * on. That is read off the cubes when they stop, and no gesture can aim it.
  */
 
@@ -43,8 +43,8 @@ export function useFlick(opts: {
   /*
     Refs rather than state, and for the reason Word Hunt gives: the first
     pointermove of a fast flick can arrive in the same frame as the pointerdown
-    that started it, before React has re-rendered — so anything the move
-    handler reads has to be current, not committed.
+    that started it, before React has re-rendered, so anything the move handler
+    reads has to be current rather than committed.
   */
   const down = useRef(false);
   const id = useRef(-1);
@@ -67,7 +67,7 @@ export function useFlick(opts: {
       at.current = { x: event.clientX, y: event.clientY, t: event.timeStamp };
       began.current = { x: event.clientX, y: event.clientY };
       // Which die the press landed on, remembered now because the capture
-      // below retargets every later event for this pointer to the tray — so a
+      // below retargets every later event for this pointer to the tray, so a
       // listener on the die itself would never hear the release.
       const die = (event.target as HTMLElement).closest?.("[data-die]");
       origin.current = die ? Number(die.getAttribute("data-die")) : null;
@@ -84,7 +84,7 @@ export function useFlick(opts: {
     const dy = event.clientY - at.current.y;
     travelled.current += Math.hypot(dx, dy);
     // A rolling estimate, so the number is the speed of the last few
-    // milliseconds rather than the average of the whole drag — a throw that
+    // milliseconds rather than the average of the whole drag. A throw that
     // starts slow and snaps is still a hard throw.
     velocity.current = {
       x: velocity.current.x * 0.55 + (dx / gap) * 1000 * 0.45,
@@ -113,7 +113,7 @@ export function useFlick(opts: {
         return;
       }
 
-      // Tray widths a second, not pixels — see `Flick`. The cap keeps the
+      // Tray widths a second, not pixels, see `Flick`. The cap keeps the
       // direction and only takes the speed down, so a wild throw is still
       // thrown the way it was aimed.
       const cap = Math.min(1, (MAX_FLICK * box.width) / speed) / box.width;

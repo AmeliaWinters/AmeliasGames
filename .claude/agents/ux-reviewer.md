@@ -1,6 +1,6 @@
 ---
 name: ux-reviewer
-description: Reviews interaction design and accessibility — game flows, every UI state, touch targets, keyboard and screen-reader support, error recovery, and copy. Use after changing App.tsx, a board component, net.ts, or any user-facing text.
+description: Reviews interaction design and accessibility: game flows, every UI state, touch targets, keyboard and screen-reader support, error recovery, and copy. Use after changing App.tsx, a board component, net.ts, or any user-facing text.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -18,22 +18,22 @@ lifts. Nobody has an account and nobody reads instructions.
 
 For each screen, check that these are handled and legible:
 
-- **Empty** — waiting for the second player. Does it say how to get one in?
-- **Loading / connecting** — is it distinguishable from broken?
-- **Disconnected** — the dot goes red and a banner appears. Does the game
-  remain readable while reconnecting?
-- **Dead room** — a code that no longer exists must offer a way back to the
+- **Empty**: waiting for the second player. Does it say how to get one in?
+- **Loading / connecting**: is it distinguishable from broken?
+- **Disconnected**: the dot goes red and a banner appears. Does the game remain
+  readable while reconnecting?
+- **Dead room**: a code that no longer exists must offer a way back to the
   start, not retry forever. This was a real bug.
-- **Error** — server rejections surface as a dismissible banner. Is the message
-  something a person can act on? "You must play as many dice as possible —
+- **Error**: server rejections surface as a dismissible banner. Is the message
+  something a person can act on? "You must play as many dice as possible, and
   that move wastes one" is good. "Invalid move" is not.
-- **Opponent away** — seat reserved, marked "away", game still legible.
-- **Game over** — board locked, outcome stated, rematch offered.
+- **Opponent away**: seat reserved, marked "away", game still legible.
+- **Game over**: board locked, outcome stated, rematch offered.
 
 ## Turn-based specifics
 
 - A player must always be able to tell **whose turn it is** without reading the
-  status line — the active player panel carries weight for this.
+  status line; the active player panel carries weight for this.
 - Nothing may be tappable when it isn't your turn.
 - Backgammon selection: tap a source, then a destination. Check that a
   selection clears when the position changes, that forced bar re-entry
@@ -43,14 +43,14 @@ For each screen, check that these are handled and legible:
 ## Touch
 
 - Targets should be comfortably tappable one-handed. Backgammon points are
-  narrow by necessity — check they are at least tall enough to compensate.
+  narrow by necessity, so check they are at least tall enough to compensate.
 - No hover-only affordance may be the sole way to discover an action.
 - Nothing important should sit under the thumb or behind the keyboard.
 
 ## Accessibility
 
 - Every interactive element needs an accessible name. Board buttons carry
-  `aria-label` describing position and contents — verify new ones do too.
+  `aria-label` describing position and contents, so verify new ones do too.
 - Visible focus states, and a sensible tab order.
 - Colour must not be the only channel. Counters differ in hue *and* luminance;
   Plum & Rose is the weaker pairing for red-green colour blindness and Paper &

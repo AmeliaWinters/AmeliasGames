@@ -125,7 +125,7 @@ describe('win detection', () => {
   });
 
   it('does not join two players discs into a line', () => {
-    const s = play([0, 3, 1, 4, 2]); // seat 0 has 0,1,2 — seat 1 sits at 3
+    const s = play([0, 3, 1, 4, 2]); // seat 0 has 0,1,2 and seat 1 sits at 3
     expect(s.winner).toBe(null);
   });
 

@@ -1,5 +1,5 @@
 /**
- * The parts of Word Hunt the board may know — see the boundary note in
+ * The parts of Word Hunt the board may know. See the boundary note in
  * `types.ts`. The board decides whether the letters under a dragging finger
  * form a legal path; taking that from the reducer would put the whole
  * dictionary on the phone of everyone who opens the lobby.
@@ -9,7 +9,7 @@ export { clockCall, formatClock } from '../clock.js';
 
 /**
  * What `view()` leaves where somebody else's word used to be: a run of marks
- * as long as the word was. Not letters, so it can never be mistaken for one —
+ * as long as the word was. Not letters, so it can never be mistaken for one,
  * and the length survives deliberately, because a word's length *is* its score
  * and watching an opponent's total climb is most of the tension in the game.
  * Which word earned it is the part worth hiding.
@@ -27,7 +27,7 @@ export function isMasked(word: string): boolean {
 /**
  * The lengths a trace may be. Three is the shortest word worth spotting; eight
  * is longer than a 4x4 grid gives up more than once in a very long while, and
- * the dictionary is cut to the same range — a limit the board could draw past
+ * the dictionary is cut to the same range: a limit the board could draw past
  * would mean traces the server will never take. `words.test.ts` holds the two
  * ends together.
  */
@@ -57,14 +57,14 @@ export function wordScore(word: string): number {
   return SCORES[word.length] ?? 0;
 }
 
-/** The board is SIZE × SIZE letters. Four, as every version of this game is. */
+/** The board is SIZE x SIZE letters. Four, as every version of this game is. */
 export const GRID_SIZE = 4;
 export const CELL_COUNT = GRID_SIZE * GRID_SIZE;
 
 /**
  * How long a hunt lasts. Two minutes is the length this game is played at
  * everywhere, and it is the right length: long enough to work a grid properly,
- * short enough that the last twenty seconds are frantic — which is the part
+ * short enough that the last twenty seconds are frantic, which is the part
  * everyone actually plays for.
  *
  * The clock is the server's throughout. A client counts down for the look of
@@ -92,7 +92,7 @@ export function timeIsUp(state: WhState, now: number): boolean {
   return state.phase === 'play' && state.endsAt !== null && now >= state.endsAt;
 }
 
-/** Whether the round is under way — false while the room is still filling. */
+/** Whether the round is under way. False while the room is still filling. */
 export function hasStarted(state: WhState): boolean {
   return state.endsAt !== null;
 }
@@ -100,7 +100,7 @@ export function hasStarted(state: WhState): boolean {
 export interface WhState {
   /**
    * `play` until every seat has called it a day, then `over`. There is no
-   * setup phase — the grid is dealt by `setup()` and everyone starts at once.
+   * setup phase: the grid is dealt by `setup()` and everyone starts at once.
    */
   phase: 'play' | 'over';
   /** `CELL_COUNT` upper-case letters, row-major. Open to everyone. */
@@ -109,8 +109,8 @@ export interface WhState {
    * `found[s]` is what seat `s` has found, in the order they found it.
    *
    * Redacted for everyone but you until the game ends: an opponent's entries
-   * arrive masked, which keeps the count and the score — the whole tension of
-   * the game is watching them climb — without handing over the words.
+   * arrive masked, which keeps the count and the score (the whole tension being
+   * watching them climb) without handing over the words.
    */
   found: string[][];
   /** Seats that have stopped hunting. The game ends when they all have. */
@@ -121,8 +121,8 @@ export interface WhState {
    *
    * The clock starts when the last player sits down, not when the grid is
    * dealt: the room turns moves away until it is full, so a round started at
-   * setup would tick away while somebody was still opening the link — and
-   * could be over before they arrived.
+   * setup would tick away while somebody was still opening the link, and could
+   * be over before they arrived.
    */
   endsAt: number | null;
   /**
@@ -137,7 +137,7 @@ export interface WhState {
 export type WhMove =
   /** The cells traced, in order. The word is whatever they spell. */
   | { type: 'found'; path: number[] }
-  /** Out of ideas. Irreversible — the others are waiting on you. */
+  /** Out of ideas. Irreversible, because the others are waiting on you. */
   | { type: 'done' };
 
 /** Row and column of a cell, for anything that has to think in two dimensions. */
@@ -146,7 +146,7 @@ export function cellAt(index: number): { row: number; col: number } {
 }
 
 /**
- * Whether two cells touch — orthogonally or diagonally, which is what makes
+ * Whether two cells touch, orthogonally or diagonally, which is what makes
  * this a hunt rather than a word search. A cell is not adjacent to itself, so
  * this doubles as the check that a path never sits still.
  */
@@ -161,7 +161,7 @@ export function areAdjacent(a: number, b: number): boolean {
  * Whether a run of cells is a legal trace: a workable length, on the board,
  * never revisiting a cell, and every step landing on a neighbour.
  *
- * Says nothing about whether the letters spell anything — only the server
+ * Says nothing about whether the letters spell anything, since only the server
  * holds the dictionary. The board uses this to decide what to let the player
  * draw; the reducer uses it as the first half of validating what arrives.
  */
@@ -202,7 +202,7 @@ export function countOf(state: WhState, seat: number): number {
 }
 
 /**
- * Whether `seat` may still hunt — the only question the UI should ask. Play is
+ * Whether `seat` may still hunt: the only question the UI should ask. Play is
  * free-simultaneous, so `room.turn` says nothing about whether you personally
  * may drag.
  */

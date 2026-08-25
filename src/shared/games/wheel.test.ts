@@ -15,6 +15,7 @@ import {
   VOWELS,
   VOWEL_COST,
   WHEEL,
+  isThrow,
   leaders,
   mask,
   money,
@@ -188,6 +189,46 @@ describe("the puzzle bank", () => {
     }
   });
 
+  it("does not let one short word give a consonant away", () => {
+    // The meta this killed: a three-letter word was THE more than half the
+    // time, so a player who saw one called T and then H and was paid twice for
+    // reading the bank rather than the puzzle. A vowel that gives itself away
+    // is harmless, A being the other short-word tell and one you have to
+    // *buy*, but a consonant is money off the wheel.
+    //
+    // Two numbers keep it honest. No short word may own its length class, and
+    // seeing a word of that length may not swing any consonant much past a
+    // coin flip.
+    for (const length of [1, 2, 3]) {
+      const words = PUZZLES.flatMap((p) => p.answer.split(" ")).filter(
+        (word) => word.length === length,
+      );
+      const counts = new Map<string, number>();
+      for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+      const [top, seen] = [...counts].sort((a, b) => b[1] - a[1])[0];
+      // Every one-letter word is A, and that is fine: it is a vowel, so
+      // spotting it wins nobody anything they did not pay VOWEL_COST for.
+      // Only a word that hands over a consonant has to share its slot.
+      if ([...top].some((ch) => CONSONANTS.includes(ch)))
+        expect(
+          seen / words.length,
+          `${top} owns ${length}-letter words`,
+        ).toBeLessThan(0.45);
+
+      const shaped = PUZZLES.filter((p) =>
+        p.answer.split(" ").some((word) => word.length === length),
+      );
+      for (const consonant of CONSONANTS) {
+        const rate =
+          shaped.filter((p) => p.answer.includes(consonant)).length /
+          shaped.length;
+        expect(rate, `${consonant} given a ${length}-letter word`).toBeLessThan(
+          0.8,
+        );
+      }
+    }
+  });
+
   it("has far more puzzles than a match can use", () => {
     expect(PUZZLES.length).toBeGreaterThan(ROUNDS * 4);
     expect(PUZZLES.every((p) => p.category.length > 0)).toBe(true);
@@ -314,7 +355,7 @@ describe("consonants", () => {
     expect(s.bank[0]).toBe(cashValue(CASH));
     expect(s.turn).toBe(0);
     expect(s.phase).toBe("spin");
-    // The spin is spent — another consonant needs another one.
+    // The spin is spent, and another consonant needs another one.
     expect(s.wedge).toBeNull();
     expect(s.called).toEqual(["C"]);
   });
@@ -618,7 +659,7 @@ describe("one wrong guess ends the turn", () => {
 
   it("is not spent by Bankrupt or Lose a Turn", () => {
     // Those are the wheel's doing, not the player's, and they end the turn
-    // outright — the note has to say so rather than blame a guess.
+    // outright, so the note has to say so rather than blame a guess.
     const s = position({ bank: [900, 0] });
     expect(
       ok(apply(s, { type: "spin" }, 0, spinTo(BANKRUPT))).note?.text,
@@ -631,7 +672,7 @@ describe("one wrong guess ends the turn", () => {
 
 /**
  * The other way a turn runs out. One wrong guess ends it, and so do three
- * right ones — without the second cap a player who got going kept the wheel
+ * right ones. Without the second cap a player who got going kept the wheel
  * until the puzzle was gone and everyone else watched.
  */
 describe("three letters to a turn", () => {
@@ -769,7 +810,7 @@ describe("where the wheel stopped", () => {
   /* The odds a player feels, which is the thing that was actually complained
      about: not how often a wedge is bad but how often a turn ends on one. Held
      to a number rather than to a count of wedges, because that is the quantity
-     the layout is chosen for — see the note on WHEEL. */
+     the layout is chosen for. See the note on WHEEL. */
   it("ends fewer than a fifth of full turns badly", () => {
     const bad = WHEEL.filter((w) => w.kind !== "cash").length;
     expect(bad).toBe(2);
@@ -780,8 +821,8 @@ describe("where the wheel stopped", () => {
 
 /**
  * The flick. A player grabs the rim and throws it, and how hard and which way
- * they threw is the whole of what decides the wedge — so these are rules, not
- * decoration, and the one thing they must not permit is aiming.
+ * they threw is the whole of what decides the wedge, so these are rules rather
+ * than decoration, and the one thing they must not permit is aiming.
  */
 describe("throwing the wheel by hand", () => {
   /* Velocities are signed degrees of rotation per millisecond at the moment of
@@ -792,12 +833,15 @@ describe("throwing the wheel by hand", () => {
   it("travels further the harder it is thrown", () => {
     const gentle = flick(SPIN_MIN_SPEED);
     const hard = flick(SPIN_MAX_SPEED);
-    expect(gentle.travel).toBe(SPIN_MIN_TRAVEL);
-    expect(hard.travel).toBe(SPIN_MAX_TRAVEL);
+    // Both ends are derived from the travel they are meant to produce, so
+    // these are the round trip through `FLICK_GAIN` and the square law rather
+    // than a clamp reporting itself.
+    expect(gentle.travel).toBeCloseTo(SPIN_MIN_TRAVEL, 6);
+    expect(hard.travel).toBeCloseTo(SPIN_MAX_TRAVEL, 6);
     // Distance goes as the square of the speed, so half again as hard is well
-    // over twice as far — the thing a linear dial could never give back.
-    // Measured at 1.5x rather than 2x because the clamp is only 3.5x the floor
-    // now, and a doubled flick runs into the ceiling before it can show the
+    // over twice as far, the thing a linear dial could never give back.
+    // Measured at 1.5x rather than 2x because the range is only 3.4x the
+    // gate, and a doubled flick runs into the ceiling before it can show the
     // square law.
     expect(flick(1.5 * SPIN_MIN_SPEED).travel).toBeCloseTo(
       2.25 * SPIN_MIN_TRAVEL,
@@ -810,20 +854,20 @@ describe("throwing the wheel by hand", () => {
   it("throws the wheel the way the finger went", () => {
     // Not the hardest throw available: a distance that happens to be half a
     // whole number of turns lands the same wedge either way round, which would
-    // pass this test by arithmetic accident rather than by direction. 0.95
-    // used to be safe and is not any more — under the retuned drag it carries
-    // 270.2 wedges, which is 18.2 past seven and a half turns.
-    const left = flick(-0.8);
-    const right = flick(0.8);
+    // pass this test by arithmetic accident rather than by direction. Well
+    // inside the range at both ends, too: a velocity past `SPIN_MAX_SPEED`
+    // clamps to the same distance either way and would prove only the sign.
+    const left = flick(-0.3);
+    const right = flick(0.3);
     expect(left.travel).toBe(-right.travel);
     expect(left.wedgeAt).not.toBe(right.wedgeAt);
     expect(left.wedgeAt).toBe(wedgeAfter(0, left.travel));
   });
 
   it("lands on the wedge that far round from where it was standing", () => {
-    for (const velocity of [0.8, -0.8, SPIN_MAX_SPEED, -SPIN_MIN_SPEED]) {
+    for (const velocity of [0.3, -0.3, SPIN_MAX_SPEED, -SPIN_MIN_SPEED]) {
       const from = 5;
-      // `rest` is the anchor, not `wedgeAt` — the wheel is measured from where
+      // `rest` is the anchor, not `wedgeAt`: the wheel is measured from where
       // it physically stopped. Set both, because a position with the flapper
       // over wedge 5 and the rim resting at 0 is not a position that happens.
       const s = flick(velocity, position({ wedgeAt: from, rest: from }));
@@ -832,16 +876,64 @@ describe("throwing the wheel by hand", () => {
   });
 
   /* The whole of the anti-cheat, and it is two halves. The landing is measured
-     from where the wheel *stopped last time*, which no gesture can move — so a
-     slow careful drag is not a free choice of wedge. And a release that has
-     stopped dead is still a throw of a full turn and more, so letting go
-     gently is not one either. */
-  it("always carries the wheel at least a full turn, however limp the flick", () => {
-    for (const velocity of [0, -0, 0.0001, -0.0001, Number.NaN]) {
-      const s = flick(velocity);
-      expect(Math.abs(s.travel)).toBe(SPIN_MIN_TRAVEL);
-      expect(Math.abs(s.travel)).toBeGreaterThan(WHEEL.length);
+     from where the wheel *stopped last time*, which no gesture can move, so a
+     slow careful drag is not a free choice of wedge. And a release too slow to
+     be a throw does not resolve at all, so creeping the rim round and letting
+     go gently is not one either.
+
+     The gate replaced a clamp, and the clamp was the hole: it turned every
+     under-strength release into the *same* distance from a position the player
+     can see, which is a wedge you can pick. */
+  it("refuses a nudge rather than turning it into the shortest throw", () => {
+    for (const velocity of [0, -0, 0.0001, -0.0001, 0.99 * SPIN_MIN_SPEED]) {
+      expect(
+        rejection(apply(position(), { type: "spin", velocity }, 0, seeded(1))),
+      ).toMatch(/harder/i);
     }
+    // The gate is not a way to get a short spin either: the gentlest throw it
+    // does accept still carries the wheel a turn and a half.
+    expect(Math.abs(flick(SPIN_MIN_SPEED).travel)).toBeGreaterThan(
+      WHEEL.length,
+    );
+  });
+
+  /*
+     The regression this model was rewritten for, and the one number a unit
+     test can hold that a retune cannot quietly undo.
+
+     The wheel's hub sits a full radius below the frame, so a finger on the rim
+     turns about a pivot most of a screen away and a swipe converts to very
+     little *angular* velocity. The old floor was 0.584 deg/ms, about 1.6
+     wheel-turns a second, and a 700px swipe in 120ms, which is two phone
+     widths and impossible, reached 0.538. So every flick ever thrown clamped
+     to the floor: same distance, same duration, and a landing that could never
+     leave the midpoints.
+
+     This reproduces the geometry rather than trusting it: `angleAt` in
+     WheelBoard.tsx measures about a hub 108 view units below the top of the
+     rim, in a 100-unit-wide box drawn at roughly a phone's width.
+  */
+  it("spans its range across flicks a thumb can actually make", () => {
+    /** What `angleAt` reports for a `px` swipe across the rim, in deg/ms. */
+    const thumb = (px: number, ms: number) => {
+      const units = px / (340 / 100); // 100-unit viewBox at ~340px wide
+      const fromHub = 98; // a finger on the rim, hub at y = 108
+      return (Math.atan(units / fromHub) * 180) / Math.PI / ms;
+    };
+    const gentle = thumb(170, 120);
+    const firm = thumb(260, 120);
+    const hard = thumb(380, 120);
+    // All three are throws: the gate is inside what a hand can do rather than
+    // past it, which is precisely what was wrong before.
+    for (const v of [gentle, firm, hard]) expect(isThrow(v)).toBe(true);
+    // And they are three different spins, not one spin three times.
+    const travel = (v: number) => Math.abs(flick(v).travel);
+    expect(travel(firm)).toBeGreaterThan(1.4 * travel(gentle));
+    expect(travel(hard)).toBeGreaterThan(1.4 * travel(firm));
+    // The hardest useful flick is within reach of a thumb, and the gentlest
+    // accepted one is a deliberate flick rather than a twitch.
+    expect(hard).toBeGreaterThanOrEqual(SPIN_MAX_SPEED);
+    expect(thumb(60, 120)).toBeLessThan(SPIN_MIN_SPEED);
   });
 
   /*
@@ -851,17 +943,19 @@ describe("throwing the wheel by hand", () => {
      the *index*. Physics does not do that, and it read as staged.
 
      Held to a distribution rather than to one throw, because one throw landing
-     off-centre proves nothing — the old code would have too, if the wedge it
+     off-centre proves nothing; the old code would have too, if the wedge it
      rounded to happened to be the one it was already on.
   */
   it("stops wherever the throw ran out, not on the midpoint", () => {
     const rests = [];
     for (let i = 0; i < 200; i += 1) {
       // A spread of real flicks across the usable range, open at both ends:
-      // the clamps are whole numbers of wedges, so a throw hard or soft enough
-      // to be clamped *does* land on a midpoint when the wheel starts on one.
-      // That is only ever the first spin of a game — after it the anchor
-      // carries a fraction — and it is the clamp being exact, not a rounding.
+      // a throw exactly at the gate carries exactly `SPIN_MIN_TRAVEL`, which
+      // is a whole number of wedges and so *does* land on a midpoint when the
+      // wheel starts on one. That is the boundary being exact rather than a
+      // rounding, and after the first spin the anchor carries a fraction
+      // anyway. The ceiling is not a whole number, deliberately (see
+      // `SPIN_MAX_TRAVEL`) so the hard end of this sweep is honest.
       const v =
         SPIN_MIN_SPEED + ((SPIN_MAX_SPEED - SPIN_MIN_SPEED) * (i + 1)) / 202;
       rests.push(flick(v).rest);
@@ -898,19 +992,22 @@ describe("throwing the wheel by hand", () => {
 
   /*
      The other half of the same complaint: the wheel "does not slow down". The
-     easing curve was already exactly right — `cubic-bezier(.333,.667,.667,1)`
-     is `2t - t²`, which is constant deceleration — but the whole spin used to
+     easing curve was already exactly right, `cubic-bezier(.333,.667,.667,1)`
+     being `2t - t^2` and so constant deceleration, but the whole spin used to
      run between 1.3 and 3.0 seconds, and deceleration you cannot watch reads
      as no deceleration at all. This pins the window, because the curve being
      correct is not the thing that was wrong.
   */
   it("runs long enough for the slowing to be visible", () => {
-    expect(spinMs(SPIN_MIN_TRAVEL)).toBeGreaterThan(3000);
-    expect(spinMs(SPIN_MAX_TRAVEL)).toBeLessThan(8000);
+    // A turn and a half in about 2.7s, five turns in about 5.0. The old window
+    // was 3.5s to 6.6s, which nothing could reach the far end of anyway, and
+    // three spins a turn at FINDS_PER_TURN made the near end the whole game.
+    expect(spinMs(SPIN_MIN_TRAVEL)).toBeGreaterThan(2500);
+    expect(spinMs(SPIN_MAX_TRAVEL)).toBeLessThan(5500);
     // Under constant deceleration the wheel covers 3/4 of the distance in the
-    // first half of the time — so the second half is the visible crawl, and on
-    // the gentlest throw that is over a second and a half of it.
-    expect(spinMs(SPIN_MIN_TRAVEL) / 2).toBeGreaterThan(1500);
+    // first half of the time, so the second half is the visible crawl, and on
+    // the gentlest throw that is well over a second of it.
+    expect(spinMs(SPIN_MIN_TRAVEL) / 2).toBeGreaterThan(1200);
     // Time goes as the square root of distance: two and a quarter times as far
     // is one and a half times as long, not two and a quarter times.
     expect(spinMs(2.25 * SPIN_MIN_TRAVEL)).toBeCloseTo(
@@ -935,7 +1032,7 @@ describe("throwing the wheel by hand", () => {
           ok(
             apply(
               position(),
-              { type: "spin", velocity: 0.9 },
+              { type: "spin", velocity: 0.3 },
               0,
               seeded(i + 1),
             ),
@@ -948,16 +1045,20 @@ describe("throwing the wheel by hand", () => {
   /* The board draws what the reducer resolved, off the same function, so this
      is the seam where an animation of a lie would start. */
   it("agrees with the throw the board is about to draw", () => {
-    for (const velocity of [0.7, -1.1, SPIN_MAX_SPEED]) {
+    for (const velocity of [0.25, -0.33, SPIN_MAX_SPEED]) {
       const s = flick(velocity);
-      expect(s.travel).toBe(spinThrow(velocity).travel);
-      expect(spinThrow(velocity).ms).toBeGreaterThan(1000);
+      const drawn = spinThrow(velocity);
+      // Not null: every velocity here is a throw, and the reducer accepted it
+      // above, and a null would mean the two disagreed about what a throw is.
+      expect(drawn).not.toBeNull();
+      expect(s.travel).toBe(drawn?.travel);
+      expect(drawn?.ms).toBeGreaterThan(1000);
     }
   });
 
   /* A hostile client sends whatever it likes. Anything that is not a number is
-     not a flick, and falls back to the wheel deciding — which is exactly what
-     the Spin button does, so this is also the old-client path: a build from
+     not a flick, and falls back to the wheel deciding, exactly what the Spin
+     button does, so this is also the old-client path: a build from
      before the wheel was thrown by hand sends `power`, and gets a button spin
      rather than a wheel that will not turn. */
   it("treats a velocity that is not a number as no flick at all", () => {
@@ -1222,8 +1323,8 @@ describe("full games", () => {
         // from awarding to `state.turn`, or from awarding twice.
         if (state.roundOver && !before.roundOver) {
           const gained = state.score.map((n, i) => n - before.score[i]);
-          // Everyone banks exactly what they won this round — measured against
-          // the bank as it stands at the award, not before the move, since the
+          // Everyone banks exactly what they won this round, measured against
+          // the bank as it stands at the award rather than before the move, since
           // winning call's own money counts and the solver's bonus is already
           // in there.
           expect(gained).toEqual(state.bank);
@@ -1234,7 +1335,7 @@ describe("full games", () => {
         }
 
         // Masking, checked on a live game rather than only on a fresh puzzle.
-        // This is what would catch `roundOver` being set one move early — the
+        // This is what would catch `roundOver` being set one move early: the
         // single failure that ruins the game silently, and the one the static
         // per-puzzle assertion cannot see.
         if (!state.roundOver) {
@@ -1245,8 +1346,8 @@ describe("full games", () => {
 
         expect(state.bank.every((n) => n >= 0)).toBe(true);
         expect(state.score.every((n) => n >= 0)).toBe(true);
-        // Money that has been banked is never taken back — not by Bankrupt,
-        // not by a lost turn, not by a new round.
+        // Money that has been banked is never taken back: not by Bankrupt, not
+        // by a lost turn, not by a new round.
         expect(state.score.every((n, i) => n >= previous[i])).toBe(true);
         expect(state.turn).toBeGreaterThanOrEqual(0);
         expect(state.turn).toBeLessThan(players);

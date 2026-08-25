@@ -1,4 +1,4 @@
-/* ── Game picker ───────────────────────────────────────────────────────
+/* Game picker
    Cards, not radio buttons -- and now cards that are buttons. The games are
    the product, so they get the screen: each one carries its own colour, its
    own name and a motif built from its own pieces.
@@ -15,13 +15,18 @@
    957px below the card you had picked at phone width, so the label naming your
    choice was read at the one moment your choice was off the top of the screen.
    The `.picked` rule and the button both went with it. */
+/* 12px rather than 9. The cards carry their own colour now, so the gap is what
+   stops thirteen saturated blocks reading as one quilt -- at 9px the ground
+   between two cards was thinner than the lip under either of them, and the
+   grid closed up into a single field of colour with lines ruled through it.
+   The gap is the shelf showing through, and it has to look like shelf. */
 .games {
   border: 0;
   padding: 0;
   margin: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 9px;
+  gap: 12px;
 }
 
 .game {
@@ -42,13 +47,75 @@
   gap: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--surface);
-  border-color: var(--rule);
-  color: var(--ink);
   cursor: pointer;
   /* Each card is themed by its own channel rather than the chosen one, so the
      grid reads as thirteen games rather than thirteen copies of one pick. */
   --accent: var(--ink);
+
+  /*
+    An object on a shelf, rather than a panel ruled onto the stage.
+
+    This was `--surface` with a hairline `--rule` border, thirteen times -- the
+    house panel primitive, applied honestly. It was also the whole of why this
+    screen read as a form: thirteen identical grey rectangles, distinguishable
+    only by reading them. The four channel colours were on the motifs inside,
+    where they were doing wayfinding for four games and none for the other
+    nine, because three or four cards shared each hue.
+
+    Two things change and nothing else does. The card takes its own colour --
+    see the `--card` family in `palette.css` -- so the eye can sort the shelf
+    before it reads a word of it. And it takes a lip, so it reads as something
+    you press rather than something you fill in.
+
+    The lip is the card's own well as a solid band under the bottom edge, not a
+    blurred shadow tinted at random: the well is already a solved darker shade
+    of this exact hue, so the underside of a card is the same colour as the
+    inside of it. One soft drop shadow underneath that, for the gap between the
+    card and the shelf. The border goes -- a coloured block does not need a
+    hairline to say where it ends, and a rule around it only muddies the edge
+    the colour is already drawing.
+  */
+  background: var(--card);
+  border: 0;
+  border-radius: var(--card-radius);
+  color: var(--card-ink);
+  box-shadow:
+    0 4px 0 var(--card-well),
+    0 6px 14px rgb(0 0 0 / 0.32);
+  /* The lip is drawn *under* the card, so the card has to leave room for it or
+     the grid's own gap absorbs it and the bottom row is clipped by the page. */
+  margin-bottom: 4px;
+  transition:
+    transform 90ms ease-out,
+    box-shadow 90ms ease-out;
+}
+/*
+  Pressed: the card travels the exact height of its own lip, and the lip goes.
+
+  4px down against a 4px lip is what makes this read as the card meeting the
+  shelf rather than as the card sliding about on it -- any other pair and the
+  thing either bottoms out early or keeps a sliver of edge it should have
+  spent. The drop shadow tightens at the same time, because a thing lying on a
+  surface does not cast the shadow it cast in the air.
+
+  `:active` rather than a class, so it is the browser's own press state: it
+  survives a drag off the card, which a pointerdown handler would have to be
+  written to do and would get wrong on the first touchscreen.
+*/
+.game:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--card-well), 0 1px 3px rgb(0 0 0 / 0.3);
+}
+/* Anyone who asked for less movement gets the colour and the lip and none of
+   the travel. The press still answers -- the shadow is a state change, not a
+   motion -- so the card is not left mute. */
+@media (prefers-reduced-motion: reduce) {
+  .game {
+    transition: none;
+  }
+  .game:active {
+    transform: none;
+  }
 }
 .game[data-game="connect4"] { --accent: var(--seat-0); }
 .game[data-game="backgammon"] { --accent: var(--seat-3); }
@@ -74,15 +141,25 @@
   outline-offset: 2px;
 }
 
+/* Bigger, and in the card's own ink rather than the app's.
+
+   1.05rem was the size a name takes when it is one of thirteen labels on a
+   form. It is a title on the face of an object now, and the card has the room
+   because the colour underneath it is doing the work the border used to: at
+   1.18rem with the tracking opened a little the name is the second thing the
+   eye lands on after the hue, which is the order this screen wants.
+
+   `--card-ink` is white on all fourteen hues at 5.4:1, which is why the colour
+   here is one token and not a per-game decision. See `palette.css`. */
 .game .name {
   font-family: var(--display);
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   font-weight: 700;
   line-height: 1;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.045em;
   text-transform: uppercase;
-  color: var(--ink);
-  padding: 10px 11px 3px;
+  color: var(--card-ink);
+  padding: 11px 12px 3px;
   /*
     Two lines, whether or not this name needs two.
 
@@ -123,15 +200,52 @@
   position: absolute;
   top: 7px;
   right: 7px;
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  /* The figures are being compared down a column, so they line up as one. */
-  font-variant-numeric: tabular-nums;
+  /* Seats around a table rather than one long row. Four across is a measured
+     cap, not a taste: eight in a row made the chip 75px on a card that is
+     138px at 320, so more than half the well was under it and the widest two
+     motifs were being covered by the fact about them. Wrapped, the widest chip
+     is 43px -- the same as every four-seat card, so the thirteen corners still
+     read as one column. */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 3px;
+  max-width: 43px;
   line-height: 1;
-  color: var(--muted);
-  background: var(--surface);
-  padding: 4px 6px;
-  border-radius: 3px;
+  /* The chip sits on the well, not on the card body, and the well is the one
+     dark thing on a card that is otherwise its own colour. So it reads as a
+     stamp pressed into the art: the card's ink, on a scrim of the black the
+     well is already made of. `--surface` here would have been a grey panel
+     floating on thirteen different colours, which is the one thing this
+     screen no longer has anywhere else. */
+  color: var(--card-ink);
+  background: rgb(0 0 0 / 0.42);
+  padding: 5px 7px;
+  border-radius: 999px;
+}
+/*
+  One seat. Filled means the game needs it, open means it is spare.
+
+  Both are --card-ink and differ only in whether the disc is solid or a ring,
+  which is the same trick Battleships' miss dot plays: a shape difference
+  survives a well whose brightness is the same 1.35% under all thirteen hues,
+  where a second colour would need thirteen more measurements. The ring is
+  drawn with `box-shadow` rather than `border` so the two states are the same
+  5px box and the row does not shuffle at the boundary between them.
+
+  5px at a 3px gap because the widest chip is Word Duel's eight, and eight of
+  these is 61px inside a card that is 140px wide at 320. That is the width this
+  was solved to; a fourteenth game seating more than eight needs it re-solved.
+*/
+.game .count i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--card-ink);
+}
+.game .count i.on {
+  background: var(--card-ink);
 }
 /*
   What the game is, in a sentence only that game could carry.
@@ -154,8 +268,13 @@
   line-height: 1.3;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--muted);
-  padding: 3px 11px 11px;
+  /* A step down from the name without leaving the card's colour. `--muted` is
+     a grey mixed for `--surface` and would be a smear on thirteen saturated
+     grounds; white at 0.90 is the same recession in whatever hue the card
+     happens to be, and it is still a sentence, so it is held to 4.5:1 rather
+     than to the 3:1 a shape gets. It clears it on all fourteen. */
+  color: var(--card-ink-soft);
+  padding: 3px 12px 12px;
   min-height: calc(2.6em + 14px);
 }
 /*
@@ -190,20 +309,48 @@
 
   How much bigger is not a number written here; see `--m` below.
 */
+/* The outline this used to wear is gone with every other border on a card.
+
+   It was `border-color: var(--accent)` plus an inset ring, and both were
+   saying "this one" in a language the shelf no longer speaks -- a ring in the
+   channel colour, on a card whose own colour is now the loudest thing about
+   it. Two edges in two different colours on the one card that is already twice
+   the size of its neighbours is not emphasis, it is noise.
+
+   It is the big one and it says so in words; the size and the chip are the
+   whole of the hierarchy. What it gets instead is a deeper lip and a longer
+   shadow -- the same object, standing further off the shelf. */
 .game.featured {
   grid-column: 1 / -1;
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow:
+    0 6px 0 var(--card-well),
+    0 10px 22px rgb(0 0 0 / 0.36);
+  margin-bottom: 6px;
+}
+.game.featured:active {
+  transform: translateY(6px);
+  box-shadow: 0 0 0 var(--card-well), 0 1px 3px rgb(0 0 0 / 0.3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .game.featured:active {
+    transform: none;
+  }
 }
 .game.featured .name {
-  font-size: 1.5rem;
+  font-size: 1.9rem;
   /* Nothing to line up with across a row it is the only member of. */
   min-height: 0;
 }
+/* The hero's seats are drawn a size up, the way its name and its line are. */
 .game.featured .count {
-  font-size: 0.78rem;
   top: 9px;
   right: 11px;
+  gap: 4px;
+  max-width: 55px;
+}
+.game.featured .count i {
+  width: 7px;
+  height: 7px;
 }
 .game.featured .blurb {
   font-size: 0.86rem;
@@ -221,17 +368,29 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--action-text);
-  background: var(--accent);
-  padding: 3px 7px;
-  border-radius: 3px;
+  /* The one place a card still shows its channel colour, and now the only
+     thing on the shelf that does -- which is what makes it read as a label
+     stuck onto the card rather than as part of it. It has to be legible on
+     whatever hue it is stuck to, so it brings its own dark ground with it
+     rather than sitting the accent directly on the card: ember on ember is
+     the case that fails, and Connect Four is a card.
+
+     0.68 rather than the 0.55 that looked right: measured across the fourteen
+     hues and the four channels, 0.55 bottomed out at 4.30:1 on Morris, and
+     this is 0.6rem tracked caps -- the smallest type on the shelf, and the one
+     string here that has to be read rather than recognised. 0.68 takes the
+     worst case to 5.16. */
+  color: var(--accent);
+  background: rgb(0 0 0 / 0.68);
+  padding: 4px 8px;
+  border-radius: 999px;
 }
 /* The channel colour used to be restated as a bar along the bottom edge. It
    was saying nothing the card was not already saying -- the motif above is
    drawn in the same accent, and the featured card outlines itself in it. A
    rail under a card is decoration wearing the clothes of information. */
 
-/* ── Card motifs ───────────────────────────────────────────
+/* Card motifs
    Built from each game's own pieces in CSS rather than drawn as artwork: the
    Android build ships offline with no image assets, and a disc grid says
    "Connect Four" more honestly than an illustration would.
@@ -265,8 +424,19 @@
   /* The crop. None of the compositions below work without it. */
   overflow: hidden;
   display: grid;
-  background: var(--board);
-  border-bottom: 1px solid var(--rule);
+  /* The well is the card's own hue taken down to 1.35% luminance -- see
+     `--card-well` in `palette.css`. It reads as the shadowed inside of a
+     coloured object rather than as a grey window cut into one, which is the
+     difference between a card and a card with a picture stuck on it.
+
+     Within a hair of the `--board` this used to be (1.46%), and deliberately:
+     every one of the thirteen motifs was composed and measured against that
+     brightness, so matching it is what lets all thirteen come along unchanged.
+
+     The border-bottom goes with every other rule on this card. The well and
+     the card body are two values of one hue with a hard step between them, and
+     a hairline drawn in a third colour across that step only blurs it. */
+  background: var(--card-well);
 }
 /*
   --m follows the card's width, so one composition serves every size of card.
@@ -993,6 +1163,6 @@
   color: var(--ink);
 }
 
-/* ── Seat picker ───────────────────────────────────────────────────────
+/* Seat picker
    Three single digits, which want a chip rather than a card: the card styles
    above are undone rather than worked around. */

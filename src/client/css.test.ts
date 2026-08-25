@@ -59,6 +59,8 @@ const CONTROLS = new Set([
   'wd-input',
   'wd-submit',
   'vr-submit', // the answer button beside Vocab Race's entry field
+  'vr-give-up', // "I don't know it", under the entry row
+  'vr-hint-buy', // spending one of the three, beside it
   'yz-pick',
 ]);
 
@@ -80,7 +82,7 @@ function boardSources(): { file: string; source: string }[] {
 }
 
 /**
- * Opening `<button …>` tags, whole. Scanning to the first `>` would stop
+ * Opening `<button ...>` tags, whole. Scanning to the first `>` would stop
  * inside `disabled={a > b}` and miss the className that follows it, so this
  * tracks brace depth and only accepts a `>` outside every JSX expression.
  */
@@ -177,7 +179,7 @@ describe('the disabled-button rule', () => {
  * The tray's camera.
  *
  * `perspective: 900px` put the vanishing point a hand's width in front of the
- * tray, so every die away from the middle was drawn leaning — five dice lying
+ * tray, so every die away from the middle was drawn leaning: five dice lying
  * flat on one table, each apparently tipped a different way, which is what a
  * player saw and reported as the dice not having a floor under them. Without a
  * `perspective` above it a cube under `preserve-3d` is drawn orthographically,
@@ -195,13 +197,13 @@ describe('the dice tray', () => {
     and a vanishing point a hand's width in front of the tray made five resting
     dice each look tipped a different way. The dice are WebGL now and the
     camera lives in `scene.ts`, so there is nothing left here to get wrong
-    about projection — and two new things that a single declaration could
+    about projection, and two new things that a single declaration could
     quietly reverse.
   */
   it('lets the flick through to the tray', () => {
     // The canvas covers the tray edge to edge. If it ever takes the pointer,
-    // the throw gesture stops existing — and it would look like nothing at
-    // all, since the dice would still be drawn perfectly.
+    // the throw gesture stops existing, and it would look like nothing at all,
+    // since the dice would still be drawn perfectly.
     const canvas = css.match(/^\.dice-canvas\s*\{[\s\S]*?^\}/m)?.[0] ?? '';
     expect(canvas, 'the .dice-canvas rule went missing').not.toBe('');
     expect(canvas).toMatch(/pointer-events:\s*none/);
@@ -211,7 +213,7 @@ describe('the dice tray', () => {
     /*
       `button` carries `min-height: 44px`, the app's touch floor, and a minimum
       beats a size set on the element. The old cube learned this the hard way:
-      a 35px die-slot came out 35 wide and 44 tall — an upright slab — and only
+      a 35px die-slot came out 35 wide and 44 tall, an upright slab, and only
       on a phone, because on a laptop the die was over 44px and the minimum
       never bit. The mark is positioned in pixels from the projection now, so
       the same rule would fight it the same way; the 44px is honoured by the

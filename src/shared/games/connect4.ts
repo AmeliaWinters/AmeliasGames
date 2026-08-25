@@ -103,9 +103,9 @@ export const connect4: GameDefinition<C4State, C4Move> = {
       return { ok: false, error: 'Unknown move.' };
     }
     if (!Number.isInteger(move.col) || move.col < 0 || move.col >= COLS) {
-      // A player cannot reach this -- they tapped a column that is on screen.
-      // Only a client sending its own numbers can, so the number it sent is
-      // the only useful thing this message can say.
+      // A player cannot reach this, since they tapped a column that is on
+      // screen. Only a client sending its own numbers can, so the number it
+      // sent is the only useful thing to say back.
       return { ok: false, error: `There is no column ${named(move.col)}.` };
     }
 
@@ -135,7 +135,7 @@ export const connect4: GameDefinition<C4State, C4Move> = {
   },
 
   turn(state) {
-    // Deliberately not `this.isOver` — GameDefinition promises nothing about
+    // Deliberately not `this.isOver`: GameDefinition promises nothing about
     // method binding, so a destructured `turn` would throw.
     return isOver(state) ? null : state.turn;
   },

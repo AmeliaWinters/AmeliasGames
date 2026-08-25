@@ -62,19 +62,19 @@ export type { Category, Note, Sheet, UpperCategory, YMove, YState } from './yaht
  * Yahtzee, for two to four.
  *
  * Thirteen rounds. On your turn you roll five dice, keep what you like and
- * roll the rest up to twice more, then write the hand into one of your
- * thirteen boxes — which is the whole game, because every box can be used once
- * and a hand that fits nowhere useful has to be crossed off somewhere.
+ * roll the rest up to twice more, then write the hand into one of your thirteen
+ * boxes. That is the whole game: every box is used once, and a hand that fits
+ * nowhere useful has to be crossed off somewhere.
  *
  * The scoring itself lives in `yahtzeeDisplay.ts`, which is arithmetic over
  * five numbers and nothing else. What is left here is the turn: whose it is,
  * how many rolls they have left, which boxes they may legally use, and the
  * bookkeeping at the end of it.
  *
- * ── The parts casual implementations drop ──────────────────────────────
+ * The parts casual implementations drop
  *
  * **The Yahtzee bonus.** A second Yahtzee is worth 100 on top of whatever box
- * it fills — but only to a player whose Yahtzee box actually scored 50. Cross
+ * it fills, but only to a player whose Yahtzee box actually scored 50. Cross
  * Yahtzee off for zero and later Yahtzees earn you nothing.
  *
  * **The joker rules.** They are what makes that second Yahtzee playable at
@@ -83,7 +83,7 @@ export type { Category, Note, Sheet, UpperCategory, YMove, YState } from './yaht
  * the straights pay face value, since the hand cannot form them), and only
  * with the lower section full may an upper box be crossed off. They apply
  * whenever the Yahtzee box is filled, including when it was filled with a
- * zero — the bonus and the placement rule are separate things.
+ * zero: the bonus and the placement rule are separate things.
  *
  * `legalCategories` is therefore part of the rules rather than a convenience:
  * the board greys out boxes with it, and `applyMove` refuses them with it, so
@@ -98,8 +98,8 @@ const SEATS = {
 /**
  * Throw the dice that are not being kept, and see what they say.
  *
- * The faces are read off the cubes where they stop — in the browser that threw
- * them, now, so what arrives here is a report. `nextToss` checks its shape and
+ * The faces are read off the cubes where they stop, in the browser that threw
+ * them, so what arrives here is a report. `nextToss` checks its shape and
  * overrules the kept dice; it cannot check the numbers, and `toss.ts` says why.
  */
 function throwDice(
@@ -117,10 +117,9 @@ function throwDice(
     held: keeping,
   });
   // A kept die's face comes from the record rather than from the cube the
-  // simulation left standing there. They agree in play — the cube is where
-  // the throw that produced that face left it — and this is what keeps them
-  // agreeing if they ever come apart, since `dice` is the thing the score is
-  // computed from.
+  // simulation left standing there. They agree in play, the cube being where
+  // the throw that produced that face left it, and this keeps them agreeing if
+  // they ever come apart, since `dice` is what the score is computed from.
   return {
     toss: thrown.toss,
     dice: thrown.faces.map((face, i) => (keeping[i] ? state.dice[i] : face)),
@@ -150,14 +149,14 @@ function isOver(state: YState): boolean {
 
 function roll(state: YState, sent: unknown, rng: Rng): MoveResult<YState> {
   if (state.rollsLeft <= 0) {
-    return { ok: false, error: 'No rolls left — the hand has to go somewhere.' };
+    return { ok: false, error: 'No rolls left, so the hand has to go somewhere.' };
   }
   // Keeping all five and rolling again spent a roll and changed nothing: the
   // dice were identical, the board did not move, and the only evidence was
   // the button counting down. That is not a roll, so it is not allowed to
   // cost one.
   if (hasRolled(state) && state.held.every(Boolean)) {
-    return { ok: false, error: 'You are keeping all five — there is nothing to throw.' };
+    return { ok: false, error: 'You are keeping all five, so there is nothing to throw.' };
   }
   const thrown = throwDice(state, sent, rng);
   return {
@@ -183,7 +182,7 @@ function hold(state: YState, index: unknown): MoveResult<YState> {
     // sent it, and a helpful off-by-one would not help them.
     return {
       ok: false,
-      error: `Die ${named(index)} is not on the table — they are 0 to ${DICE - 1}.`,
+      error: `Die ${named(index)} is not on the table. They are 0 to ${DICE - 1}.`,
     };
   }
   const held = state.held.slice();
@@ -326,7 +325,7 @@ export const yahtzee: GameDefinition<YState, YMove> = {
       const best = total(state.sheets[state.winners[0]], state.extras[state.winners[0]]);
       if (state.winners.length === 1) return `${nameFor(state.winners[0])} wins with ${best}`;
       const who = state.winners.map(nameFor);
-      return `A tie at ${best} — ${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
+      return `A tie at ${best}: ${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
     }
 
     if (!hasRolled(state)) return `${nameFor(state.turn)} to roll`;
@@ -339,5 +338,5 @@ export const yahtzee: GameDefinition<YState, YMove> = {
   },
 
   // Nothing is hidden: the dice are on the table and every sheet is public.
-  // No `view`, deliberately — see the note at the top of `yahtzeeDisplay.ts`.
+  // No `view`, deliberately. See the note at the top of `yahtzeeDisplay.ts`.
 };

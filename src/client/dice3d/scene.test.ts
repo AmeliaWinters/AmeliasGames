@@ -3,7 +3,7 @@
  *
  * Almost nothing in `scene.ts` can be tested: it needs a WebGL context, and the
  * Browser pane this project develops against runs as a hidden document where a
- * canvas cannot be screenshotted and — unlike the CSS dice this replaced —
+ * canvas cannot be screenshotted and, unlike the CSS dice this replaced,
  * cannot be measured through the DOM either, because there is no DOM inside a
  * canvas.
  *
@@ -39,7 +39,7 @@ describe('the camera', () => {
   it('frames the whole tray, in every tray and at every width', () => {
     /*
       Measured rather than looked at, which is this project's rule for anything
-      geometric — and here it is not even a preference: a die cropped off the
+      geometric, and here it is not even a preference: a die cropped off the
       end of the tray is a number the player cannot read, and there is no
       screenshot available that would show it.
 
@@ -84,8 +84,8 @@ describe('the camera', () => {
 
       `lookAt` sets a camera's rotation and nothing else. `matrixWorldInverse`,
       which is what `Vector3.project` reads, is refreshed by three inside
-      `render()` — so a camera that has been aimed but not rendered through
-      still projects as though it were at the origin looking down −z. `draw`
+      `render()`, so a camera that has been aimed but not rendered through
+      still projects as though it were at the origin looking down -z. `draw`
       projects each die *before* it renders, so on the first frame after a
       mount every die's button was placed through an identity camera: hundreds
       of pixels outside the tray, on a canvas that was drawing the dice
@@ -98,7 +98,7 @@ describe('the camera', () => {
     const camera = new PerspectiveCamera();
     aimCamera(camera, w, h, YAHTZEE_TRAY.w / YAHTZEE_TRAY.h);
 
-    // Straight away — no render, no updateMatrixWorld, nothing in between.
+    // Straight away: no render, no updateMatrixWorld, nothing in between.
     const middle = new Vector3(0, 1, 0).project(camera);
     expect(Math.abs(middle.x)).toBeLessThan(0.05);
     expect(Math.abs(middle.y)).toBeLessThan(0.35);
@@ -129,7 +129,7 @@ describe('the camera', () => {
 describe('framing', () => {
   it('holds the camera back far enough for whichever dimension is tighter', () => {
     // A long thin tray is limited by its width; a squarer one by its depth.
-    // Backgammon's is the extreme case — a strip a third as tall as it is wide.
+    // Backgammon's is the extreme case: a strip a third as tall as it is wide.
     const wide = frameTray(40, 4, 4);
     const square = frameTray(40, 40, 1);
     expect(square.distance).toBeGreaterThan(wide.distance);

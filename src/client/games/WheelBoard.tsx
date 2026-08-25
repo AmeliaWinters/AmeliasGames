@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-// Values from wheelDisplay.js, which imports nothing — the board must never
+// Values from wheelDisplay.js, which imports nothing: the board must never
 // pull the reducer (and its answer bank) into the client bundle. The types
-// below are type-only, so they are erased and carry no runtime import.
+// below are type-only, so they carry no runtime import.
 import {
   ALPHABET,
   BLANK,
@@ -45,30 +45,42 @@ const LABEL_RADIUS = 80;
  * how much of the 200-unit diameter the window keeps, measured down from the
  * top of the rim, and CROP is that plus the sliver of clearance the pointer
  * needs above it. The hub therefore sits well below the frame again, and the
- * numbers cannot be read off the box — see HUB_Y.
+ * numbers cannot be read off the box. See HUB_Y.
  *
- * A word of warning, because this has bitten once: `aspect-ratio` on
- * `.wof-wheel-frame` is VIEW_W / CROP written out, and an SVG whose viewBox
- * disagrees with its box does not crop, it letterboxes. Change either number
- * here and change that one too.
+ * The frame's `aspect-ratio` has to be VIEW_W / CROP exactly: the SVG keeps the
+ * default `preserveAspectRatio`, so a box that disagrees with the viewBox does
+ * not crop harder, it letterboxes, and the wheel shrinks away from the sides of
+ * a frame still holding the old height. It used to be written out a second time
+ * in the stylesheet, and the two had to be changed together by hand. Now the
+ * board hands the ratio over as `--wof-frame` and there is only the one number:
+ * see the style on `.wof-wheel-frame` below.
  */
-const VIEW_W = 90;
+const VIEW_W = 100;
 
-/** Clearance above the rim, in box units — the pointer is drawn from y=1 to
+/** Clearance above the rim, in box units. The pointer is drawn from y=1 to
     y=17, so the wheel starts below its tip. */
 const RIM_TOP = 8;
 
 /** How much of the wheel's diameter the window keeps, from the top of the rim
     down. Small on purpose: the wedges that matter are the ones at the pointer,
-    and the rest of the disc is scenery that costs height a phone has not got. */
-const SHOW = 0.3;
+    and the rest of the disc is scenery that costs height a phone has not got.
+
+    It was 0.3, and 0.3 is the single reason this table did not fit a screen:
+    at the column's full width that frame was 459px tall, which is half a
+    laptop before the keyboard has been drawn. Cutting the band rather than
+    scaling the wheel is what keeps a wedge the size it was: the labels are
+    sized against the wedge, not against the frame, so nothing here touched
+    them. The rim still runs off both sides at the bottom edge (at y = CROP the
+    disc is 160 units across against a 90-unit window), which is the whole
+    point of a wheel too big for its window. */
+const SHOW = 0.2;
 
 const CROP = Math.round(RIM_TOP + 2 * RADIUS * SHOW);
 
 /**
- * The wheel's hub, in the box's own coordinates — one radius below the top of
- * the rim, which now puts it below the bottom edge of the frame. That is why
- * it is derived from RIM_TOP and not from CROP: tying it to the bottom edge
+ * The wheel's hub, in the box's own coordinates: one radius below the top of
+ * the rim, which puts it below the bottom edge of the frame. That is why it is
+ * derived from RIM_TOP and not from CROP. Tying it to the bottom edge
  * (`CROP - 8`) meant cropping the window slid the whole wheel up with it, and
  * the top of the rim went out of the frame along with the middle of it.
  *
@@ -92,18 +104,18 @@ const FLICK_WINDOW_MS = 120;
 /**
  * Bankrupt and Lose a Turn, as marks rather than words.
  *
- * They used to be set as text, and there is no room for it: a wedge is 10°,
+ * They used to be set as text, and there is no room for it: a wedge is 10 deg,
  * which is about fourteen units of arc at the label radius, and "BANKRUPT"
  * laid across that at any readable size runs over its neighbours and off the
  * rim. A mark is read at a glance anyway, which is all a wheel in motion gives
- * you — and the words themselves are still said in full underneath, in the
+ * you, and the words themselves are still said in full underneath, in the
  * readout and in the note line.
  *
  * Drawn about the origin, so the caller places them the same way it places a
  * number: rotated with the wedge, at the label radius.
  */
 function wedgeGlyph(wedge: Wedge): string {
-  // Bankrupt: the "none of it" sign — a ring with a stroke through it.
+  // Bankrupt: the "none of it" sign, a ring with a stroke through it.
   if (wedge.kind === "bankrupt") {
     return "M 3.6 0 A 3.6 3.6 0 1 1 -3.6 0 A 3.6 3.6 0 1 1 3.6 0 M -2.5 -2.5 L 2.5 2.5";
   }
@@ -123,22 +135,21 @@ function wedgeClass(index: number): string {
  * The wheel itself: thirty-six wedges that turn and stop where the server says
  * they stopped.
  *
- * The server resolves the spin — it is the only thing here holding an rng —
- * and sends back the index it landed on and the distance it covered. This
- * animates *to* that index; it never chooses one. Watching the wheel and then
- * being told a different number is the one thing that would make the whole
- * game feel rigged, so the pointer and the money below it are always reading
- * the same field.
+ * The server resolves the spin, being the only thing here holding an rng, and
+ * sends back the index it landed on and the distance it covered. This animates
+ * *to* that index; it never chooses one. Watching the wheel and then being told
+ * a different number is the one thing that would make the whole game feel
+ * rigged, so the pointer and the money below it always read the same field.
  *
  * `spins` rather than `wedgeAt` is what triggers a throw: two spins running
  * can land on the same wedge, and a wheel that sat still on the second one
  * would look broken.
  *
  * The rim is grabbable. A drag turns the wheel under the finger at one to one,
- * and the speed at the moment of release — signed, so a flick left throws it
- * left — is the whole of the throw. Where the drag *left* the wheel decides
- * nothing: see the note on `spin` in `wheel.ts` for why the landing is
- * anchored to where the wheel stopped last time instead.
+ * and the speed at the moment of release, signed so a flick left throws it
+ * left, is the whole of the throw. Where the drag *left* the wheel decides
+ * nothing: see the note on `spin` in `wheel.ts` for why the landing is anchored
+ * to where the wheel stopped last time instead.
  */
 function Wheel({
   state,
@@ -154,9 +165,9 @@ function Wheel({
   onSettled: () => void;
 }) {
   /*
-    Where the wheel is standing and how long it has to get there — one piece of
-    state because they are one fact, and because the duration can only be
-    worked out in the same breath as the angle. A drag sets `ms` to zero; the
+    Where the wheel is standing and how long it has to get there. One piece of
+    state because they are one fact, and because the duration can only be worked
+    out in the same breath as the angle. A drag sets `ms` to zero; the
     stylesheet takes it from here.
   */
   const [turn, setTurn] = useState(() => ({
@@ -178,7 +189,7 @@ function Wheel({
       flapper.current.style.transform = `rotate(${flapAngle(wheel)}deg)`;
   }
   /* The live drag: where the finger started, what the wheel read then, and the
-     last few positions with their timestamps — the tail is what a release is
+     last few positions with their timestamps, the tail being what a release is
      measured over. Held in a ref rather than in state because it changes on
      every pointermove and none of it is drawn. */
   const drag = useRef<{
@@ -192,8 +203,8 @@ function Wheel({
     seen.current = state.spins;
     if (state.wedgeAt === null) return;
     setTurn((current) => {
-      // The distance the throw actually covered, signed — a flick left turns
-      // the wheel left, and a hard one visibly goes further than a gentle one.
+      // The distance the throw actually covered, signed: a flick left turns the
+      // wheel left, and a hard one visibly goes further than a gentle one.
       const swept = current.angle + state.travel * WEDGE_ARC;
       const target = restAngle(state.rest);
       // ...landed where the throw left it. `swept` is the exact distance from
@@ -223,8 +234,8 @@ function Wheel({
    * has actually resolved to this frame; the rest is `flapAngle`.
    *
    * Nothing here is verifiable in the preview pane, which is a hidden document
-   * and never fires a frame — see `wheelGeometry.test.ts` for the half that
-   * can be pinned.
+   * and never fires a frame. See `wheelGeometry.test.ts` for the half that can
+   * be pinned.
    */
   useEffect(() => {
     if (!spinning) {
@@ -236,8 +247,8 @@ function Wheel({
     let frame = 0;
     const tick = () => {
       // "none" is not a matrix, and DOMMatrix throws on it rather than reading
-      // it as the identity. It should never appear — the group always carries
-      // a rotate — but a throw here would stop the loop dead mid-spin.
+      // it as the identity. It should never appear, the group always carrying a
+      // rotate, but a throw here would stop the loop dead mid-spin.
       const css = getComputedStyle(disc).transform;
       if (css && css !== "none") {
         const m = new DOMMatrixReadOnly(css);
@@ -272,8 +283,8 @@ function Wheel({
   function grab(event: React.PointerEvent<SVGSVGElement>) {
     if (!grabbable) return;
     const svg = event.currentTarget;
-    // Captured, so a finger that leaves the frame mid-throw — which is most of
-    // them, the frame being a band — still finishes its drag here. It throws
+    // Captured, so a finger that leaves the frame mid-throw, which is most of
+    // them given the frame is a band, still finishes its drag here. It throws
     // if the pointer has already gone, and a throw here would cost the drag
     // rather than the capture, so it is allowed to fail.
     try {
@@ -303,7 +314,7 @@ function Wheel({
     if (live.trail.length > 24) live.trail.shift();
     // No easing under the hand: the wheel is where the finger is, this frame.
     setTurn({ angle: live.base + turned, ms: 0 });
-    // Under the hand the wheel ticks too — that is most of what tells you you
+    // Under the hand the wheel ticks too, which is most of what tells you you
     // have hold of it.
     setFlap(live.base + turned);
   }
@@ -313,7 +324,7 @@ function Wheel({
     if (!live) return;
     drag.current = null;
     setDragging(false);
-    // The turn can move on mid-drag — somebody else solved it, or the round
+    // The turn can move on mid-drag: somebody else solved it, or the round
     // ended. The wheel is left wherever the hand put it, which the next spin's
     // snap tidies up; what must not happen is a move nobody may make.
     if (!grabbable) return;
@@ -329,7 +340,7 @@ function Wheel({
     // Signed, and in the same units the reducer thinks in: degrees of the
     // wheel's own rotation per millisecond, positive clockwise. `spinThrow`
     // clamps it at both ends and floors it, so a finger that stopped dead
-    // before letting go still throws the wheel — see SPIN_MIN_TRAVEL.
+    // before letting go still throws the wheel. See SPIN_MIN_TRAVEL.
     const velocity = ms > 0 ? (last.at - first.at) / ms : 0;
     onSpin(velocity);
   }
@@ -340,14 +351,20 @@ function Wheel({
   if (dragging) classes.push("dragging");
 
   return (
-    <div className="wof-wheel-frame">
+    /* The frame's shape is the viewBox's shape or the wheel letterboxes inside
+       it, so it is handed over from here rather than written out again in the
+       stylesheet, where it could only be kept in step by remembering to. */
+    <div
+      className="wof-wheel-frame"
+      style={{ "--wof-frame": `${VIEW_W} / ${CROP}` } as React.CSSProperties}
+    >
       <svg
         className={classes.join(" ")}
         viewBox={`0 0 ${VIEW_W} ${CROP}`}
         /* The three numbers the stylesheet needs and cannot know: how long
            this throw takes, which is the throw's own duration and not a stock
            one, and where the wheel's hub is. The pivot used to be `center`,
-           which meant half the box — true only while the box was square, and it
+           which meant half the box: true only while the box was square, and it
            stopped being square the moment it was cropped. */
         style={
           {
@@ -367,14 +384,14 @@ function Wheel({
         aria-hidden="true"
       >
         {/* Two groups, and they do different jobs: the outer one is the only
-            thing that turns, and the inner one never moves — it just carries
+            thing that turns, and the inner one never moves; it just carries
             the wheel from the origin to the hub. See HUB_X. There is no clip
             any more: the box itself is the crop now that the whole radius is
             inside it, and what falls off the sides is the far rim of a wheel
             wider than the frame.
 
             `transitionend` is what says the wheel has stopped, rather than a
-            second clock upstairs racing this one — the board holds the whole
+            second clock upstairs racing this one. The board holds the whole
             position back until it fires. */}
         <g>
           <g
@@ -383,7 +400,7 @@ function Wheel({
             style={{ transform: `rotate(${angle}deg)` }}
             /* This element's own rotation, and nothing else. React routes a
                bubbled `transitionend` through here too, so a transition added
-               to a wedge or a label later would otherwise end the spin early —
+               to a wedge or a label later would otherwise end the spin early,
                and ending it early is the board showing the answer over a wheel
                that is still going round. */
             onTransitionEnd={(event) => {
@@ -448,7 +465,7 @@ function Wheel({
         {/* The flapper. Drawn inside the wheel's own box rather than floated
             over it, so it sits on the rim at every width without a percentage
             anybody has to keep in step with the crop. One wedge wide, so what
-            it is sitting on is unmistakable — and hinged at its top edge, so
+            it is sitting on is unmistakable, and hinged at its top edge, so
             each peg that passes underneath can knock the tip aside. */}
         <path
           className="wof-pointer"
@@ -465,7 +482,7 @@ import type { BoardProps } from "./boards.js";
 type Props = BoardProps<WofState, WofMove>;
 
 /**
- * The puzzle board is drawn from the *masked* answer — the only version this
+ * The puzzle board is drawn from the *masked* answer, the only version this
  * component has ever seen. `_` is a letter nobody has called; everything else
  * is on the board because it was called, or because it was never hidden.
  */
@@ -475,9 +492,27 @@ function tileClass(ch: string, justCalled: string | null): string {
   return ch === justCalled ? "wof-tile letter just" : "wof-tile letter";
 }
 
+/** Whether this tile is one the letter just called turned over. */
+function turnedNow(ch: string, justCalled: string | null): boolean {
+  return justCalled !== null && ch === justCalled && ALPHABET.includes(ch);
+}
+
 /**
- * The board read out rather than looked at. Letter by letter, because "blank
- * P blank blank C E" is the information — "_PIECE" is not something a screen
+ * How long each turning tile waits behind the one before it.
+ *
+ * The tiles used to flip together, and together is the one arrangement that
+ * throws the information away: four T's turning at the same instant is a
+ * single event with no count in it, and you are back to comparing the board
+ * against your memory of it, which is what the animation was added to save you
+ * from. Left to right at 80ms a tile, four T's is visibly four, and the longest
+ * call this bank can produce is seven, which lands inside the same half-second
+ * the readout takes to arrive.
+ */
+const REVEAL_STAGGER = 80;
+
+/**
+ * The board read out rather than looked at. Letter by letter, because "blank P
+ * blank blank C E" is the information, where "_PIECE" is not something a screen
  * reader says usefully.
  */
 function spoken(answer: string): string {
@@ -489,14 +524,167 @@ function spoken(answer: string): string {
     .join(", ");
 }
 
-export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
+/** How long a purse takes to count from its old total to its new one. */
+const COUNT_MS = 700;
+
+/** How long the gain or the loss stays marked on the purse afterwards. */
+const FLASH_MS = 900;
+
+/**
+ * A total that arrives at its new value rather than jumping to it, and says
+ * which way it went while it is getting there.
+ *
+ * The money is the score, and a score that changes between two renders with
+ * nothing in between is a score you have to have been watching the right
+ * corner to see. Counting it takes the same three quarters of a second the
+ * note line takes to read, and it is the only thing on the board that draws
+ * the eye to a purse that is not yours.
+ *
+ * Eased out rather than linear for one reason worth keeping: a Bankrupt drops
+ * a four-figure total to nothing, and a linear count spends most of its time
+ * in the last two hundred dollars. Out-eased, the big digits go first, which
+ * is the part that reads.
+ *
+ * The board freezes the whole position while the wheel turns (see `frozen`) so
+ * this is fed the *frozen* total and only starts once the pointer has stopped.
+ * Nothing here has to know that; it is why it looks like it does.
+ */
+function useTally(value: number): { shown: number; move: string } {
+  const [shown, setShown] = useState(value);
+  const [move, setMove] = useState("");
+  // What the last animation was heading for. Not `shown`, which is mid-count
+  // and would restart the sum from wherever this frame happened to be.
+  const target = useRef(value);
+
+  useEffect(() => {
+    const from = target.current;
+    if (from === value) return;
+    target.current = value;
+    setMove(value > from ? "up" : "down");
+    const clear = setTimeout(() => setMove(""), FLASH_MS);
+
+    // Asked at the moment the movement starts, per `wantsStillness`. There is
+    // no rAF in a non-browser render either, and this is the same branch.
+    if (wantsStillness() || typeof requestAnimationFrame !== "function") {
+      setShown(value);
+      return () => clearTimeout(clear);
+    }
+
+    let frame = 0;
+    const began = performance.now();
+    const step = (now: number) => {
+      const p = Math.min(1, (now - began) / COUNT_MS);
+      const eased = 1 - (1 - p) * (1 - p);
+      setShown(Math.round(from + (value - from) * eased));
+      if (p < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    // A backstop, and not a theoretical one: `requestAnimationFrame` does not
+    // fire in a tab nobody is looking at, so a purse that changed while the
+    // player was in another tab would sit on its old total until the *next*
+    // time it changed: the score, silently a spin behind. Caught in the preview
+    // pane, which is a hidden document, and so is every backgrounded tab. A
+    // timer is throttled there rather than stopped, so this is the thing that
+    // lands the number; in a tab being watched the count has already finished
+    // and this sets it to what it already says.
+    const land = setTimeout(() => setShown(value), COUNT_MS + 250);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(land);
+      clearTimeout(clear);
+      // A total that changed again mid-count is not two counts overlapping:
+      // the sum that was running is abandoned at its answer, and the next one
+      // starts from there.
+      setShown(value);
+    };
+  }, [value]);
+
+  return { shown, move };
+}
+
+/**
+ * One player: who they are, and what they have.
+ *
+ * This is the shell's players strip and the Wheel's scoreboard, which were two
+ * rows of the same four names. See `ownsSeats` in `boards.ts`, which is what
+ * takes the shell's copy down on this table. So it carries everything the strip
+ * carried: the seat colour, the name, "you", "away", and the ring round whoever
+ * is up. The money is the only thing it adds, and the money is the score of
+ * this game.
+ *
+ * Its own component only because `useTally` is a hook and there are up to four
+ * of these: a hook cannot be called from inside a map, and each purse counts
+ * its own total on its own clock.
+ */
+function Purse({
+  seatIndex,
+  name,
+  mine,
+  away,
+  amount,
+  banked,
+  active,
+}: {
+  seatIndex: number;
+  name: string;
+  mine: boolean;
+  away: boolean;
+  amount: number;
+  banked: number;
+  active: boolean;
+}) {
+  const round = useTally(amount);
+  const total = useTally(banked);
+  return (
+    <div
+      className={[
+        "wof-purse",
+        `p${seatIndex}`,
+        active ? "active" : "",
+        round.move,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span className="chip" aria-hidden="true" />
+      <span className="who">{name}</span>
+      {mine && <span className="note">you</span>}
+      {away && <span className="note">away</span>}
+      {/* The counting number is decoration over a fact, so the fact is what is
+          published: the live region reads the total it is heading for, not
+          whichever frame a screen reader happened to catch. */}
+      {/* The two totals share a line and wrap back to two when they cannot
+          have one. A purse is as narrow as two-to-a-row on a phone allows, and
+          the alternative to wrapping is a third line every player pays for
+          whether their numbers need it or not. */}
+      <span className="totals">
+        <span
+          className="round"
+          aria-label={`${name}, ${money(amount)} this round`}
+        >
+          <span aria-hidden="true">{money(round.shown)}</span>
+        </span>
+        <span className="banked">{money(total.shown)} banked</span>
+      </span>
+    </div>
+  );
+}
+
+export function WheelBoard({
+  state,
+  seat,
+  names,
+  connected,
+  canAct,
+  onMove,
+}: Props) {
   const [solving, setSolving] = useState(false);
   const [guess, setGuess] = useState("");
 
   /*
     True while the wheel is still turning. The server has already resolved the
     spin by the time the state arrives, so without this the answer arrives
-    before the wheel does — which makes the wheel decoration rather than the
+    before the wheel does, which makes the wheel decoration rather than the
     thing that decided. Held only as long as the animation, and re-armed from
     scratch on every spin, so a missed timer costs a flourish rather than
     stopping the board for good.
@@ -510,10 +698,10 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
 
     Gating the readout alone was not enough, and the note line was only the
     most obvious leak: "You spun $800." appeared over a wheel still going round,
-    and so did the money in the purses, the letters-left pips, and — on
-    Bankrupt — every control greying out as the turn passed. Any one of them
-    tells you how it went before you can see it. So the whole position waits,
-    and the wheel is the only thing on this board reading live state.
+    and so did the money in the purses, the letters-left pips, and, on Bankrupt,
+    every control greying out as the turn passed. Any one of them tells you how
+    it went before you can see it. So the whole position waits, and the wheel is
+    the only thing on this board reading live state.
 
     `null` means there is nothing to wait for, which is every move that is not
     a spin.
@@ -523,9 +711,9 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
 
   /*
     The position one render ago. Updated in an effect declared *after* the one
-    that freezes, so that when a spin lands this still holds the board the
-    player was looking at a moment earlier — which is exactly what has to stay
-    on screen while the wheel runs.
+    that freezes, so when a spin lands this still holds the board the player was
+    looking at a moment earlier, exactly what has to stay on screen while the
+    wheel runs.
   */
   const before = useRef(state);
 
@@ -536,11 +724,11 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     setSpinning(true);
     setFrozen(before.current);
     // A backstop, not the clock. The wheel says when it has stopped, because
-    // only it knows how far the drag left it to travel — see `onSettled`. This
+    // only it knows how far the drag left it to travel, see `onSettled`. This
     // is here because a transition that never runs never ends: a tab
-    // backgrounded mid-spin, or a wheel that was already where it had to be,
-    // would otherwise freeze the board for good. Generous on purpose; it
-    // should never be the thing that fires.
+    // backgrounded mid-spin, or a wheel already where it had to be, would
+    // otherwise freeze the board for good. Generous on purpose; it should never
+    // be the thing that fires.
     const id = setTimeout(
       () => {
         setSpinning(false);
@@ -550,8 +738,8 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     );
     return () => clearTimeout(id);
     // Layout rather than plain effect: a passive one runs after paint, so the
-    // spun value got one frame on screen before the freeze caught it — a
-    // flicker of the answer, which is the whole thing this is here to prevent.
+    // spun value got one frame on screen before the freeze caught it, a flicker
+    // of the answer, which is the whole thing this is here to prevent.
   }, [state.spins, state.travel]);
 
   useEffect(() => {
@@ -571,8 +759,14 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     setGuess("");
   }, [shown.round]);
 
+  // Two names for the same seat, and they are not interchangeable. `nameFor`
+  // is for the note line, which is a sentence: "You spun $800." `seatName` is
+  // for the strip, where every seat is labelled the same way and the one that
+  // is yours is marked with a badge rather than renamed. Calling yourself "You"
+  // in a scoreboard reads as a fifth player.
   const nameFor = (index: number) =>
     index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const seatName = (index: number) => names[index] || `Player ${index + 1}`;
 
   const bank = seat === null ? 0 : (shown.bank[seat] ?? 0);
   const canBuyVowel =
@@ -583,7 +777,7 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
   const justCalled = shown.roundOver
     ? null
     : (shown.called[shown.called.length - 1] ?? null);
-  // Where the wheel is standing, which outlives the turn that spun it — see
+  // Where the wheel is standing, which outlives the turn that spun it. See
   // `wedgeAt` on the state.
   const landed = shown.wedgeAt === null ? null : WHEEL[shown.wedgeAt];
   const findsLeft = Math.max(0, FINDS_PER_TURN - shown.finds);
@@ -596,11 +790,48 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
     setGuess("");
   }
 
+  /* How many tiles the last call has turned so far, as the puzzle is drawn.
+     See REVEAL_STAGGER. Reset every render, read nowhere else. */
+  let turning = 0;
+
   return (
     <div className="wof">
-      <p className="wof-round">
-        Round {shown.round} of {ROUNDS} · {shown.category}
-      </p>
+      {/* Who is here and what they have: the players strip and the scoreboard,
+          which are one thing now: see `Purse`. First, because that is where a
+          player expects to find out who is at the table, and because it is
+          where the shell's own strip used to stand. It stays out of the middle
+          on purpose, because a scoreboard between the wheel and the keyboard is
+          what once pushed twenty-six keys off the bottom of a phone. */}
+      <div className="wof-money">
+        {shown.bank.map((amount, index) => (
+          <Purse
+            key={index}
+            seatIndex={index}
+            name={seatName(index)}
+            mine={index === seat}
+            away={!(connected[index] ?? true) && !!names[index]}
+            amount={amount}
+            banked={shown.score[index] ?? 0}
+            active={shown.turn === index && !shown.over}
+          />
+        ))}
+      </div>
+
+      {/* Which round, what the phrase is about, and what just happened: one
+          line, because they are three short muted facts that were costing two
+          lines of a phone between them, and because together they read as the
+          caption the puzzle below never had: "Food & Drink. Bob spun $800."
+          The note keeps its own live region; only the box round it moved. */}
+      <div className="wof-strap">
+        <p className="wof-round">
+          Round {shown.round} of {ROUNDS} - {shown.category}
+        </p>
+        {/* The one thing a player most needs to know and cannot see anywhere
+            else: what just happened, and to whom. */}
+        <p className="wof-note" role="status" aria-live="polite">
+          {shown.note ? `${nameFor(shown.note.seat)} ${shown.note.text}` : ""}
+        </p>
+      </div>
 
       <div
         className="wof-puzzle"
@@ -610,19 +841,27 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
         {shown.answer.split(" ").map((word, w) => (
           <span className="wof-word" key={w} aria-hidden="true">
             {[...word].map((ch, i) => (
-              <span key={i} className={tileClass(ch, justCalled)}>
+              <span
+                key={i}
+                className={tileClass(ch, justCalled)}
+                /* Counted as the board is drawn rather than gathered up first,
+                   because reading order *is* the order they should turn in.
+                   `turning` is reset on every render, so this is a plain loop
+                   counter that happens to live in JSX. */
+                style={
+                  turnedNow(ch, justCalled)
+                    ? ({
+                        "--wof-flip": `${turning++ * REVEAL_STAGGER}ms`,
+                      } as React.CSSProperties)
+                    : undefined
+                }
+              >
                 {ch === BLANK ? "" : ch}
               </span>
             ))}
           </span>
         ))}
       </div>
-
-      {/* The one thing a player most needs to know and cannot see anywhere
-          else: what just happened, and to whom. */}
-      <p className="wof-note" role="status" aria-live="polite">
-        {shown.note ? `${nameFor(shown.note.seat)} ${shown.note.text}` : ""}
-      </p>
 
       {!shown.roundOver && (
         <div className="wof-wheel">
@@ -640,16 +879,33 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
           {/* What the wheel means, in words. The wheel is the flourish; this
               is the fact, and it waits for the pointer to stop so the two
               never disagree in front of the player. */}
-          <p className="wof-readout" role="status" aria-live="polite">
+          <p
+            className={
+              !spinning && landed !== null && landed.kind !== "cash"
+                ? "wof-readout bad"
+                : "wof-readout"
+            }
+            role="status"
+            aria-live="polite"
+          >
             {spinning ? (
-              <span className="wof-prompt">Spinning…</span>
+              <span className="wof-prompt">Spinning...</span>
             ) : shown.wedge?.kind === "cash" ? (
               <>
-                <span className="wof-value">{money(shown.wedge.value)}</span>
+                {/* Keyed on the spin, so React replaces the element rather
+                    than updating it and the arrival animation runs again. Two
+                    spins can pay the same money, and a number that did not
+                    move on the second one would look like a wheel that had
+                    not been thrown. */}
+                <span className="wof-value" key={shown.spins}>
+                  {money(shown.wedge.value)}
+                </span>
                 <span className="wof-prompt">for every letter found</span>
               </>
             ) : landed !== null && landed.kind !== "cash" ? (
-              <span className="wof-prompt">{wedgeName(landed)}</span>
+              <span className="wof-prompt" key={shown.spins}>
+                {wedgeName(landed)}
+              </span>
             ) : (
               <span className="wof-prompt">
                 {canAct
@@ -659,24 +915,6 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
             )}
           </p>
 
-          {/* How much of the streak is left. A wrong guess ends the turn on
-              the spot, which needs no meter — nobody has to be told they get
-              one. The cap on right ones is the rule that is actually news, so
-              it is the only one shown. */}
-          {canAct && (
-            <div className="wof-meters">
-              <p
-                className={findsLeft === 1 ? "wof-guesses last" : "wof-guesses"}
-              >
-                <span className="wof-pips" aria-hidden="true">
-                  {Array.from({ length: FINDS_PER_TURN }, (_, i) => (
-                    <i key={i} className={i < findsLeft ? "" : "spent"} />
-                  ))}
-                </span>
-                {findsLeft} {findsLeft === 1 ? "letter" : "letters"} left
-              </p>
-            </div>
-          )}
         </div>
       )}
 
@@ -721,7 +959,7 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               <button
                 className="primary"
                 disabled={!canSpin}
-                /* No `velocity`, so the wheel decides — see WofMove. This is
+                /* No `velocity`, so the wheel decides, see WofMove. This is
                    the keyboard's throw, and a player who would rather not
                    flick. */
                 onClick={() => onMove({ type: "spin" })}
@@ -768,38 +1006,45 @@ export function WheelBoard({ state, seat, names, canAct, onMove }: Props) {
               );
             })}
           </div>
-          <p className="wof-legend">
-            {shown.phase === "call"
-              ? "Name a consonant."
-              : `Consonants need a spin. Vowels cost ${money(VOWEL_COST)}.`}
-          </p>
+          {/* Under the keyboard, because both halves of it are about the
+              keyboard: what you may press, and how many more times. The count
+              used to sit under the wheel with the money, a screen away from
+              the keys it governs, and it was its own row there, which on a
+              phone is the row that put the last rank of letters under the
+              fold. */}
+          <div className="wof-foot">
+            <p className="wof-legend">
+              {/* Set as short as it can be said. "Consonants need a spin.
+                  Vowels cost $250." is the same two facts in nine more
+                  characters, and the nine are the difference between this
+                  sharing a row with the counter beside it and wrapping under
+                  it, which at 375px is the twenty pixels a four-player table
+                  has left. Measured at 375, 390 and 1920. */}
+              {shown.phase === "call"
+                ? "Name a consonant."
+                : `Spin for a consonant - vowels ${money(VOWEL_COST)}`}
+            </p>
+            {/* How much of the streak is left. A wrong guess ends the turn on
+                the spot, which needs no meter, since nobody has to be told they
+                get one. The cap on right ones is the rule that is actually news,
+                so it is the only one shown. */}
+            {canAct && (
+              <p
+                className={
+                  findsLeft === 1 ? "wof-guesses last" : "wof-guesses"
+                }
+              >
+                <span className="wof-pips" aria-hidden="true">
+                  {Array.from({ length: FINDS_PER_TURN }, (_, i) => (
+                    <i key={i} className={i < findsLeft ? "" : "spent"} />
+                  ))}
+                </span>
+                {findsLeft} {findsLeft === 1 ? "letter" : "letters"} left
+              </p>
+            )}
+          </div>
         </>
       )}
-      {/* Last, because it is read rather than used. Everything above it is
-          something you tap, and at four players a scoreboard in the middle
-          pushed the keys off the bottom of the phone. Every change to it is
-          narrated in the note line as it happens. */}
-      <div className="wof-money">
-        {shown.bank.map((amount, index) => (
-          <div
-            key={index}
-            className={[
-              "wof-purse",
-              `p${index}`,
-              shown.turn === index && !shown.over ? "active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <span className="chip" aria-hidden="true" />
-            <span className="who">{nameFor(index)}</span>
-            <span className="round">{money(amount)}</span>
-            <span className="banked">
-              {money(shown.score[index] ?? 0)} banked
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

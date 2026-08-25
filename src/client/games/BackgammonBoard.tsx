@@ -18,7 +18,7 @@ import { useLanding } from "../dice/useLanding.js";
 import { wantsStillness } from "../motion.js";
 import type { BoardProps } from "./boards.js";
 
-/** The inner board's own props — the wrapper below takes the standard set. */
+/** The inner board's own props. The wrapper below takes the standard set. */
 interface Props {
   state: BgState;
   seat: number | null;
@@ -32,7 +32,7 @@ interface Props {
  * Seat 0's board reads as a horseshoe: from the top-right corner leftward
  * along the top, down the left side, then rightward along the bottom into
  * their home board at bottom right. Seat 1 travels the same shape, so their
- * view is the two rows swapped — each player sees their own home nearest to
+ * view is the two rows swapped: each player sees their own home nearest to
  * them, which is how a physical board works.
  */
 const TOP = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
@@ -52,9 +52,9 @@ const FLIGHT_EASE = "cubic-bezier(0.3, 0, 0.2, 1)";
  * Read off the board rather than off the state, in viewport pixels: the two
  * rows are a grid with a fixed-width bar wedged into the middle of it, so the
  * distance between two points is not a number this component knows at any
- * given width. What it does know is how a stack is built — checkers of one
- * width, laid from the outer edge of the row inwards — so the slot's own box
- * plus a count gives the exact centre of the checker that left.
+ * given width. What it does know is how a stack is built, checkers of one
+ * width laid from the outer edge of the row inwards, so the slot's own box plus
+ * a count gives the exact centre of the checker that left.
  *
  * The count is taken *after* the move, which is the same number: a checker
  * leaving a point of four was the fifth, sitting on top of the three now under
@@ -93,12 +93,12 @@ function departedFrom(
 /**
  * Send the checker that just moved across the board it just crossed.
  *
- * The checker is already drawn where it landed by the time this runs — React
- * has committed — so the flight is backwards: measure the gap to where it came
- * from, start it there, and let it fall to nothing. That way nothing is
- * animated into a position the reducer has not agreed to, and a device that
- * drops the animation shows the finished position rather than a checker
- * stranded mid-board.
+ * The checker is already drawn where it landed by the time this runs, React
+ * having committed, so the flight is backwards: measure the gap to where it
+ * came from, start it there, and let it fall to nothing. Nothing is animated
+ * into a position the reducer has not agreed to, and a device that drops the
+ * animation shows the finished position rather than a checker stranded
+ * mid-board.
  *
  * The Web Animations API rather than a keyframe, because the distance is
  * measured at the moment of the move and a keyframe cannot be told a number.
@@ -150,11 +150,11 @@ function Checkers({ count, seat, mark }: { count: number; seat: 0 | 1; mark?: Ma
  *
  * It traces the triangle rather than the column the triangle is drawn in: a
  * rectangle round a point outlines mostly empty board, in a shape that is not
- * the one being pointed at. Stroked rather than clipped a second time —
- * insetting the clip-path narrows the line away to nothing towards the apex,
- * where a non-scaling stroke holds an even two pixels however wide the board
- * is drawn. The polygon is the `.triangle` clip-path in viewBox units, so the
- * two are changed together.
+ * the one being pointed at. Stroked rather than clipped a second time, because
+ * insetting the clip-path narrows the line away to nothing towards the apex
+ * where a non-scaling stroke holds an even two pixels however wide the board is
+ * drawn. The polygon is the `.triangle` clip-path in viewBox units, so the two
+ * are changed together.
  */
 function PointOutline() {
   return (
@@ -182,14 +182,14 @@ export function BackgammonBoard({ state, seat, canAct, flying, onMove }: Props) 
   const played = state.last?.n ?? 0;
   useEffect(() => {
     flyLastMove(boardRef.current, state.last, view);
-    // `state.last` is deliberately not a dependency — `played` is the fact
-    // that it changed, and re-running on identity is the bug above.
+    // `state.last` is deliberately not a dependency: `played` is the fact that
+    // it changed, and re-running on identity is the bug above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [played, view]);
 
   // Nothing is markable while the dice are still rolling. The marks are read
-  // *off* the dice — a board that lights up the points a 6 can reach before
-  // the 6 has stopped has told you the roll ahead of the die showing it.
+  // *off* the dice, and a board lighting up the points a 6 can reach before the
+  // 6 has stopped has told you the roll ahead of the die showing it.
   const moves = canAct && !flying ? legalMoves(state) : [];
 
   // A selection stops meaning anything the moment the position changes.
@@ -204,9 +204,9 @@ export function BackgammonBoard({ state, seat, canAct, flying, onMove }: Props) 
   const targets = new Map(fromActive.map((m) => [String(landingOf(view, m.from, m.die)), m.die]));
 
   // Whose checker was just knocked off, if one was. The bar says so on the
-  // stack it lands in — a checker appearing on the bar with no announcement is
-  // the one event on this board that can be missed entirely, because it
-  // happens on the opponent's turn and a point you were on simply empties.
+  // stack it lands in: a checker appearing on the bar with no announcement is
+  // the one event on this board that can be missed entirely, because it happens
+  // on the opponent's turn and a point you were on simply empties.
   const struck = state.last?.hit ? 1 - state.last.seat : null;
 
   /** Play the selected checker to `where`, or change what is selected. */
@@ -339,7 +339,7 @@ export function BackgammonBoard({ state, seat, canAct, flying, onMove }: Props) 
           key={`borne-${played}`}
           className={`borne${state.last?.to === "off" && state.last.seat === view ? " landed" : ""}`}
         >
-          Borne off — you {state.off[view]}, them {state.off[1 - view]}
+          Borne off: you {state.off[view]}, them {state.off[1 - view]}
         </span>
         {canBearOff && (
           <button className="primary bear" onClick={bearOff}>
@@ -354,10 +354,10 @@ export function BackgammonBoard({ state, seat, canAct, flying, onMove }: Props) 
 /**
  * The pip lead, drawn as it moved.
  *
- * Above the line is the viewer ahead. It is one line rather than two pip
- * counts because both counts fall all game — two lines sloping the same way,
- * with the only question a race actually asks, who was in front, living in the
- * gap between them that neither line draws.
+ * Above the line is the viewer ahead. One line rather than two pip counts,
+ * because both counts fall all game: two lines sloping the same way, with the
+ * only question a race actually asks, who was in front, living in the gap
+ * between them that neither line draws.
  *
  * Scaled to the biggest lead either player held, so a game that stayed close
  * fills the box just as a runaway does; the number under it says which kind it
@@ -395,12 +395,12 @@ function RaceChart({ race, view }: { race: number[]; view: number }) {
 /**
  * What the two of you did with the dice, once it no longer matters.
  *
- * None of this is in the final position — a hit leaves no trace once the
- * checker comes back in, and a die nobody could play leaves none at all — so
- * it is counted as the game goes and spent here. Luck and use are kept apart
- * on purpose: pips *offered* is the dice's doing, pips *wasted* is the
- * position's, and a player who lost the race while rolling better has been
- * told something worth knowing.
+ * None of this is in the final position, since a hit leaves no trace once the
+ * checker comes back in and a die nobody could play leaves none at all, so it
+ * is counted as the game goes and spent here. Luck and use are kept apart on
+ * purpose: pips *offered* is the dice's doing, pips *wasted* is the position's,
+ * and a player who lost the race while rolling better has been told something
+ * worth knowing.
  */
 function BackgammonSummary({ state, seat }: { state: BgState; seat: number | null }) {
   const view = seat ?? 0;
@@ -449,8 +449,8 @@ function BackgammonSummary({ state, seat }: { state: BgState; seat: number | nul
  *
  * They are one component because they share one fact: whether the dice have
  * stopped. The board draws what the roll makes legal and the controls draw the
- * roll itself, so a flag held separately in each would let one of them answer
- * before the other — which is exactly the thing the tray exists to prevent.
+ * roll itself, so a flag held separately in each would let one answer before
+ * the other, exactly the thing the tray exists to prevent.
  */
 export function BackgammonGame({
   state,
@@ -492,10 +492,10 @@ export function BackgammonGame({
  * The pip count, the dice, and whatever the turn is waiting on.
  *
  * The pair a turn is played from is a *pair on the table*, so it is thrown
- * onto one: a tray, at a size worth looking at, rather than two 32px squares
- * in a status line. Dice already played dim rather than vanish — the row
- * shrinking as you spent them made the turn's remaining dice harder to count,
- * not easier, because the thing you are counting kept moving.
+ * onto one: a tray, at a size worth looking at, rather than two 32px squares in
+ * a status line. Dice already played dim rather than vanish, because the row
+ * shrinking as you spent them made the turn's remaining dice harder to count
+ * rather than easier, the thing you are counting having kept moving.
  */
 export function BackgammonStatus({
   state,
@@ -519,12 +519,12 @@ export function BackgammonStatus({
   const stuck = canAct && state.phase === "move" && !flying && legalMoves(state).length === 0;
   const canRoll = canAct && state.phase === "roll" && !flying;
 
-  // Two dice, because two dice were thrown — see `diceOnTable`, which is
-  // where the double's four moves are turned back into the pair on the table.
+  // Two dice, because two dice were thrown. See `diceOnTable`, where the
+  // double's four moves are turned back into the pair on the table.
   const { thrown, double, left, spent } = diceOnTable(state);
 
   /*
-    A double, marked the same way a Yahtzee is — the tray owns the gesture and
+    A double, marked the same way a Yahtzee is. The tray owns the gesture and
     scales it down for a pair, because a double turns up every few throws and a
     flourish that big every few throws stops being one.
 
@@ -536,7 +536,7 @@ export function BackgammonStatus({
   return (
     <div className="bg-controls">
       <span className="race">
-        {pipCount(state, view)} pips to go · they have {pipCount(state, 1 - view)}
+        {pipCount(state, view)} pips to go - they have {pipCount(state, 1 - view)}
       </span>
 
       <Dice3DTray
@@ -554,7 +554,7 @@ export function BackgammonStatus({
           canRoll
             ? "Flick to throw"
             : double && state.phase === "move" && !flying
-              ? `Double — ${left} of four to play`
+              ? `Double, ${left} of four to play`
               : undefined
         }
         onThrow={canRoll ? onThrow : undefined}
@@ -564,15 +564,15 @@ export function BackgammonStatus({
       {canRoll && (
         // The tray is the throw; this is the same throw for a thumb that would
         // rather press something, and the one a keyboard reaches first.
-        // Through the tray, so the button throws the same dice the flick
-        // does — the physics is in there.
+        // Through the tray, so the button throws the same dice the flick does.
+        // The physics is in there.
         <button className="primary" onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}>
           Roll
         </button>
       )}
       {stuck && (
         <button className="primary" onClick={onPass}>
-          No moves — end turn
+          No moves, end turn
         </button>
       )}
     </div>
@@ -590,7 +590,7 @@ function diceLabel(
   if (phase === "roll") return "The dice, not thrown yet";
   const rolled = `Rolled ${thrown.join(" and ")}`;
   // A double is two dice and four moves, so the count is the news rather than
-  // which numbers are left — they are all the same number.
+  // which numbers are left. They are all the same number.
   if (thrown[0] === thrown[1]) {
     if (left.length === 0) return `${rolled}, a double, all four played`;
     return `${rolled}, a double; ${left.length} of four still to play`;

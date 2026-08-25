@@ -11,13 +11,20 @@ import {
 import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
 // Runtime, not type-only: the card motif and the board are drawn from the same
 // geometry as the rules. `morrisDisplay.js` imports nothing, so the reducer
-// does not follow it in — the same bargain wheelDisplay and battleshipDisplay
+// does not follow it in, the same bargain wheelDisplay and battleshipDisplay
 // already make.
 import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
+import {
+  DEALS,
+  letterpressDeal,
+  liarsDeal,
+  morrisDeal,
+  yahtzeeDeal,
+} from "./cardDeal";
 // Which board draws which game, and the state types that go with them, live in
-// `boards.ts` — where the compiler checks the pairing. Nothing here needs to
+// `boards.ts`, where the compiler checks the pairing. Nothing here needs to
 // know: this file's business with a game is its name and its motif.
-import { boardFor } from "./games/boards.js";
+import { boardFor, ownsSeats } from "./games/boards.js";
 import { Die } from "./games/Die.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 import { inviteUrl, loadLastGame, loadName, saveLastGame, saveName, useRoom } from "./net.js";
@@ -39,9 +46,9 @@ import { Toaster, useToasts, type Toasts } from "./toast.js";
  * A name in two parts, so the channel colour can land on the second half.
  *
  * Splitting at the last space is what makes "Rebellia Games" and "Wheel of
- * Fortune" read the way they should without a lookup table to keep in step
- * with the manifest. A one-word name has no second half, so it takes the
- * accent whole — which is the same rule, not an exception to it.
+ * Fortune" read the way they should without a lookup table to keep in step with
+ * the manifest. A one-word name has no second half, so it takes the accent
+ * whole, which is the same rule and not an exception to it.
  */
 function splitMark(name: string): [string, string] {
   const cut = name.lastIndexOf(" ");
@@ -61,16 +68,15 @@ function Wordmark({ name }: { name: string }) {
 /**
  * What the top bar is called: the brand, and the game when a game is open.
  *
- * In a room this used to be the game's name *instead of* the brand, so the
- * one screen a player spends the whole evening on never said what they were
- * playing on. Both now, stacked — brand small above, game at full size below.
+ * In a room this used to be the game's name *instead of* the brand, so the one
+ * screen a player spends the whole evening on never said what they were playing
+ * on. Both now, stacked: brand small above, game at full size below.
  *
- * Stacked rather than run together on one line, because inline the two of them
- * compete for a phone's width against a room code and a sound button, and the
- * brand wins by being first: "REBELLIA GAMES · WORD D…" says the half you
- * already knew and cuts the half you are actually playing. Vertically they
- * both fit inside the 44px the tap target reserves anyway, so the bar is no
- * taller for having gained a line.
+ * Stacked rather than run together, because inline the two compete for a
+ * phone's width against a room code and a sound button, and the brand wins by
+ * being first. "REBELLIA GAMES - WORD D..." says the half you already knew and
+ * cuts the half you are actually playing. Vertically they both fit inside the
+ * 44px the tap target reserves anyway, so the bar is no taller for the line.
  *
  * The accent stays on the most specific thing on the bar, which is why it
  * moves to the game's name as soon as there is one.
@@ -96,6 +102,19 @@ function TopMark({ gameName }: { gameName?: string }) {
  */
 const LOBBY_TITLE = typeof document === "undefined" ? "" : document.title;
 
+/**
+ * Which shelf this visit gets.
+ *
+ * Drawn once at module load rather than per render, which is the whole of what
+ * makes this safe: the four dealt motifs are read on every re-render of the
+ * lobby, and a deal taken inside `motif()` would reshuffle the dice under
+ * anyone who typed a letter into the name field. One integer, fixed for as
+ * long as the tab is open, and a different one next time.
+ *
+ * See `cardDeal.ts` for what is dealt and why the other nine are not.
+ */
+const DEAL = Math.floor(Math.random() * DEALS);
+
 /** N bare pieces, for the motifs the stylesheet lays out and colours itself. */
 function pieces(count: number) {
   return Array.from({ length: count }, (_, i) => <i key={i} />);
@@ -105,31 +124,16 @@ function pieces(count: number) {
  * Word Hunt's own test grid, with CRANE across the top of it.
  *
  * Lifted from `wordHunt.test.ts`, which traces exactly this word through
- * exactly these letters — so the word on the card is one the game agrees is
- * there, rather than five letters that look like one.
+ * exactly these letters, so the word on the card is one the game agrees is
+ * there rather than five letters that look like one.
  */
 const WORD_HUNT_TILES = ["C", "R", "A", "N", "S", "E", "T", "E"];
-
-/**
- * The top two rows of a Letterpress board, mid-game.
- *
- * Scrambled on purpose, unlike Word Hunt's row above. Adjacency means nothing
- * in this game -- a word is built from any tiles anywhere -- so letters lying
- * in a row that spelled something would be advertising a rule it does not
- * have. Which tile belongs to whom, and which one is locked, is in the
- * `.art-letterpress` block; the position it shows is written down there too.
- */
-const LETTERPRESS_TILES = [
-  "E", "K", "R", "A", "O",
-  "T", "N", "I", "S", "H",
-  "W", "E", "D", "L", "U",
-];
 
 /**
  * Three links of an English chain: MILK, KIWI, ICEBERG.
  *
  * Checked against the game's own list rather than chosen for their shapes --
- * `chainLookup('en', …)` finds all three -- and each one starts on the letter
+ * `chainLookup('en', ...)` finds all three -- and each one starts on the letter
  * the one above it ended with, which is the whole rule. The stagger in the
  * `.art-wordchain` block is what draws that: every word begins in the column
  * its parent's last letter is standing in, so the joint is one column of two
@@ -180,7 +184,7 @@ const ULTIMATE_MOTIF: Array<{ marks: Mark[]; won: 0 | 1 | null; line: number[] }
  * the same way.
  *
  * Fills come from classes rather than attributes, which is how the wheel itself
- * is drawn — a literal here would be the one colour in the app that could not
+ * is drawn. A literal here would be the one colour in the app that could not
  * follow the palette.
  */
 function WheelArc() {
@@ -210,9 +214,9 @@ function WheelArc() {
  * The whole board is a square and the well is two and a half times wider than
  * it is tall, so a board that fitted would be a postage stamp with nine
  * invisible points along each side. A corner instead: three nested right
- * angles and the spoke between them, which is a shape no other card here has
- * and the one thing about this board people misremember — the corners have no
- * spokes, only the midpoints of the edges do.
+ * angles and the spoke between them: a shape no other card here has, and the
+ * one thing about this board people misremember, since the corners have no
+ * spokes and only the midpoints of the edges do.
  *
  * Laid out against the 218 x 87 well at 34 units to a board unit, with the
  * outer corner at (20, 18). Points come from `pointXY`, which is the reducer's
@@ -222,7 +226,7 @@ function WheelArc() {
  * The rest of both hands is off the card, which is the point of a crop.
  */
 const MORRIS_UNIT = 34;
-/** Where board (0, 0) — the centre of the board — falls in the well. */
+/** Where board (0, 0), the centre of the board, falls in the well. */
 const MORRIS_CENTRE = { x: 20 + 3 * MORRIS_UNIT, y: 18 + 3 * MORRIS_UNIT };
 
 function morrisAt(point: number): { cx: number; cy: number } {
@@ -231,13 +235,12 @@ function morrisAt(point: number): { cx: number; cy: number } {
 }
 
 function MorrisCorner() {
-  const men: Array<[number, 0 | 1]> = [
-    [pointAt(0, 0), 0],
-    [pointAt(1, 1), 0],
-    [pointAt(0, 1), 1],
-    [pointAt(1, 2), 1],
-  ];
-  const empty = [pointAt(0, 2), pointAt(1, 0), pointAt(2, 0), pointAt(2, 1)];
+  const deal = morrisDeal(DEAL);
+  const men: Array<[number, 0 | 1]> = deal.men.map(({ ring, spot, seat }) => [
+    pointAt(ring, spot),
+    seat,
+  ]);
+  const empty = deal.empty.map(({ ring, spot }) => pointAt(ring, spot));
   return (
     <svg viewBox="0 0 218 87">
       {[3, 2, 1].map((reach) => (
@@ -337,13 +340,13 @@ function motif(gameId: string) {
     // the one scoring hand that shows five different faces, which is what a
     // row of dice should look like.
     case "yahtzee":
-      return [3, 1, 5, 2, 4].map((value, i) => <Die key={i} value={value} label="" />);
+      return yahtzeeDeal(DEAL).map((value, i) => <Die key={i} value={value} label="" />);
     // Your hand, and a hand that is somebody else's business.
     case "liarsdice":
       return (
         <>
           <span>
-            {[4, 2, 6, 4, 3].map((value, i) => (
+            {liarsDeal(DEAL).map((value, i) => (
               <Die key={i} value={value} label="" />
             ))}
           </span>
@@ -362,7 +365,7 @@ function motif(gameId: string) {
     // which is the game's one rule and the only square-cornered tile in the
     // lobby.
     case "letterpress":
-      return LETTERPRESS_TILES.map((letter, i) => <i key={i}>{letter}</i>);
+      return letterpressDeal(DEAL).map((letter, i) => <i key={i}>{letter}</i>);
     // Three nested corners of the board and the spoke between them, with four
     // men standing on the points. The second motif that is not CSS, for the
     // same reason as the first: the shape is line work, and a stylesheet with
@@ -429,17 +432,16 @@ function motif(gameId: string) {
 }
 
 /**
- * This page, addressed to a room — path, query, then the code.
+ * This page, addressed to a room: path, query, then the code.
  *
  * The order is the whole of it. Written as `#${code}${location.search}` the
- * query lands *after* the hash, and everything after a hash is the fragment:
- * a player who arrived at `?as=b` — or at a link a chat app had decorated
- * with a tracking parameter, which is most links — got a fragment reading
- * `ABCD?as=b`. Nothing broke on the spot, because the code had already been
- * set in state. It broke on the next reload, where `codeFromHash` no longer
- * recognised four letters, `brokenHashCode` did, and somebody sitting in a
- * game was shown "that link doesn't look complete" and dropped at the setup
- * screen.
+ * query lands *after* the hash, and everything after a hash is the fragment. A
+ * player who arrived at `?as=b`, or at a link a chat app had decorated with a
+ * tracking parameter (which is most links), got a fragment reading `ABCD?as=b`.
+ * Nothing broke on the spot, because the code was already in state. It broke on
+ * the next reload, where `codeFromHash` no longer recognised four letters,
+ * `brokenHashCode` did, and somebody sitting in a game was shown "that link
+ * doesn't look complete" and dropped at the setup screen.
  */
 function roomUrl(code: string): string {
   return `${location.pathname}${location.search}#${code}`;
@@ -451,7 +453,7 @@ function codeFromHash(): string | null {
 }
 
 /**
- * A hash that is present but unusable — a link truncated by a chat app, or
+ * A hash that is present but unusable: a link truncated by a chat app, or
  * mangled in the paste. Silently dropping it leaves someone staring at the
  * setup screen wondering why their friend's link did nothing.
  */
@@ -462,14 +464,14 @@ function brokenHashCode(): string | null {
   // length at all. A toast that quotes it has to quote a readable amount of
   // it: past a couple of codes' worth the quotation is no longer helping the
   // player recognise their own broken link, it is just filling the toast.
-  return raw.length > 12 ? `${raw.slice(0, 12)}…` : raw;
+  return raw.length > 12 ? `${raw.slice(0, 12)}...` : raw;
 }
 
 /** The toast a broken invite link raises, quoting the part that went wrong. */
 function brokenLinkMessage(fragment: string): string {
   return (
-    `"${fragment}" is not a room code — they are ${CODE_LENGTH} letters. ` +
-    "Ask for the link again, or type the code below."
+    `"${fragment}" is not a room code. They're ${CODE_LENGTH} letters. ` +
+    "Ask for the link again, or type the code in below."
   );
 }
 
@@ -491,23 +493,38 @@ function needsWholeScreen(kind: ErrorKind | null): boolean {
 }
 
 /**
- * How many can play, as a figure rather than a sentence.
+ * How many can play, as seats rather than as a figure.
  *
- * It used to read "2 players", which nine of the thirteen cards said — so the
- * smallest type in the lobby was spending itself thirteen times on the least
- * interesting fact available, and the card's own line now carries what the
- * game actually is. A bare figure at the end of the name is what is left, and
- * it is the better shape for the question it answers: somebody looking for a
- * game four people can play is comparing thirteen numbers down a column, not
- * reading thirteen sentences to find the digit in each one.
+ * It used to read "2 players", which nine of the thirteen cards said, so the
+ * smallest type in the lobby spent itself thirteen times on the least
+ * interesting fact available. Then it was a bare "2-8" in the corner of the
+ * well, which was better -- thirteen figures in one column, comparable down it.
  *
- * The word is gone from the card, so it is put back for anyone listening to
- * it rather than looking — see `seatLabel`.
+ * This is the same fact drawn instead of set. The question the chip answers is
+ * "can the six of us play this", and a range in 0.68rem mono answers it by
+ * being read, parsed and compared against a number you are holding in your
+ * head. A row of seats answers it by being looked at. It is also the one fact
+ * on the card that was being carried by the smallest type in the lobby while
+ * the largest thing on it -- the colour -- carried nothing at all.
+ *
+ * One pip per seat the game can hold, and the first `minPlayers` of them
+ * filled: the filled run is what it takes to start, the outlined tail is room
+ * left over. Connect Four is two filled and nothing after, which is the whole
+ * truth about Connect Four.
+ *
+ * Filled and open are the *same* colour and differ in shape, which is how
+ * everything else in this app that has to survive `--card-well` behind it
+ * works -- see Battleships' miss dot in `docs/card-motifs.md`. That is also
+ * why this needs no new contrast measurement: `--card-ink` on the chip's scrim
+ * is the pairing the figures were already using.
+ *
+ * The word is gone from the card, so it is put back for anyone listening rather
+ * than looking. See `seatLabel`.
  */
-function seatSummary(table: GameEntry): string {
-  return table.minPlayers === table.maxPlayers
-    ? `${table.minPlayers}`
-    : `${table.minPlayers}–${table.maxPlayers}`;
+function seatPips(table: GameEntry) {
+  return Array.from({ length: table.maxPlayers }, (_, i) => (
+    <i key={i} className={i < table.minPlayers ? "on" : undefined} />
+  ));
 }
 
 /** The same range, said out loud, for the card's accessible name. */
@@ -541,11 +558,11 @@ function usePalette(): [Palette, () => void] {
 /**
  * Whether the app makes a noise, remembered like the palette is.
  *
- * Off until asked for. A game that is silent is missing half of itself, and a
- * page that makes a noise the first time you open it on a bus is a page you
- * close — so the switch sits beside the palette switch in the lobby and in the
- * top bar in a room, where it is found rather than buried, and the first sound
- * anyone hears is one they asked for.
+ * Off until asked for. A silent game is missing half of itself, and a page that
+ * makes a noise the first time you open it on a bus is a page you close. So the
+ * switch sits beside the palette switch in the lobby and in the top bar in a
+ * room, where it is found rather than buried, and the first sound anyone hears
+ * is one they asked for.
  *
  * One switch covers everything: the synthesised dice read the same preference
  * `applySound` writes, and `primeSfx` can only build an audio graph once that
@@ -556,7 +573,7 @@ function useSound(): [boolean, () => void] {
   useEffect(() => {
     applySound(sound);
     // Order matters: nothing can load until the preference is on. The cue is
-    // the switch answering — see `primeSfx`.
+    // the switch answering, see `primeSfx`.
     if (sound) primeSfx("tap");
   }, [sound]);
   return [sound, () => setSound((on) => !on)];
@@ -663,18 +680,18 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
   // What the lobby will open on next time. Written from the room rather than
   // from the pick, so a game somebody else chose still counts as the game you
-  // played — arriving on a link is how half the games here start.
+  // played. Arriving on a link is how half the games here start.
   const playing = room?.gameId;
   useEffect(() => {
     if (playing) saveLastGame(playing);
   }, [playing]);
 
-  // The tab, which is the other place the two names are read together — and
-  // the one `index.html` cannot write, because it can only ever say what was
-  // true before a room was opened.
+  // The tab, the other place the two names are read together, and the one
+  // `index.html` cannot write, because it can only say what was true before a
+  // room was opened.
   const openGame = room?.gameName;
   useEffect(() => {
-    document.title = openGame ? `Rebellia Games · ${openGame}` : LOBBY_TITLE;
+    document.title = openGame ? `Rebellia Games - ${openGame}` : LOBBY_TITLE;
   }, [openGame]);
 
   // One way out of a room, shared by the wordmark and the recovery screens, so
@@ -722,17 +739,17 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
   const swapLabel = PALETTES[otherPalette(palette)].label;
 
-  // The room writes one status for the whole table, so before the deal it
-  // names the host: "Ready — Amelia can start whenever you are". Read by
-  // everyone else that is exactly right. Read by Amelia it is her own name in
-  // the third person, in her own room, telling her about herself.
+  // The room writes one status for the whole table, so before the deal it names
+  // the host: "Ready. Amelia can start whenever you are". Read by everyone else
+  // that is exactly right. Read by Amelia it is her own name in the third
+  // person, in her own room, telling her about herself.
   //
-  // The room cannot fix this — it does not write per-seat — and it should not
-  // start, because one status per room is what makes it cheap to broadcast.
-  // The client knows which seat it is, so the second person is put back here.
+  // The room cannot fix this, because it does not write per-seat, and it should
+  // not start, because one status per room is what makes it cheap to broadcast.
+  // The client knows which seat it is, so the second person goes back here.
   const statusLine =
     room?.waiting && seat === 0 && room.canStart
-      ? "Ready when you are — everyone's here."
+      ? "Everyone's here. Start whenever you're ready."
       : room?.status;
 
   if (!name || intent === "idle") {
@@ -764,8 +781,8 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   }
 
   // This seat is being played somewhere else. Retrying would take it back off
-  // whichever tab has it, which would take it back off us — so we stop, and
-  // make continuing here an explicit choice.
+  // whichever tab has it, which would take it back off us, so we stop and make
+  // continuing here an explicit choice.
   if (status === "superseded") {
     return (
       <main className="app setup">
@@ -799,10 +816,10 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   }
 
   // One source for the connection wording, so the banner and the status line
-  // can never disagree — and "connecting" is never dressed up as "reconnecting"
+  // can never disagree, and "connecting" is never dressed up as "reconnecting"
   // to someone who has not been connected yet.
   const connectionNote =
-    status === "open" ? null : room ? "Reconnecting…" : "Connecting…";
+    status === "open" ? null : room ? "Reconnecting..." : "Connecting...";
 
   return (
     <main className="app">
@@ -851,7 +868,10 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
       {connectionNote && <div className="banner">{connectionNote}</div>}
 
-      {room && (
+      {/* Not on a table whose board draws the seats itself, see `ownsSeats`.
+          Only once the game is dealt, though: before that there is no board,
+          and the strip is the only thing on the screen saying who has arrived. */}
+      {room && (room.waiting || !ownsSeats(room.gameId)) && (
         <div className="players">
           {room.players.map((p) => (
             <div
@@ -875,7 +895,7 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
       {/* Announced, not just shown: whose turn it is changes without the
           player touching anything, and a turn-based game can sit for hours.
-          The live region stays mounted when the game ends — moving the same
+          The live region stays mounted when the game ends: moving the same
           sentence into the result block below would announce it twice, so the
           result borrows it and this hides. */}
       <p className="status" role="status" aria-live="polite">
@@ -910,7 +930,7 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
             <span className="act">Tap to copy the invite link</span>
           </button>
           <p className="hint">
-            Send the link, or read the code out. Whoever turns up gets a seat —
+            Send the link, or read the code out. Whoever turns up gets a seat,
             up to {room.capacity} for {room.gameName}.
           </p>
           {/*
@@ -936,9 +956,9 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
           {/*
             No hint here for anyone but seat 0. It used to say "<host> can
             start whenever you are ready." directly beneath a status line
-            already reading "Ready — <host> can start whenever you are": the
-            same sentence twice, in two wordings, and — both being polite live
-            regions — announced twice as well.
+            already reading "Ready. <host> can start whenever you are": the same
+            sentence twice, in two wordings, and, both being polite live
+            regions, announced twice as well.
           */}
         </>
       )}
@@ -962,8 +982,8 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
  *
  * Only games that seat exactly this table are offered. The seats are already
  * taken, so a two-handed game in a four-handed room would have to drop two
- * people — better not to offer it than to explain that afterwards. Nothing is
- * shown at all when that leaves no alternatives, rather than an empty shelf.
+ * people, and it is better not to offer it than to explain that afterwards.
+ * Nothing is shown at all when that leaves no alternatives.
  */
 function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): void }) {
   const others = gameList().filter(
@@ -986,7 +1006,7 @@ function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): vo
           </button>
         ))}
       </div>
-      <p className="hint">Same room, same players — the code stays the same.</p>
+      <p className="hint">Same room, same people, same code.</p>
     </section>
   );
 }
@@ -1010,7 +1030,7 @@ function GameBoard({
   sendMove(move: unknown): void;
 }) {
   // No state means the game is not dealt; no board means this build has never
-  // heard of the game — an old tab against a newer server. Neither is a dead
+  // heard of the game, an old tab against a newer server. Neither is a dead
   // end: the status line above still reads.
   const Board = boardFor(room.gameId);
   if (!room.state || !Board) return <div className="board placeholder" />;
@@ -1020,6 +1040,7 @@ function GameBoard({
       state={room.state as never}
       seat={seat}
       names={room.players.map((p) => p.name)}
+      connected={room.players.map((p) => p.connected)}
       canAct={room.canAct}
       now={room.now}
       onMove={sendMove}
@@ -1066,11 +1087,11 @@ function SoundButton({ on, onToggle }: { on: boolean; onToggle(): void }) {
  * One game on the shelf: its table, mid-play, with a way to sit down at it.
  *
  * A button rather than a radio, and that is the whole change to this screen.
- * The card used to pick a game which a button 957px further down then started
- * — so the label that named your choice ("Start Connect Four") was read at the
+ * The card used to pick a game which a button 957px further down then started,
+ * so the label that named your choice ("Start Connect Four") was read at the
  * one moment your choice had scrolled off the top. Pressing the table you want
- * is one act instead of two, and it removes the only control on the screen
- * that had to be hunted for.
+ * is one act instead of two, and it removes the only control on the screen that
+ * had to be hunted for.
  *
  * What that costs is the confirmation step, and the answer to a mis-tap is
  * that a room is free: nothing is spent, nobody is told, and the wordmark is
@@ -1097,10 +1118,11 @@ function TableCard({
       onClick={() => onStart(table.id)}
     >
       <CardArt gameId={table.id} />
-      {/* The figure is for the eye, which is comparing it down a column of
-          thirteen. The words are for anyone listening, who is not. */}
+      {/* The seats are for the eye, which is counting them against the number
+          of people in the room. The words are for anyone listening, who is
+          not. */}
       <span className="count" aria-hidden="true">
-        {seatSummary(table)}
+        {seatPips(table)}
       </span>
       <span className="name">{table.name}</span>
       <span className="sr-only">{seatLabel(table)}</span>
@@ -1145,8 +1167,8 @@ function Setup({
     claim to know.
 
     Falling back to the head of the list covers a first visit and a stored id
-    from a game that has since been removed — both of which are "no game on
-    top", and neither of which is worth an empty frame.
+    from a game that has since been removed. Both are "no game on top", and
+    neither is worth an empty frame.
   */
   const tables = gameList();
   const featured = tables.find((game) => game.id === lastGameId) ?? tables[0];
@@ -1167,7 +1189,7 @@ function Setup({
   return (
     <main className="app setup">
       {/* Two wrappers that do nothing at phone width but stack, and become the
-          two columns of the desktop layout — see the `@media` block in
+          two columns of the desktop layout, see the `@media` block in
           `base.css`. Real flex columns rather than `display: contents`, so the
           spacing inside them does not depend on a property the oldest WebView
           this ships to may not have. */}
@@ -1175,7 +1197,7 @@ function Setup({
         <h1 className="wordmark">
           <Wordmark name="Rebellia Games" />
         </h1>
-        <p className="tagline">Two to eight players, one link. No ads, no accounts.</p>
+        <p className="tagline">Two to eight players, one link. No ads, no accounts, no catch.</p>
 
         <label>
           Your name
@@ -1223,7 +1245,7 @@ function Setup({
           </button>
         </div>
         <p className="hint" id="code-hint">
-          {CODE_LENGTH} letters, from the link or read out to you.
+          {CODE_LENGTH} letters, off the link or read out to you.
         </p>
       </div>
 

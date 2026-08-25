@@ -13,10 +13,10 @@
  *
  * The clatter is synthesised rather than sampled, and stays that way: the gain
  * and pitch come from the impulse the solver actually resolved, so no two
- * contacts sound the same — which is the one thing a recording cannot do. The
- * recorded cues that everything *else* in the app makes live in `sfx.ts`; they
- * borrow the context built here, because a second AudioContext is a second
- * hardware output to unsuspend on a phone, for no gain.
+ * contacts sound the same, which is the one thing a recording cannot do. The
+ * recorded cues everything *else* makes live in `sfx.ts`; they borrow the
+ * context built here, because a second AudioContext is a second hardware output
+ * to unsuspend on a phone, for no gain.
  */
 
 const STORAGE_KEY = "ag.sound";
@@ -86,7 +86,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * One die landing. `strength` is 0 to 1, from the impulse; `wall` says it hit
  * the tray rather than another die, which is the duller of the two sounds.
  *
- * `pitch` multiplies the whole voice — the noise burst and the band it is
+ * `pitch` multiplies the whole voice, the noise burst and the band it is
  * filtered through together, so it transposes rather than just brightening.
  * Left at 1 for a real contact, whose character should come from the impulse
  * the solver resolved and from nothing else. It is turned up only by the
@@ -140,7 +140,7 @@ export function clatter(strength: number, wall: boolean, pitch = 1): void {
 
 /**
  * A tick in the hand of whoever threw. Silent everywhere the Vibration API is
- * not — which is every iPhone, and every desktop.
+ * not, which is every iPhone and every desktop.
  *
  * Throttled for a single duration but never for a pattern: a pattern is a
  * deliberate one-off (a throw leaving the hand, a call being settled) and

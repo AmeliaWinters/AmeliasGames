@@ -1,4 +1,4 @@
-/* ── Nine Men's Morris ──────────────────────────────────
+/* Nine Men's Morris
    A board that is drawn rather than tiled: twenty-four points on three nested
    squares, and the lines between them are the rules made visible. Everything
    here is positioned from `pointXY` in morrisDisplay.ts -- the geometry the

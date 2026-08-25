@@ -1,4 +1,4 @@
-/* ── Controls ──────────────────────────────────────────────────────── */
+/* Controls */
 /* Button labels are names, not sentences, so they take the condensed face in
    caps like every other name in the app. The ones that are really surfaces
    rather than labels -- board columns, points, keys -- override this below. */
@@ -18,7 +18,7 @@ button {
   cursor: pointer;
 }
 /* Board columns are buttons too, but a column being unplayable says nothing
-   about whether its counters should be legible — fading them washes out the
+   about whether its counters should be legible: fading them washes out the
    whole board on the opponent's turn and after the game ends. The same goes
    for a square of sea: half of Battleships' grid is deliberately inert, and
    `.bs-cell:disabled { opacity: 1 }` further down lost to this rule on
@@ -45,11 +45,57 @@ button:disabled:not(.surface) {
   opacity: 0.45;
 }
 
+/*
+  The action button, given the same press the lobby cards have.
+
+  The shelf now reads as objects you push, and a `Roll` button that stayed
+  perfectly flat was the one control in the app still behaving like a form
+  field -- the tactility has to be the app's language or it is just the lobby
+  being different.
+
+  An *inset* lip rather than the outset one the cards wear, and that is the
+  whole reason this rule is three lines instead of a copy of `.game`. A card
+  can reserve 4px under itself because the grid it sits in was sized around it.
+  This selector is on every board in the app -- roll, spin, submit, start --
+  each in a layout measured with a flat button in it, so an outset shadow would
+  have to be paid for in `margin-bottom` thirteen times and would move a
+  playing surface every time somebody forgot. Drawn inside the button's own
+  box, it costs nothing and cannot shift anything.
+
+  Black at 0.28 rather than a darker shade of the accent, for the same reason
+  the card lip is the card's own well: it has to be the same colour underneath
+  whichever channel the button is wearing, and there is no darker-accent token
+  to reach for. Black over the accent *is* the darker accent.
+*/
 button.primary {
   background: var(--action);
   border-color: var(--action);
   color: var(--action-text);
   font-weight: 700;
+  box-shadow: inset 0 -4px 0 rgb(0 0 0 / 0.28);
+  transition: transform 90ms ease-out, box-shadow 90ms ease-out;
+}
+button.primary:active:not(:disabled) {
+  /* Two, not the lip's four: the button does not move out of a row it shares
+     with a field, and a control 44px tall dropping 4px reads as a glitch where
+     a card twice the size reads as travel. The lip closing is the louder half
+     of the press anyway. */
+  transform: translateY(2px);
+  box-shadow: inset 0 0 0 rgb(0 0 0 / 0.28);
+}
+/* A button that cannot be pressed does not offer to be. `:disabled` already
+   fades to 0.45; leaving the lip on under that reads as a raised control that
+   simply ignores you. */
+button.primary:disabled {
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.primary {
+    transition: none;
+  }
+  button.primary:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 :focus-visible {
@@ -63,7 +109,7 @@ button.primary:focus-visible {
   outline-offset: 3px;
 }
 
-/* ── Opening screen ────────────────────────────────────────────────── */
+/* Opening screen */
 .setup {
   padding-top: 9vh;
   gap: 11px;
@@ -89,7 +135,7 @@ button.primary:focus-visible {
 
 /* The two halves of the opening screen: the form, and the shelf of games.
    Nothing but two stacks at phone width, where they simply follow each other
-   down the one column — they exist so the desktop `@media` in `base.css` has
+   down the one column. They exist so the desktop `@media` in `base.css` has
    two things to put side by side.
 
    Real flex columns rather than `display: contents`, which would have been
@@ -199,8 +245,8 @@ input:focus-visible {
 }
 
 /* The two things you can set, side by side. Both are `.swap`: they are the
-   same kind of thing — a preference remembered between visits — and giving
-   the second one its own treatment would say it was not. */
+   same kind of thing, a preference remembered between visits, and giving the
+   second one its own treatment would say it was not. */
 .preferences {
   display: flex;
   align-self: flex-start;

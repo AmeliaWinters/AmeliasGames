@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-// Values from wordHuntDisplay.js, which imports nothing — the board must never
+// Values from wordHuntDisplay.js, which imports nothing: the board must never
 // pull the reducer (and the word list with it) into the client bundle. The
-// types below are type-only, so they are erased and carry no runtime import.
+// types below are type-only, so they carry no runtime import.
 import {
   GRID_SIZE,
   MIN_WORD,
@@ -29,11 +29,11 @@ const URGENT_MS = 20 * 1000;
 /**
  * The one interaction here is tracing a word, and it has to work three ways:
  * dragging a finger, dragging a mouse, and tapping cell by cell. They are the
- * same gesture underneath — cells are appended to a path — and they end the
- * same way too: lifting a finger submits, and so does the button the tapping
- * player presses, which is also the one a keyboard reaches. Words run from
- * three letters to eight, so there is no length at which a trace can submit
- * itself; something has to say "that is the word", and that is the lift.
+ * same gesture underneath, cells appended to a path, and they end the same way
+ * too: lifting a finger submits, and so does the button the tapping player
+ * presses, which is also the one a keyboard reaches. Words run from three
+ * letters to eight, so there is no length at which a trace can submit itself;
+ * something has to say "that is the word", and that is the lift.
  */
 
 /**
@@ -58,7 +58,7 @@ interface Reach {
   centres: { x: number; y: number }[];
   /** How near a centre counts as being on it. */
   radius: number;
-  /** How finely to walk a pointer move — see `trace`. */
+  /** How finely to walk a pointer move. See `trace`. */
   step: number;
 }
 
@@ -77,10 +77,10 @@ function measure(container: HTMLElement): Reach | null {
 
 /**
  * The cell a point is on: the nearest centre, if the point is near enough to
- * it. `anywhere` drops the distance test, which is right for the press that
- * starts a trace — a finger landing in the gutter between two letters plainly
- * meant one of them — and wrong for every sample after it, where the whole
- * point is that most of the grid is not on any letter.
+ * it. `anywhere` drops the distance test, right for the press that starts a
+ * trace, since a finger landing in the gutter between two letters plainly meant
+ * one of them, and wrong for every sample after it, where the whole point is
+ * that most of the grid is not on any letter.
  */
 function cellNear(reach: Reach, x: number, y: number, anywhere = false): number | null {
   let best = -1;
@@ -107,7 +107,7 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
   /*
     A ref rather than state, and that is not an optimisation. The first
     pointermove of a fast flick arrives in the same frame as the pointerdown
-    that started it, before React has re-rendered with the new value — so a
+    that started it, before React has re-rendered with the new value, so a
     `dragging` held in state reads false in that handler and the trace loses
     its second letter. Nothing renders from this, so a ref is also honest
     about what it is.
@@ -132,9 +132,9 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
   // Two clocks, deliberately. `canAct` is the server's answer, true as of the
   // message that carried it; `left` is this device counting down from it. The
   // grid closes the moment the countdown reads zero rather than a round-trip
-  // later — the server has already stopped taking words by then, and a grid
-  // that still accepts traces is promising something it cannot deliver. It is
-  // shut before the off for the same reason.
+  // later. The server has already stopped taking words by then, and a grid that
+  // still accepts traces is promising what it cannot deliver. It is shut before
+  // the off for the same reason.
   const myMove = mine && started && canAct && left > 0;
   const over = state.phase === "over";
 
@@ -226,7 +226,7 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
           {/* The announcement the clock above cannot make without reading
               itself out four times a second. `clockCall` changes only on
               crossing a mark, so this speaks at a minute, thirty, ten and
-              time — and stays silent in between. */}
+              time, and stays silent in between. */}
           <span className="sr-only" aria-live="polite">
             {clockCall(left, started)}
           </span>
@@ -308,8 +308,8 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
               className={step === -1 ? "wh-cell surface" : "wh-cell surface picked"}
               disabled={!myMove}
               // The pointer path above handles the drag; this is the tap and
-              // the keypress, which land as a click either way — except for
-              // the click a finished drag leaves behind, which is neither.
+              // the keypress, which land as a click either way, except for the
+              // click a finished drag leaves behind, which is neither.
               onClick={() => {
                 if (Date.now() - dragEnded.current < CLICK_AFTER_DRAG_MS) {
                   dragEnded.current = 0;
@@ -339,7 +339,7 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
             down under a finger that is mid-trace.
           */}
           <p className="wh-draft" aria-live="polite">
-            {word || `Trace a word — ${MIN_WORD} letters or more`}
+            {word || `Trace a word, ${MIN_WORD} letters or more`}
             {worth > 0 && <span className="wh-worth">{worth}</span>}
           </p>
           <button
@@ -373,14 +373,14 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
           {!started
             ? "The clock starts when everyone is here."
             : left === 0
-              ? "Time is up. Counting the scores…"
+              ? "Time is up. Counting the scores..."
               : "You are done. Waiting for the others to finish."}
         </p>
       )}
 
       {/*
         Your own words while the game runs; everyone's once it ends. An
-        opponent's arrive masked until then — as long as the word was, so you
+        opponent's arrive masked until then, as long as the word was, so you
         can watch their score climb, which is the tension, without being handed
         the words themselves.
       */}
@@ -411,9 +411,9 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
 }
 
 /**
- * Everything that was in the grid, longest first — which is the order to read
- * it in, because the eight-letter word you walked straight past is the one
- * worth seeing, and alphabetical order buries it among three hundred threes.
+ * Everything that was in the grid, longest first, which is the order to read
+ * it in: the eight-letter word you walked straight past is the one worth
+ * seeing, and alphabetical order buries it among three hundred threes.
  *
  * Folded away, because the first thing you want after a game is the score, not
  * an inventory of what you missed.

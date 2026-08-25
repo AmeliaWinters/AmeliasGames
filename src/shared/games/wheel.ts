@@ -8,22 +8,22 @@ import { pick } from "./random.js";
  *
  * A hidden phrase, a wheel, and three rounds. On your turn you may spin and
  * name a consonant, buy a vowel out of the money you have won this round, or
- * try to solve. Getting it right keeps the turn — up to three letters, then it
- * moves on anyway; getting it wrong hands it over on the spot. Most money
- * after three rounds wins.
+ * try to solve. Getting it right keeps the turn, up to three letters, then it
+ * moves on anyway; getting it wrong hands it over on the spot. Most money after
+ * three rounds wins.
  *
  * The reducer is written for however many seats it is handed. `setup` is given
- * the room's real player count, so nothing here assumes two — `state.bank` is
+ * the room's real player count, so nothing here assumes two. `state.bank` is
  * as long as there are players, and the turn walks round it.
  *
- * ── The part that matters ──────────────────────────────────────────────
+ * The part that matters
  *
  * This is the first game here with something to hide, and `view()` is the
  * whole reason it is playable. `state.answer` holds the real phrase, and the
  * server masks it on the way out to each client. Nothing else would do: the
  * client is sent the state, so an answer that reaches it is an answer anyone
- * can read out of devtools. The mask preserves length and punctuation — a
- * player is meant to know the shape of the phrase — and reveals a letter only
+ * can read out of devtools. The mask preserves length and punctuation, since a
+ * player is meant to know the shape of the phrase, and reveals a letter only
  * once someone has called it.
  *
  * The answer becomes public the moment the round ends, which is what lets the
@@ -38,10 +38,10 @@ import { pick } from "./random.js";
  * in `roomCode.js` so `App.tsx` never pulls in `room.js` and the registry
  * behind it.
  *
- * That is structure, not bundler luck — an earlier version relied on Rollup
+ * That is structure, not bundler luck. An earlier version relied on Rollup
  * shaking the answers back out of a graph that did reach them, which held, but
- * only until someone added one value import. `bundle.test.ts` builds the
- * client and greps it, so the guarantee is now checked rather than asserted.
+ * only until someone added one value import. `bundle.test.ts` builds the client
+ * and greps it, so the guarantee is checked rather than asserted.
  */
 
 // Constants and the money formatter live in wheelDisplay.ts, which imports
@@ -72,6 +72,7 @@ export {
   FINDS_PER_TURN,
   ROUNDS,
   SOLVE_BONUS,
+  FLICK_GAIN,
   SPIN_DRAG,
   SPIN_MAX_SPEED,
   SPIN_MAX_TRAVEL,
@@ -81,6 +82,7 @@ export {
   VOWEL_COST,
   WEDGE_ARC,
   WHEEL,
+  isThrow,
   money,
   restAfter,
   spinMs,
@@ -112,8 +114,8 @@ export interface WofState {
   round: number;
   category: string;
   /**
-   * The phrase. Masked by `view()` for as long as the round is running — this
-   * is the one field in the project that is not safe to broadcast as it is.
+   * The phrase. Masked by `view()` while the round runs: the one field in the
+   * project that is not safe to broadcast as it is.
    */
   answer: string;
   /** Answers already played, so one match never sets the same puzzle twice. */
@@ -127,8 +129,8 @@ export interface WofState {
   phase: "spin" | "call";
   /**
    * The cash wedge backing a consonant the player still owes, or null when
-   * nothing is owed. This is the *entitlement*, and it is spent — cleared when
-   * the letter is called, and when the turn moves on.
+   * nothing is owed. The *entitlement*, and it is spent: cleared when the
+   * letter is called, and when the turn moves on.
    */
   wedge: Wedge | null;
   /**
@@ -139,20 +141,20 @@ export interface WofState {
    * cleared when the turn passes: this is where the pointer is, and the board
    * animates to it. Bankrupt ends a turn, and the wheel still has to be seen
    * landing on Bankrupt. Two identical $300 wedges are also why this is an
-   * index and not the wedge itself — the board cannot tell them apart, and
-   * must spin to the right one.
+   * index and not the wedge itself: the board cannot tell them apart, and must
+   * spin to the right one.
    */
   wedgeAt: number | null;
   /**
-   * Where the flapper actually stands, in wedges of pointer position — see
+   * Where the flapper actually stands, in wedges of pointer position. See
    * `restAfter`. Fractional, and `wedgeAt` is this rounded.
    *
-   * Two fields for what sounds like one fact, because they are answers to two
-   * questions: `wedgeAt` is which wedge came up and is what the game is scored
-   * on; `rest` is where the wheel physically stopped, and a wheel that only
-   * ever stopped on midpoints was the complaint that got this written. It is
-   * also the anchor the next throw is measured from, so the fraction is not
-   * cosmetic — it carries from spin to spin the way a real rim does.
+   * Two fields for what sounds like one fact, because they answer two
+   * questions. `wedgeAt` is which wedge came up and what the game is scored on.
+   * `rest` is where the wheel physically stopped, and a wheel that only ever
+   * stopped on midpoints was the complaint that got this written. It is also
+   * the anchor the next throw is measured from, so the fraction is not
+   * cosmetic: it carries from spin to spin the way a real rim does.
    */
   rest: number;
   /**
@@ -175,13 +177,13 @@ export interface WofState {
    * Fractional: a throw carries however far it carries, and rounding it to
    * whole wedges was one of the two reasons every landing sat dead-centre.
    *
-   * `restAfter` is the only thing that turns this into `rest`, and it
-   * subtracts — rotation and wedge numbering run opposite ways round.
+   * `restAfter` is the only thing that turns this into `rest`, and it subtracts,
+   * because rotation and wedge numbering run opposite ways round.
    */
   travel: number;
   /**
    * Correct letters found by the player to move, this turn. Reset whenever the
-   * turn changes hands. At FINDS_PER_TURN the turn moves on — a hot streak is
+   * turn changes hands. At FINDS_PER_TURN the turn moves on: a hot streak is
    * worth having, not worth keeping the wheel for the whole round.
    *
    * There is no counter for the other way a turn ends, because there is
@@ -200,9 +202,9 @@ export interface WofState {
 
 export type WofMove =
   /**
-   * `velocity` is the rim's speed at the moment the finger left it, in signed
-   * degrees of rotation per millisecond — see `spinThrow`, which is the whole
-   * of the physics and runs here rather than on the machine that threw it.
+   * `velocity` is the rim's speed as the finger left it, in signed degrees of
+   * rotation per millisecond. See `spinThrow`, which is the whole of the physics
+   * and runs here rather than on the machine that threw it.
    *
    * It is optional because the Spin button has no flick behind it: a keyboard,
    * a screen reader and a player who would rather tap all reach the wheel that
@@ -213,21 +215,30 @@ export type WofMove =
   | { type: "solve"; answer: string }
   | { type: "next" };
 
-// ── The puzzles ────────────────────────────────────────────────────────
+// The puzzles
 
 /**
  * Everyday phrases, so the game turns on spotting the shape of a sentence
- * rather than on trivia. Uppercase A–Z, spaces and apostrophes only; the tests
+ * rather than on trivia. Uppercase A-Z, spaces and apostrophes only; the tests
  * hold the bank to that, because the mask assumes it.
  *
- * Queer answers live in the ordinary categories — MY TWO MUMS is People, the
- * same as MY OLDEST FRIEND. A separate 'Pride' category would announce itself
- * the moment it came up and turn a puzzle into a statement, which is the
- * opposite of the point.
+ * Queer answers live in the ordinary categories: MY TWO MUMS is People, same
+ * as MY OLDEST FRIEND. A separate 'Pride' category would announce itself the
+ * moment it came up and turn a puzzle into a statement, the opposite of the
+ * point.
  *
  * The draw is uniform over this flat list, so a category is exactly as common
  * as its share of the bank. Adding to one thins every other one; there is no
  * per-category weighting to adjust.
+ *
+ * **No leading THE unless the phrase is an idiom that has one.** This shipped
+ * once and turned into the only strategy worth having: a third of the bank
+ * contained THE, it was over half of every three-letter word, and a player who
+ * saw a three-letter gap called T and then H and got paid twice for reading
+ * the bank instead of the puzzle. "THE VILLAGE HALL" is VILLAGE HALL; only
+ * BREAK THE ICE and its kind keep the article, because taking it out would
+ * make them wrong. The bank test pins the ratio, so adding a batch of
+ * THE-something answers fails rather than quietly restoring the meta.
  */
 export const PUZZLES: readonly Puzzle[] = [
   { category: "Phrase", answer: "BETTER LATE THAN NEVER" },
@@ -288,7 +299,7 @@ export const PUZZLES: readonly Puzzle[] = [
   { category: "Phrase", answer: "HAPPY PRIDE" },
 
   { category: "Thing", answer: "A CUP OF TEA" },
-  { category: "Thing", answer: "THE MORNING PAPER" },
+  { category: "Thing", answer: "MORNING PAPER" },
   { category: "Thing", answer: "A ROLLING SUITCASE" },
   { category: "Thing", answer: "GARDEN SHED" },
   { category: "Thing", answer: "KITCHEN TABLE" },
@@ -298,14 +309,14 @@ export const PUZZLES: readonly Puzzle[] = [
   { category: "Thing", answer: "A TATTY UMBRELLA" },
   { category: "Thing", answer: "WELLINGTON BOOTS" },
   { category: "Thing", answer: "A HOT WATER BOTTLE" },
-  { category: "Thing", answer: "THE TELLY REMOTE" },
+  { category: "Thing", answer: "TELLY REMOTE" },
   { category: "Thing", answer: "A BUS TIMETABLE" },
   { category: "Thing", answer: "TARTAN BLANKET" },
   { category: "Thing", answer: "A LOYALTY CARD" },
   { category: "Thing", answer: "JIGSAW PUZZLE" },
   { category: "Thing", answer: "A PACK OF CARDS" },
   { category: "Thing", answer: "RUSTY BICYCLE" },
-  { category: "Thing", answer: "THE SPARE KEY" },
+  { category: "Thing", answer: "SPARE KEY" },
   { category: "Thing", answer: "A WOOLLY JUMPER" },
   { category: "Thing", answer: "BIRTHDAY CANDLES" },
   { category: "Thing", answer: "A TIN OF BISCUITS" },
@@ -313,87 +324,87 @@ export const PUZZLES: readonly Puzzle[] = [
   { category: "Thing", answer: "A PAPER ROUND" },
   { category: "Thing", answer: "A CRACKLING FIRE" },
   { category: "Thing", answer: "A RAINBOW FLAG" },
-  { category: "Thing", answer: "THE TRANS FLAG" },
+  { category: "Thing", answer: "A TRANS FLAG" },
   { category: "Thing", answer: "MATCHING WEDDING RINGS" },
   { category: "Thing", answer: "A CARABINER OF KEYS" },
   { category: "Thing", answer: "A FOLDED KEFFIYEH" },
-  { category: "Thing", answer: "THE KEY TO THE OLD HOUSE" },
+  { category: "Thing", answer: "KEY TO THE OLD HOUSE" },
   { category: "Thing", answer: "A BOWL OF OLIVES" },
 
-  { category: "Place", answer: "THE BOTTOM OF THE GARDEN" },
+  { category: "Place", answer: "BOTTOM OF THE GARDEN" },
   { category: "Place", answer: "A QUIET LIBRARY" },
-  { category: "Place", answer: "THE SOUTH COAST" },
+  { category: "Place", answer: "SOUTH COAST" },
   { category: "Place", answer: "MOUNTAIN VILLAGE" },
-  { category: "Place", answer: "THE CORNER SHOP" },
-  { category: "Place", answer: "THE LOCAL PUB" },
+  { category: "Place", answer: "CORNER SHOP" },
+  { category: "Place", answer: "LOCAL PUB" },
   { category: "Place", answer: "A SEASIDE PIER" },
-  { category: "Place", answer: "THE VILLAGE GREEN" },
+  { category: "Place", answer: "VILLAGE GREEN" },
   { category: "Place", answer: "A COUNTRY LANE" },
-  { category: "Place", answer: "THE LAKE DISTRICT" },
+  { category: "Place", answer: "LAKE DISTRICT" },
   { category: "Place", answer: "A CROWDED PLATFORM" },
-  { category: "Place", answer: "THE HIGH STREET" },
+  { category: "Place", answer: "HIGH STREET" },
   { category: "Place", answer: "A CASTLE ON A HILL" },
-  { category: "Place", answer: "THE ALLOTMENTS" },
-  { category: "Place", answer: "THE SCOTTISH BORDERS" },
+  { category: "Place", answer: "ALLOTMENTS" },
+  { category: "Place", answer: "SCOTTISH BORDERS" },
   { category: "Place", answer: "A MARKET TOWN" },
-  { category: "Place", answer: "THE BACK GARDEN" },
+  { category: "Place", answer: "BACK GARDEN" },
   { category: "Place", answer: "A WINDSWEPT MOOR" },
-  { category: "Place", answer: "THE GARDEN CENTRE" },
+  { category: "Place", answer: "GARDEN CENTRE" },
   { category: "Place", answer: "A CANAL TOWPATH" },
   { category: "Place", answer: "A BUSY BUS STATION" },
-  { category: "Place", answer: "THE CHURCH HALL" },
+  { category: "Place", answer: "CHURCH HALL" },
   { category: "Place", answer: "A DISUSED RAILWAY" },
-  { category: "Place", answer: "THE END OF THE PIER" },
+  { category: "Place", answer: "END OF THE PIER" },
   { category: "Place", answer: "A CLIFFTOP PATH" },
-  { category: "Place", answer: "THE VILLAGE HALL" },
+  { category: "Place", answer: "VILLAGE HALL" },
   { category: "Place", answer: "A HARBOUR WALL" },
-  { category: "Place", answer: "THE PARK BANDSTAND" },
+  { category: "Place", answer: "PARK BANDSTAND" },
   { category: "Place", answer: "A NARROW BRIDGE" },
-  { category: "Place", answer: "THE OLD BOOKSHOP" },
+  { category: "Place", answer: "OLD BOOKSHOP" },
   { category: "Place", answer: "A WALLED GARDEN" },
-  { category: "Place", answer: "THE FERRY TERMINAL" },
+  { category: "Place", answer: "FERRY TERMINAL" },
   { category: "Place", answer: "A FARMERS MARKET" },
-  { category: "Place", answer: "THE TOP OF THE HILL" },
+  { category: "Place", answer: "TOP OF THE HILL" },
   { category: "Place", answer: "A COBBLED SQUARE" },
-  { category: "Place", answer: "THE LOCAL GAY BAR" },
+  { category: "Place", answer: "LOCAL GAY BAR" },
   { category: "Place", answer: "A RAINBOW CROSSING" },
   { category: "Place", answer: "SOHO ON A SATURDAY" },
-  { category: "Place", answer: "THE QUEER BOOKSHOP" },
+  { category: "Place", answer: "QUEER BOOKSHOP" },
   { category: "Place", answer: "A VILLAGE IN GALILEE" },
   { category: "Place", answer: "OLD STONE TERRACES" },
   { category: "Place", answer: "BETHLEHEM AT CHRISTMAS" },
-  { category: "Place", answer: "THE DEAD SEA" },
-  { category: "Place", answer: "THE RIVER JORDAN" },
-  { category: "Place", answer: "THE OLD CITY WALLS" },
+  { category: "Place", answer: "DEAD SEA" },
+  { category: "Place", answer: "RIVER JORDAN" },
+  { category: "Place", answer: "OLD CITY WALLS" },
 
   { category: "People", answer: "MY OLDEST FRIEND" },
-  { category: "People", answer: "THE NEW NEIGHBOURS" },
+  { category: "People", answer: "NEW NEIGHBOURS" },
   { category: "People", answer: "A FAMILY OF FIVE" },
-  { category: "People", answer: "THE SUNDAY CROWD" },
+  { category: "People", answer: "SUNDAY CROWD" },
   { category: "People", answer: "A GOOD LISTENER" },
-  { category: "People", answer: "THE QUIZ TEAM" },
+  { category: "People", answer: "QUIZ TEAM" },
   { category: "People", answer: "MY LITTLE BROTHER" },
-  { category: "People", answer: "THE EARLY RISERS" },
+  { category: "People", answer: "EARLY RISERS" },
   { category: "People", answer: "A HOUSE FULL OF COUSINS" },
-  { category: "People", answer: "THE VILLAGE CHOIR" },
+  { category: "People", answer: "VILLAGE CHOIR" },
   { category: "People", answer: "A GOOD NEIGHBOUR" },
-  { category: "People", answer: "THE WHOLE STREET" },
+  { category: "People", answer: "WHOLE STREET" },
   { category: "People", answer: "MY GREAT AUNT" },
-  { category: "People", answer: "THE ALLOTMENT LOT" },
+  { category: "People", answer: "ALLOTMENT LOT" },
   { category: "People", answer: "A CROWD OF STRANGERS" },
-  { category: "People", answer: "THE BOOK GROUP" },
+  { category: "People", answer: "BOOK GROUP" },
   { category: "People", answer: "MY BEST MAN" },
-  { category: "People", answer: "THE MORNING REGULARS" },
+  { category: "People", answer: "MORNING REGULARS" },
   { category: "People", answer: "A PAIR OF TWINS" },
-  { category: "People", answer: "THE PARISH COUNCIL" },
+  { category: "People", answer: "PARISH COUNCIL" },
   { category: "People", answer: "MY GODMOTHER" },
-  { category: "People", answer: "THE FRONT ROW" },
+  { category: "People", answer: "FRONT ROW" },
   { category: "People", answer: "A FRIEND OF A FRIEND" },
-  { category: "People", answer: "THE NIGHT SHIFT" },
+  { category: "People", answer: "NIGHT SHIFT" },
   { category: "People", answer: "MY OLD SCHOOL FRIENDS" },
   { category: "People", answer: "MY TWO MUMS" },
   { category: "People", answer: "MY CHOSEN FAMILY" },
-  { category: "People", answer: "THE QUEER BOOK CLUB" },
+  { category: "People", answer: "QUEER BOOK CLUB" },
   { category: "People", answer: "A PAIR OF GROOMS" },
   { category: "People", answer: "TWO BRIDES" },
   { category: "People", answer: "MY GAY UNCLE" },
@@ -461,67 +472,67 @@ export const PUZZLES: readonly Puzzle[] = [
   { category: "Food & Drink", answer: "ZA'ATAR ON WARM BREAD" },
   { category: "Food & Drink", answer: "ORANGES FROM JAFFA" },
 
-  { category: "Around the House", answer: "THE KITCHEN SINK" },
+  { category: "Around the House", answer: "KITCHEN SINK" },
   { category: "Around the House", answer: "A CREAKING FLOORBOARD" },
-  { category: "Around the House", answer: "THE SPARE ROOM" },
-  { category: "Around the House", answer: "THE LINEN CUPBOARD" },
-  { category: "Around the House", answer: "THE AIRING CUPBOARD" },
+  { category: "Around the House", answer: "SPARE ROOM" },
+  { category: "Around the House", answer: "LINEN CUPBOARD" },
+  { category: "Around the House", answer: "AIRING CUPBOARD" },
   { category: "Around the House", answer: "A DRAUGHTY HALLWAY" },
-  { category: "Around the House", answer: "THE WASHING LINE" },
+  { category: "Around the House", answer: "WASHING LINE" },
   { category: "Around the House", answer: "UNDER THE STAIRS" },
-  { category: "Around the House", answer: "THE FRONT DOORSTEP" },
+  { category: "Around the House", answer: "FRONT DOORSTEP" },
   { category: "Around the House", answer: "A CLUTTERED LOFT" },
-  { category: "Around the House", answer: "THE BATHROOM MIRROR" },
+  { category: "Around the House", answer: "BATHROOM MIRROR" },
   { category: "Around the House", answer: "A LEAKY RADIATOR" },
-  { category: "Around the House", answer: "THE JUNK DRAWER" },
+  { category: "Around the House", answer: "JUNK DRAWER" },
   { category: "Around the House", answer: "NET CURTAINS" },
-  { category: "Around the House", answer: "A PRIDE FLAG IN THE WINDOW" },
+  { category: "Around the House", answer: "A PRIDE FLAG IN MY WINDOW" },
 
   { category: "What Are You Doing?", answer: "READING BY THE WINDOW" },
   { category: "What Are You Doing?", answer: "WALKING THE LONG WAY HOME" },
   { category: "What Are You Doing?", answer: "LEARNING TO SAIL" },
-  { category: "What Are You Doing?", answer: "WATCHING THE RAIN" },
+  { category: "What Are You Doing?", answer: "WATCHING RAIN FALL" },
   { category: "What Are You Doing?", answer: "QUEUEING PATIENTLY" },
   { category: "What Are You Doing?", answer: "MOWING THE LAWN" },
   { category: "What Are You Doing?", answer: "MAKING A ROUND OF TEA" },
   { category: "What Are You Doing?", answer: "HAVING A LIE IN" },
-  { category: "What Are You Doing?", answer: "DOING THE CROSSWORD" },
-  { category: "What Are You Doing?", answer: "FEEDING THE DUCKS" },
-  { category: "What Are You Doing?", answer: "PAINTING THE FENCE" },
+  { category: "What Are You Doing?", answer: "FINISHING A CROSSWORD" },
+  { category: "What Are You Doing?", answer: "FEEDING NEXT DOOR'S CAT" },
+  { category: "What Are You Doing?", answer: "PAINTING A GARDEN FENCE" },
   { category: "What Are You Doing?", answer: "CATCHING THE LAST TRAIN" },
   { category: "What Are You Doing?", answer: "PACKING A PICNIC" },
-  { category: "What Are You Doing?", answer: "PUTTING THE BINS OUT" },
-  { category: "What Are You Doing?", answer: "WAITING FOR THE BUS" },
+  { category: "What Are You Doing?", answer: "PUTTING BINS OUT" },
+  { category: "What Are You Doing?", answer: "WAITING FOR A BUS" },
 
   { category: "Nature", answer: "A FIELD OF BLUEBELLS" },
-  { category: "Nature", answer: "FROST ON THE GRASS" },
+  { category: "Nature", answer: "FROST ON MORNING GRASS" },
   { category: "Nature", answer: "AN ANCIENT OAK TREE" },
-  { category: "Nature", answer: "THE DAWN CHORUS" },
+  { category: "Nature", answer: "DAWN CHORUS" },
   { category: "Nature", answer: "A HEDGEROW IN SPRING" },
   { category: "Nature", answer: "CONKERS ON THE PATH" },
   { category: "Nature", answer: "A ROBIN IN WINTER" },
-  { category: "Nature", answer: "MIST OVER THE FIELDS" },
+  { category: "Nature", answer: "MIST OVER OPEN FIELDS" },
   { category: "Nature", answer: "FALLING LEAVES" },
   { category: "Nature", answer: "A ROCK POOL" },
-  { category: "Nature", answer: "HEATHER ON THE HILLS" },
+  { category: "Nature", answer: "HEATHER IN AUGUST" },
   { category: "Nature", answer: "A MURMURATION" },
   { category: "Nature", answer: "SNOWDROPS IN JANUARY" },
-  { category: "Nature", answer: "THE RISING TIDE" },
+  { category: "Nature", answer: "RISING TIDE" },
   { category: "Nature", answer: "A FOX IN THE GARDEN" },
   { category: "Nature", answer: "BRAMBLES AND NETTLES" },
-  { category: "Nature", answer: "THE FIRST SWALLOWS" },
+  { category: "Nature", answer: "FIRST SWALLOWS" },
   { category: "Nature", answer: "A CARPET OF MOSS" },
   { category: "Nature", answer: "WIND IN THE REEDS" },
   { category: "Nature", answer: "DEER AT FIRST LIGHT" },
   { category: "Nature", answer: "A CLEAR NIGHT SKY" },
-  { category: "Nature", answer: "TOADSTOOLS IN THE WOOD" },
+  { category: "Nature", answer: "TOADSTOOLS IN A WOOD" },
   { category: "Nature", answer: "ICICLES ON THE EAVES" },
   { category: "Nature", answer: "A NEST OF SPARROWS" },
   { category: "Nature", answer: "APPLE BLOSSOM" },
-  { category: "Nature", answer: "THE SMELL OF RAIN" },
-  { category: "Nature", answer: "SEALS ON THE SANDBANK" },
-  { category: "Nature", answer: "THE OLIVE HARVEST" },
-  { category: "Nature", answer: "OLIVE GROVES ON THE HILL" },
+  { category: "Nature", answer: "SMELL OF RAIN" },
+  { category: "Nature", answer: "SEALS ON A SANDBANK" },
+  { category: "Nature", answer: "OLIVE HARVEST" },
+  { category: "Nature", answer: "OLIVE GROVES ON A HILL" },
   { category: "Nature", answer: "PRICKLY PEAR CACTUS" },
   { category: "Nature", answer: "ALMOND TREES IN BLOSSOM" },
   { category: "Nature", answer: "FIGS AND POMEGRANATES" },
@@ -553,7 +564,7 @@ export const PUZZLES: readonly Puzzle[] = [
   { category: "Pastime", answer: "A GAME OF BACKGAMMON" },
 ];
 
-// ── Small pure helpers ─────────────────────────────────────────────────
+// Small pure helpers
 
 /** How many seats this game was set up for. Derived, so it cannot disagree. */
 export function seatCount(state: WofState): number {
@@ -637,8 +648,8 @@ function clone(state: WofState): WofState {
 
 function drawPuzzle(used: readonly string[], rng: Rng): Puzzle {
   const pool = PUZZLES.filter((puzzle) => !used.includes(puzzle.answer));
-  // The bank is far larger than ROUNDS, so this cannot run dry — but a reducer
-  // that could hand back undefined is a reducer that eventually does.
+  // The bank is far larger than ROUNDS, so this cannot run dry, but a reducer
+  // that could hand back undefined is one that eventually does.
   const source = pool.length > 0 ? pool : PUZZLES;
   return source[pick(rng, source.length)];
 }
@@ -660,7 +671,7 @@ function passTurn(state: WofState): void {
 /**
  * A wrong guess: a letter that is not there, a vowel that is not there, or a
  * failed attempt at the phrase. The turn ends on it, the way it does on the
- * show — a guess costs the wheel, which is what makes naming a letter you are
+ * show: a guess costs the wheel, which is what makes naming a letter you are
  * only half sure of a decision worth making.
  *
  * `what` is the sentence so far; this appends what it cost. `passTurn` clears
@@ -675,16 +686,16 @@ function strike(state: WofState, seat: number, what: string): void {
  * A letter that was there: bank the find, and hand the wheel on once the
  * player has had `FINDS_PER_TURN` of them.
  *
- * Without this a good turn was the whole round — find a letter, spin again,
+ * Without this a good turn was the whole round: find a letter, spin again,
  * find another, and the player who got going never gave the wheel back while
  * everyone else watched. The cap is the same three as `strike`'s on purpose: a
  * turn is three letters, and it ends whichever way you spend them.
  *
- * Only called on a round still running. Finishing the puzzle on your third
- * find takes the round, and "the turn moves on" is not a thing to say about a
- * round that has ended — so the caller checks `roundOver` first. Like
- * `strike`, this appends to the note already standing rather than replacing
- * it: the player still needs to read what their letter paid.
+ * Only called on a round still running. Finishing the puzzle on your third find
+ * takes the round, and "the turn moves on" is no thing to say about a round
+ * that has ended, so the caller checks `roundOver` first. Like `strike`, this
+ * appends to the note already standing rather than replacing it: the player
+ * still needs to read what their letter paid.
  */
 function credit(state: WofState, seat: number): void {
   state.finds += 1;
@@ -692,7 +703,7 @@ function credit(state: WofState, seat: number): void {
   const sentence = state.note === null ? "" : `${state.note.text} `;
   state.note = {
     seat,
-    text: `${sentence}That is ${count(FINDS_PER_TURN)} — the turn moves on.`,
+    text: `${sentence}That is ${count(FINDS_PER_TURN)}, so the turn moves on.`,
   };
   passTurn(state);
 }
@@ -712,8 +723,8 @@ function credit(state: WofState, seat: number): void {
  *    else saw the phrase first made every round a write-off from second place,
  *    and made calling letters for a player who was behind pointless.
  *
- * Bankrupt still takes a bank to nothing, which is what keeps it frightening —
- * it just no longer has a rival in "somebody else solved it".
+ * Bankrupt still takes a bank to nothing, which is what keeps it frightening.
+ * It just no longer has a rival in "somebody else solved it".
  */
 function awardRound(state: WofState, seat: number): void {
   state.bank[seat] += SOLVE_BONUS;
@@ -758,10 +769,10 @@ function beginRound(state: WofState, rng: Rng): WofState {
     turn: state.starter,
     phase: "spin",
     wedge: null,
-    // A fresh puzzle gets a fresh wheel, standing where it was left — which is
+    // A fresh puzzle gets a fresh wheel, standing where it was left, which is
     // why `rest` is not in this list. `wedgeAt` is nulled because no wedge is
-    // *owed* yet; the rim itself has not moved, and the next throw is measured
-    // from where the last one stopped, round boundary or not.
+    // *owed* yet; the rim has not moved, and the next throw is measured from
+    // where the last one stopped, round boundary or not.
     wedgeAt: null,
     travel: 0,
     finds: 0,
@@ -771,28 +782,28 @@ function beginRound(state: WofState, rng: Rng): WofState {
   };
 }
 
-// ── Moves ──────────────────────────────────────────────────────────────
+// Moves
 
 /**
  * `velocity` is the rim's speed at the moment of release, or undefined when
  * the wheel was spun by the button and nobody threw it.
  *
- * Two paths on purpose, and they differ in which end is decided first. A
- * button spin picks the wedge and works out a plausible journey to it, which
- * is what the game has always done and what every seeded test here relies on.
- * A flick picks the journey — that is what the player did — and finds out
- * where it ended up, with no draw from `rng` at all: `spinThrow` is physics,
- * and physics does not roll dice.
+ * Two paths on purpose, differing in which end is decided first. A button spin
+ * picks the wedge and works out a plausible journey to it, which is what the
+ * game has always done and what every seeded test here relies on. A flick picks
+ * the journey, which is what the player did, and finds out where it ended up,
+ * with no draw from `rng` at all: `spinThrow` is physics, and physics does not
+ * roll dice.
  *
- * ── Why the anchor is `state.wedgeAt` and not the rim under the finger ──
+ * Why the anchor is `state.wedgeAt` and not the rim under the finger
  *
  * A drag can put the wheel anywhere on screen. If the landing were measured
  * from where the finger let go, a player could line up the wedge they fancied,
  * stop dead, release, and take the one throw whose distance they know exactly.
- * Measured from where the wheel *stopped last time* — which no gesture moves —
- * a careful drag buys nothing at all, and the flick still decides everything
- * it should: how far, and which way. The board draws the journey from wherever
- * the drag left the rim, so the seam never shows.
+ * Measured from where the wheel *stopped last time*, which no gesture moves, a
+ * careful drag buys nothing and the flick still decides everything it should:
+ * how far, and which way. The board draws the journey from wherever the drag
+ * left the rim, so the seam never shows.
  */
 function spin(
   state: WofState,
@@ -814,8 +825,8 @@ function spin(
     // somewhere inside the chosen wedge rather than on its midpoint, and work
     // backwards to the distance that gets there. Held off the seam by a
     // twentieth of a wedge each side so the flapper is unambiguously on one
-    // face — the *flick* is allowed to stop on a seam, because that is what
-    // physics does, but an invented throw has no business inventing one.
+    // face. The *flick* may stop on a seam, because that is what physics does,
+    // but an invented throw has no business inventing one.
     const inside = at + (pick(rng, 901) - 450) / 1000;
     // Four whole turns clockwise, plus however much more reaches that spot.
     travel =
@@ -823,14 +834,22 @@ function spin(
       ((((from - inside) % WHEEL.length) + WHEEL.length) % WHEEL.length);
     rest = restAfter(from, travel);
   } else {
-    travel = spinThrow(velocity).travel;
+    const thrown = spinThrow(velocity);
+    // A nudge is not a throw. Refused rather than clamped up to a minimum,
+    // because a clamp made every under-strength release the same known distance
+    // from a `rest` the player can see. See `SPIN_MIN_TRAVEL`. The wheel is left
+    // exactly where the hand put it; nothing moves, and the player is asked for
+    // a real one.
+    if (thrown === null)
+      return { ok: false, error: "That was a nudge. Flick the wheel harder." };
+    travel = thrown.travel;
     rest = restAfter(from, travel);
   }
   const at = wedgeUnder(rest);
   const wedge = WHEEL[at];
   const next = clone(state);
   next.wedge = wedge;
-  // Where the pointer now is, and the fact that it moved at all — the board
+  // Where the pointer now is, and the fact that it moved at all. The board
   // needs both to spin the wheel to the right place.
   next.wedgeAt = at;
   next.rest = rest;
@@ -877,7 +896,7 @@ function callConsonant(
   letter: string,
 ): MoveResult<WofState> {
   const wedge = state.wedge;
-  // Unreachable while `phase` and `wedge` agree — and checked anyway, because a
+  // Unreachable while `phase` and `wedge` agree, and checked anyway, because a
   // reducer that trusts its own invariants is one refactor from a crash.
   if (!wedge || wedge.kind !== "cash")
     return { ok: false, error: "Spin the wheel first." };
@@ -898,7 +917,7 @@ function callConsonant(
   next.wedge = null;
   next.note = {
     seat,
-    text: `found ${count(hits)} ${letter}${hits === 1 ? "" : "'s"} — ${money(won)}.`,
+    text: `found ${count(hits)} ${letter}${hits === 1 ? "" : "'s"}, worth ${money(won)}.`,
   };
   finishIfSolved(next, seat);
   if (!next.roundOver) credit(next, seat);
@@ -933,7 +952,7 @@ function buyVowel(
     text:
       hits === 1
         ? `bought ${letter}. Just the one.`
-        : `bought ${letter} — ${count(hits)} of them.`,
+        : `bought ${letter}, ${count(hits)} of them.`,
   };
   finishIfSolved(next, seat);
   if (!next.roundOver) credit(next, seat);
@@ -968,7 +987,7 @@ function solve(
   return { ok: true, state: next };
 }
 
-// ── The definition ─────────────────────────────────────────────────────
+// The definition
 
 export const wheel: GameDefinition<WofState, WofMove> = {
   id: GAME_MANIFEST.wheel.id,
@@ -1028,11 +1047,16 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       return { ok: false, error: "This round is still going." };
 
     if (move.type === "spin") {
-      // Anything but a number means "no flick" — the button, an old client, or
-      // one making things up. `spinThrow` clamps the range; this is only
-      // deciding which of the two spins happened.
-      const velocity =
-        typeof move.velocity === "number" ? move.velocity : undefined;
+      // Anything but a number means "no flick": the button, an old client, or
+      // one making things up. `spinThrow` clamps the range; this only decides
+      // which of the two spins happened.
+      // Anything that is not a real number is not a measurement, so it is no
+      // flick at all and the wheel decides, the same path the Spin button
+      // takes. That covers an old client sending `power`, and a new one whose
+      // pointer trail divided by a zero-length window.
+      const velocity = Number.isFinite(move.velocity)
+        ? (move.velocity as number)
+        : undefined;
       return spin(state, seat, rng, velocity);
     }
 
@@ -1048,7 +1072,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       const vowel = VOWELS.includes(letter);
       if (state.phase === "call") {
         if (vowel)
-          return { ok: false, error: "You spun for a consonant — name one." };
+          return { ok: false, error: "You spun for a consonant, so name one." };
         return callConsonant(state, seat, letter);
       }
       if (!vowel)
@@ -1067,7 +1091,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
 
   /**
    * Everything a client is allowed to know. The answer is the only secret in
-   * the project, and this is the only thing keeping it — the server sends
+   * the project and this is the only thing keeping it: the server sends
    * whatever comes back from here.
    */
   view(state) {
@@ -1102,7 +1126,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
       const best = money(state.score[top[0]]);
       if (top.length > 1) {
         const tied = top.map(nameFor);
-        return `A tie at ${best} — ${tied.slice(0, -1).join(", ")} and ${tied[tied.length - 1]}`;
+        return `A tie at ${best}: ${tied.slice(0, -1).join(", ")} and ${tied[tied.length - 1]}`;
       }
       return `${nameFor(top[0])} wins with ${best}`;
     }
@@ -1113,7 +1137,7 @@ export const wheel: GameDefinition<WofState, WofMove> = {
     // found any: it is the only part of the turn's shape that is not obvious
     // from the board, since the other way a turn ends takes exactly one guess.
     const left = FINDS_PER_TURN - state.finds;
-    const tail = left < FINDS_PER_TURN ? ` — ${count(left)} left` : "";
+    const tail = left < FINDS_PER_TURN ? `, ${count(left)} left` : "";
     if (state.phase === "call")
       return `${nameFor(state.turn)} to name a consonant${tail}`;
     return `${nameFor(state.turn)} to spin or solve${tail}`;

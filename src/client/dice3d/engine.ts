@@ -3,10 +3,10 @@
  *
  * This replaces the 2.5D solver in `src/shared/games/dice.ts`, which met dice
  * as squares in a plane and carried height as a scalar channel beside the
- * motion rather than inside it. That bought a proof — the plane never read the
- * cube's orientation, so the odds were exactly even and could be asserted as
- * `[20,20,20,20,20,20]` — and it cost everything a cube does that a square
- * cannot: land on a corner, topple, wedge, or come to rest on top of another.
+ * motion rather than inside it. That bought a proof, since the plane never
+ * read the cube's orientation, so the odds were exactly even and could be
+ * asserted as `[20,20,20,20,20,20]`. It cost everything a cube does that a
+ * square cannot: land on a corner, topple, wedge, or rest on top of another.
  *
  * The trade has been made deliberately. Rapier decides where the dice go, the
  * face is read off whichever normal ends up pointing at the ceiling, and the
@@ -14,7 +14,7 @@
  * structural one proved by construction. `engine.test.ts` is where that claim
  * lives, and it is weaker on purpose rather than by accident.
  *
- * ── Where this runs ───────────────────────────────────────────────────
+ * Where this runs
  *
  * Nowhere near the server. The throw is computed on the client that threw it
  * and reported as a result; the reducer validates the shape and stores it. So
@@ -25,30 +25,82 @@
  * real simulation in Node instead of a second opinion about it. The renderer
  * is `scene.ts`, and it only ever reads.
  *
- * ── Units ─────────────────────────────────────────────────────────────
+ * Units
  *
- * Rapier is happiest with lengths near 1, and a `Tray` is measured in its own
- * abstract units where a Yahtzee die is 5.63 and the tray is 100 across. So
- * everything inside here is scaled so that **a die is two units on a side**,
- * which is what the reference implementation uses and what its gravity is
- * tuned against. `scaleOf` is the only place that knows the factor, and every
- * value that leaves this file is back in tray units — because a tray is about
- * 320px on a phone and twice that on a laptop, and a simulation fed pixels
- * would land the dice on different faces on the two of them.
+ * A `Tray` is measured in its own abstract units, where a Yahtzee die is 5.63
+ * and the tray is 100 across. Everything inside here is scaled so that **a die
+ * is 1.6 centimetres on a side**, a real 16 mm casino die, which makes a
+ * Yahtzee tray about 28 cm and lets every constant below be checked against
+ * something in the world. See `DIE_HALF` for why the units are real rather than
+ * abstract; it is the single largest reason the old throw looked fake.
+ *
+ * `scaleOf` is the only place that knows the factor, and every value leaving
+ * this file is back in tray units, because a tray is about 320px on a phone and
+ * twice that on a laptop, and a simulation fed pixels would land the dice on
+ * different faces on the two of them.
  */
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Tray, Quat } from '../../shared/games/dice.js';
 import { faceUp, seeded } from '../../shared/games/dice.js';
 import type { Rest3 } from '../../shared/games/toss.js';
-import type { Beats } from './beats.js';
 
 export { faceUp };
 export type { Rest3 };
-export type { Beats };
 
-/** Half a die, in physics units. The number the whole scale is defined by. */
-export const DIE_HALF = 1;
+/**
+ * Half a die, in physics units, and the physics units are **centimetres**.
+ *
+ * This used to be 1, with the unit left abstract and gravity set to whatever
+ * looked right against it. That is where the throw got its plastic, toy-like
+ * read from, and the reason is worth writing down because it is not obvious:
+ * **gravity is how an eye infers scale.** Shown an object with no absolute
+ * size cue, a viewer reads the size off how fast it falls, and a die falling
+ * under 4.6 g is read as a small light thing rather than as a die seen close
+ * up. Every other trick (bevels, better materials, softer shadows) is fighting
+ * that one number.
+ *
+ * So the scale is now real and stated: a 16 mm casino die, which is what these
+ * are drawn as, in a tray that works out at about 28 cm across. Gravity is
+ * 981 cm/s^2, throw speeds are in cm/s, and every number in `PHYS` below can be
+ * checked against something in the world rather than against a taste.
+ *
+ * The consequence, and it is the whole of why this needed a version bump: real
+ * gravity on a 16 mm die runs about five times faster than the old make-believe
+ * did. A throw that used to be watchable at its own pace is over in a blink
+ * unless the dice are actually *thrown*, which is why `THROW_SPEED` below went
+ * up by a factor of seven and why the dice now cross the tray several times
+ * before they settle. Not a workaround; it is what throwing dice is.
+ */
+export const DIE_HALF = 0.8;
+
+/**
+ * The radius rolled onto the die's corners and edges, in the same centimetres.
+ *
+ * 1.5 mm on a 16 mm die, which is a real "round corner" casino die and close to
+ * the middle of what dice are actually made to.
+ *
+ * **It is here for the picture, and the measurement says so.** This was put in
+ * expecting it to be what finally stopped the dice skidding, a sharp-cornered
+ * cube being able only to pivot over an edge and fall flat where a rounded one
+ * rolls. It is not. Held against a radius of effectively zero, with every other
+ * constant fixed, the roll-out skid came to 0.79 cm per radian against 0.77:
+ * the same die. What actually fixed the skid was the rescale (see `DIE_HALF`),
+ * and the honest record is that the theory was wrong.
+ *
+ * It stays, at no measured cost, for two reasons. A real die has this radius,
+ * and this file is now trying to be a real die throughout rather than in the
+ * places that happened to show up in a metric. And `scene.ts` draws the shape
+ * the collider is, so the die on screen gets its bevel from this line, worth
+ * having on its own, a perfectly sharp cube being one of the more reliable ways
+ * to look computer-generated.
+ *
+ * Rapier's `roundCuboid` takes the half-extents of the *inner* box and adds the
+ * radius outside them, so the inner box has to be shrunk by exactly this or the
+ * die comes out too big, which would be invisible on screen and wrong in every
+ * contact.
+ */
+export const DIE_ROUND = 0.15;
 
 /**
  * Stride for keying a pair of collider handles into one number. Larger than
@@ -60,180 +112,259 @@ const PAIR = 1 << 16;
 /**
  * Every constant the throw has, and why it is the number it is.
  *
- * The starting point is the reference implementation this was asked to match,
- * which is worth saying plainly: these are not derived from anything, they are
- * a feel that was tuned by looking. `npm run render:throw` is how you look.
+ * These used to be a feel, tuned by eye against an abstract unit, inherited
+ * from a reference implementation and adjusted until it looked right. They are
+ * now **measurements**, in centimetres and seconds, of a 16 mm acrylic die in a
+ * 28 cm tray, because a number you can check against the world is a number the
+ * next person can argue with. Where one is still a taste it says so.
+ *
+ * `npm run render:throw` is how you look at the result.
  */
 export const PHYS = {
   /**
-   * Stronger than life, and less so than it was.
+   * Real gravity, in cm/s^2. Not a taste, and no longer negotiable.
    *
-   * Real gravity on a two-unit die gives a slow, floaty, moon-like tumble that
-   * reads as cheap, so this has always been exaggerated. It was −55, about
-   * five and a half g, and the report from playing it was "too fast, too
-   * snappy": at that strength a die is pinned to the floor the moment it first
-   * touches, and what should be a bounce and a topple is a stop. This is four
-   * and a half, which still reads as weight and leaves a die time to turn over
-   * on its way down — and the height it is dropped from came down with it (see
-   * `DROP` and `THROW_LIFT`), because weaker gravity over the same arc is only
-   * the same picture arriving later.
+   * It was -45 in abstract units, about 4.6 g, and every retune of it went the
+   * wrong way for the same reason: exaggerating gravity does not make a die
+   * look heavier, it makes it look *smaller*. See `DIE_HALF`. Setting it to
+   * 981 is what makes a die read as a die, and it is also what forced every
+   * other number here to be re-derived, because the natural timescale of a
+   * 16 mm die under real gravity is about five times faster than the old one.
    */
-  GRAVITY: -45,
-  /** Fixed, because two clients replaying one seed must take the same steps. */
-  STEP: 1 / 60,
+  GRAVITY: -981,
   /**
-   * Substeps per frame. Low, because a frame that tries to catch up an
+   * Fixed, because two clients replaying one seed must take the same steps.
+   *
+   * Doubled from 1/60. A die thrown at 250 cm/s covers 4 cm in a sixtieth of a
+   * second, which is two and a half die-widths: far enough that a die-against-
+   * die contact can happen entirely between two steps and never be found. CCD
+   * catches the walls and does not catch that. `dice.ts` recorded this lesson
+   * once already, from the other side, when shrinking the dice forced the old
+   * solver from 1/120 to 1/240.
+   */
+  STEP: 1 / 120,
+  /**
+   * Substeps per frame. Two are needed at 60fps just to keep up, so this is
+   * headroom over that and not much more. A frame that tries to catch up an
    * arbitrary stall spirals: catching up costs more than the frame it is
    * catching up for, and the next frame is later still.
    */
-  MAX_SUBSTEPS: 5,
+  MAX_SUBSTEPS: 6,
   /** A gap longer than this is a stall, not a frame. */
   MAX_FRAME: 0.1,
 
   /**
-   * Die against tray and die against die. Lively, not rubbery.
+   * Die against tray and die against die.
    *
-   * Down from 0.4, which read as rubber: a die that gives back two fifths of
-   * every impact bounces three or four times on the flat before it will lie
-   * down, and bouncing is the one thing a real die mostly does not do. What it
-   * does instead is land on an edge and fall over, which is what the friction
-   * below buys.
+   * Up from 0.22. The earlier note here, that "bouncing is the one thing a real
+   * die mostly does not do", was true only of the dice it was written about. A
+   * cube under 4.6 g really does just stop. A 16 mm die dropped on a tray
+   * bounces two or three times and audibly so; measured coefficients for acrylic
+   * sit around 0.4 to 0.6.
+   *
+   * This is also what buys the throw its length, which throw *speed* turned out
+   * not to. Raising the release speed from 190 to 300 cm/s left settling time
+   * flat at 0.87s and only spread the dice further; raising restitution and
+   * dropping friction to a hard tray took it to 0.95s and, more to the point,
+   * took wall reversals from 0.83 to 1.13 per die. A die that comes back off a
+   * wall is the difference between a throw and a shove, and it is bounce rather
+   * than speed that produces one.
    */
-  DIE_RESTITUTION: 0.22,
+  DIE_RESTITUTION: 0.5,
   /**
-   * The knob that matters most, and the one the reference gets wrong for us.
+   * Acrylic on a cloth-lined tray. A real number at last, and, this being the
+   * surprise, no longer a number that matters much.
    *
-   * It ships 0.03 — almost frictionless — because its dice roll in a small
-   * area and a long slide is what it wants. Copied here it settled a Yahtzee
-   * throw in **7.8 seconds**, because a sliding die neither stops nor tumbles;
-   * it just travels. Raising it converts that slide into a *roll*, which is
-   * travel that also ends, and it improved spread and settling time together
-   * rather than trading one against the other. Measured, over 400 chained
-   * throws per row (`spanX` is how much of the tray's length a throw covers):
+   * It was **0.95**: roughly rubber on dry concrete, and nothing like a die on
+   * anything. It was that high because it was the only lever anyone had on the
+   * skid. The old note records what that lever cost to pull: distance travelled
+   * per radian turned went 4.5 -> 3.2 -> 1.8 as friction went 0.5 -> 0.6 -> 0.95,
+   * and a cube that genuinely rolls scores about 1. Even at 0.95 it was still
+   * skidding, just slowly.
    *
-   *     friction  0.03 → 173 steps, span 24%
-   *     friction  0.20 → 122 steps, span 20%
-   *     friction  0.50 → 134 steps, span 30%
+   * Under real gravity the lever does almost nothing, which is the clearest
+   * sign that the old physics was solving the wrong problem. Measured over 120
+   * throws each, everything else fixed, roll-out skid against a rolling ideal
+   * of 0.80:
    *
-   * For comparison the 2.5D solver this replaces settled in 74 steps and
-   * covered 16% of the tray. These dice take about twice as long and go
-   * roughly twice as far, which is the trade that was wanted.
+   *     friction  0.28 -> 2.13 overall, 0.82 rolling out
+   *     friction  0.40 -> 2.10 overall, 0.77 rolling out
+   *     friction  0.55 -> 1.99 overall, 0.83 rolling out
    *
-   * **And 0.5 was still a slide.** The complaint that shipped it was that the
-   * dice slide instead of tumbling, which none of the numbers above can see —
-   * so it was measured directly: how far a die travels along the table per
-   * radian it turns while it is on it. A cube that rolls covers about half its
-   * edge per radian, so a ratio near 1 is rolling and a large one is skidding.
+   * Two things in that table. Friction has stopped being a knob: doubling it
+   * moves the number by five percent. And splitting the throw in two is what the
+   * old measurement was missing, since a thrown die *should* skid on the landing
+   * and then roll itself out, and the overall figure averages those two into a
+   * number that describes neither. The roll-out is 0.77 against an ideal of
+   * 0.80, a die rolling over its own edges, the thing the complaint that started
+   * all this said was not happening.
    *
-   *     friction  0.50 → 4.5   ← the old number: a skid with a turn in it
-   *     friction  0.60 → 3.2
-   *     friction  0.95 → 1.8   ← a die that rolls over its own edges
-   *
-   * It costs nothing on the other axis: settling time and spread came out the
-   * same either side of it, because a die that rolls is still a die that
-   * stops.
+   * So this can now simply be what acrylic on cloth is.
    */
-  DIE_FRICTION: 0.95,
+  DIE_FRICTION: 0.4,
   /**
-   * Walls give the die back rather than stealing its spin — but not *nothing*.
+   * The walls. Livelier than the floor, because they are bare and it is not.
    *
-   * It was frictionless, so that a die clipping a wall could not stop dead
-   * against it, which reads as a bug even when it is not. At zero it also
-   * cannot bite: a die meeting the wall slid along it with its rotation
-   * untouched, which is the same sliding-not-tumbling complaint the floor had.
-   * A little friction turns a glancing wall hit into a tumble away from it, and
-   * is still far too little to stop anything.
+   * These were 0.15 and 0.18, chosen when a wall contact was a thing to be
+   * survived: the dice were slow, and a wall that took anything from them ended
+   * the throw early. The dice now arrive at the wall with real speed and the
+   * throw *wants* them to come back off it. At these numbers a die reverses
+   * against a wall about once per throw, where it used to be well under half
+   * that, and that reversal is most of what makes a throw look thrown rather
+   * than placed.
    */
-  WALL_RESTITUTION: 0.15,
-  WALL_FRICTION: 0.18,
+  WALL_RESTITUTION: 0.55,
+  WALL_FRICTION: 0.28,
 
-  /** How hard the dice are thrown when the flick says nothing: a tap. */
-  THROW_SPEED: 24,
+  /** How hard the dice are thrown when the flick says nothing: a tap. cm/s. */
+  THROW_SPEED: 240,
   /**
    * And what a flick can ask for, from the gentlest measured one to the
-   * hardest. `entryOf` maps the hand's speed across this range.
+   * hardest. `entryOf` maps the hand's speed across this range. cm/s.
    *
-   * The soft end is deliberately still a throw — the dice cross most of the
-   * tray, because a flick that produced a shove of two inches would read as
+   * A hand throwing dice releases them at somewhere between one and four metres
+   * a second, so this range is real rather than invented, which it was not
+   * before, when the soft end was 15 abstract units and worked out at about
+   * 24 cm/s, a shove rather than a throw.
+   *
+   * Worth knowing before reaching for these: **they do not control how long a
+   * throw lasts.** 240 and 300 cm/s settle within a hundredth of a second of
+   * each other. What they control is spread, 40% of the tray against 55%, so
+   * this is the pair to move when the dice are landing in a heap, and
+   * `DIE_RESTITUTION` is the one to move when the throw is over too quickly.
+   *
+   * The soft end is deliberately still a throw: the dice cross the tray and come
+   * back off the far wall, because a flick that only nudged them would read as
    * the gesture not having worked. The hard end is short of the speed at which
-   * a die reaches the far wall while still on its way up, which is the point
-   * where throws stop looking different from one another and start looking
-   * like a bug.
+   * a die is still climbing when it reaches the far wall, which is the point
+   * where throws stop looking different from one another and start looking like
+   * a bug.
    */
-  THROW_SOFT: 15,
-  THROW_HARD: 40,
+  THROW_SOFT: 180,
+  THROW_HARD: 420,
   /**
    * Below this, in tray widths a second, the hand was not throwing.
    *
    * `flick.ts` has already refused anything under about 140px/s as a tap; this
    * is the same judgement made a second time in the tray's own units, and it
-   * is what a replayed throw is measured against — a client whose gesture
+   * is what a replayed throw is measured against: a client whose gesture
    * thresholds differ still has to agree with everyone else about what this
    * particular flick meant.
+   *
+   * Dimensionless, tray widths rather than centimetres, so the rescale left it
+   * alone.
    */
   FLICK_FLOOR: 0.35,
   /** And at this the hand is asking for everything. Above it, nothing more. */
   FLICK_FULL: 3.2,
-  /** Upward, so they arc rather than skid. Scaled by how hard the throw was. */
-  THROW_LIFT: 3.4,
-  /** Radians a second per axis, drawn uniformly in ±this. */
-  SPIN: 18,
+  /**
+   * Upward component at release, cm/s, scaled by how hard the throw was.
+   *
+   * A throw is mostly *along*, not up, which is easy to get wrong and the cost
+   * of getting wrong is framing. `scene.ts` has to keep the whole flight in
+   * shot, and every centimetre of arc is paid for by drawing the tray smaller. At 35 cm/s a die rises about 6 mm on its own account and the
+   * handful peaks around two dice above the floor; the throws that go higher
+   * than that go there by bouncing off each other, which is real and cannot be
+   * tuned away. `HEADROOM` in `scene.ts` is sized against the measured p99 of
+   * that, not against this number.
+   */
+  THROW_LIFT: 35,
+  /**
+   * Radians a second per axis, drawn uniformly in +/-this.
+   *
+   * Angular velocity is one-over-time, so it scaled up with everything else: a
+   * die released from a hand tumbles at a few turns a second, and 24 rad/s is a
+   * little under four. Faster than this and the die is a blur rather than a
+   * tumbling object, which loses the thing the tumble is for.
+   */
+  SPIN: 24,
   /**
    * How high above the floor the dice are released, in dice.
    *
-   * Down with the gravity, and for the reason given there: a second of hang
-   * time before the dice have done anything is a second of nothing to watch.
+   * Two and a half dice is 4 cm, about where a hand lets go over a tray, and at
+   * real gravity that is a tenth of a second of fall rather than the wasted
+   * second it would have been under the old make-believe.
+   *
+   * Lower is not better, and it was tried: releasing at 1.6 dice puts the
+   * handful into the tray nearly flat and at full speed, and the overall skid
+   * went from 2.2 to 3.4 cm per radian because the dice arrive with nothing but
+   * forward motion and have to shed it by sliding. A die needs some fall to
+   * turn over on.
    */
-  DROP: 2,
-  /** The arc a handful is fanned across, so five dice are not one die. */
+  DROP: 2.5,
+  /** The arc a handful is fanned across, so five dice are not one die. Radians. */
   FAN: 1.2,
 
   /**
    * Steps after which the throw is over whatever the dice think. Rapier sleeps
-   * bodies on its own and this is only ever reached by a bug, so it is
-   * generous rather than tight — but it exists, because a client that never
-   * stops animating never reports its roll, and the turn never ends.
+   * bodies on its own and this is only ever reached by a bug, so it is generous
+   * rather than tight. It exists because a client that never stops animating
+   * never reports its roll, and the turn never ends.
+   *
+   * Ten seconds, same as it was; the number doubled with the timestep.
    */
-  HARD_STOP: 600,
-  /** Impulse below which a contact is not worth a sound. */
-  QUIET: 1.5,
+  HARD_STOP: 1200,
+  /**
+   * Impulse below which a contact is not worth a sound.
+   *
+   * This is in the physics' units and they changed underneath it, so it was
+   * re-measured rather than re-guessed. Over 150 Yahtzee throws the contacts
+   * Rapier reports run:
+   *
+   *     p10 742    p50 3724    p90 7916    p99 12382    max 18939
+   *
+   * and the loudest contact in a throw is around 10,000, which is the number
+   * `clatter`'s divisor in `Dice3DTray.tsx` is set from, so the hardest hit of
+   * a typical throw is a full-volume one.
+   *
+   * 700 trims roughly the quietest tenth. It is deliberately not higher: this
+   * threshold is a floor on what is *audible*, and the volume is already scaled
+   * by impulse, so a contact just above it makes a very quiet click rather than
+   * a full one. Raising it to silence the clatter of five dice would silence the
+   * light contacts that make it sound like five dice.
+   */
+  QUIET: 700,
 
   /**
-   * Drag, and the reason the throw ever ends.
+   * Drag, and it is now only the air.
    *
-   * Friction does most of the stopping (see `DIE_FRICTION`); this is small,
-   * and is the air rather than the table. Its job is the tail — the last half
-   * second where a die is barely moving and Rapier has not yet decided it is
-   * asleep, which is time nobody is watching and everybody is waiting through.
+   * Small, and smaller than it was relative to everything around it. Real air
+   * drag on a 16 mm die over a two-second throw is very nearly nothing, and
+   * with rounded corners doing the rolling and real friction doing the stopping
+   * there is no longer any work for this to do beyond keeping a nearly-stopped
+   * die from jittering until Rapier notices it.
    */
-  DAMP_LIN: 0.04,
-  DAMP_ANG: 0.09,
+  DAMP_LIN: 0.05,
+  DAMP_ANG: 0.2,
   /**
    * After this many steps the throw has been interesting for long enough and
    * the damping above is multiplied up, which brings it down inside another
    * half second.
    *
-   * A deadline rather than more damping throughout, because those are not the
-   * same shape: more damping everywhere makes every throw sluggish from the
-   * first bounce, where this leaves the part anybody watches untouched and
-   * only leans on the tail nobody does. The old solver learned this and the
-   * number here started as its `DEADLINE` in steps.
+   * **This is still a cheat, and it is the last one left.** Momentum is being
+   * deleted with nothing on screen to account for it, and if a throw is ever
+   * seen to sag, this is why. It survives the rescale for one reason: a die
+   * that is barely moving but not yet asleep holds up the turn, and the
+   * deadline is cheaper than waiting.
    *
-   * Later, and gentler, than it was. It was step 40 at eighteen times the
-   * damping, which under the old gravity was a die still rolling being *shut
-   * off* — the other half of "too snappy". At 46 and fourteen the deadline
-   * lands after the dice have finished doing anything worth watching, and it
-   * leans rather than stamps.
+   * Much later and much gentler than it was: 1.6 seconds at four times the
+   * damping, against 0.77 seconds at fourteen. Under the old physics the contact
+   * that settled the last die landed *after* the deadline, so the lean was being
+   * applied to dice still doing the interesting part; here it lands well into
+   * the tail, and at four rather than fourteen it is a nudge towards a stop the
+   * dice were already making rather than a hand on top of them. The honest fix
+   * is to delete it and lift Rapier's sleep thresholds instead, which is a
+   * separate change and has not been made.
    */
-  DEADLINE: 46,
-  DEADLINE_DAMP: 14,
+  DEADLINE: 190,
+  DEADLINE_DAMP: 4,
 } as const;
 
 /** A contact worth hearing, in the frame it happened. */
 export interface Hit {
   impulse: number;
   wall: boolean;
-  /** Where across the tray, 0 to 1 — so the sound can be panned to it. */
+  /** Where across the tray, 0 to 1, so the sound can be panned to it. */
   at: number;
 }
 
@@ -261,7 +392,7 @@ let ready: Promise<void> | null = null;
  * Load the physics engine. Idempotent, and awaited by everything else here.
  *
  * Rapier is WebAssembly, and `-compat` is the build with the module inlined as
- * base64 — one file, no second network request, and it works unchanged in Node,
+ * base64: one file, no second network request, and it works unchanged in Node,
  * so the tests and the contact sheet run the same engine the browser does.
  */
 export function initDice(): Promise<void> {
@@ -275,7 +406,7 @@ export function scaleOf(tray: Tray): number {
 }
 
 
-// ── The tray ───────────────────────────────────────────────────────────
+// The tray
 
 /**
  * Four walls, a floor and a lid.
@@ -284,7 +415,7 @@ export function scaleOf(tray: Tray): number {
  * upward because height was a scalar with a hard ceiling of its own; these are
  * real bodies with real velocity, and a die that catches another one on the
  * corner at the top of its arc will otherwise leave the tray and never come
- * back — which reads as a die that vanished, and hangs the turn, because the
+ * back, which reads as a die that vanished and hangs the turn, because the
  * throw is not over until everything sleeps.
  *
  * The walls are thick slabs rather than thin planes. A thin wall is something
@@ -316,7 +447,7 @@ function buildTray(world: RAPIER.World, w: number, h: number): void {
   }
 }
 
-// ── The throw ──────────────────────────────────────────────────────────
+// The throw
 
 export interface ThrowSpec {
   tray: Tray;
@@ -329,10 +460,10 @@ export interface ThrowSpec {
    * `ax`/`ay` are where on the tray the hand let go, and they are part of the
    * throw rather than a note about it: `entryOf` walks backwards from them to
    * find the edge the dice come in by. The type used to be `{ x, y }` alone,
-   * which was not merely incomplete — it silently accepted a fresh literal
-   * with the aim left out, and two of the three call sites built exactly that.
-   * The dice then flew in from the wrong edge on every replay and jumped to
-   * their reported places at the end.
+   * which was not merely incomplete: it silently accepted a fresh literal with
+   * the aim left out, and two of the three call sites built exactly that. The
+   * dice then flew in from the wrong edge on every replay and jumped to their
+   * reported places at the end.
    */
   flick: { x: number; y: number; ax?: number; ay?: number };
   /** Where the dice were standing, or null before anyone has rolled. */
@@ -363,7 +494,7 @@ export interface Entry {
 /**
  * Read a gesture as a throw.
  *
- * ── The flick *is* the throw ──────────────────────────────────────────
+ * The flick *is* the throw
  *
  * Direction, speed, and the edge the dice come in by are all three the
  * gesture's. They used to be none of them: the flick was *added* to a fixed
@@ -378,14 +509,13 @@ export interface Entry {
  * starts near the bottom-left corner and goes up and to the right enters at
  * that corner. Which is what a hand expects, because it is where the hand was.
  *
- * ── A tap is not a flick ──────────────────────────────────────────────
+ * A tap is not a flick
  *
- * No aim (`ax`/`ay` absent) and no speed worth measuring, so it gets the
- * tray's own throw: down the long axis, from whichever end the dice are *not*
- * already lying at, so a second throw crosses the tray rather than nudging the
- * pile where it stands. Leaned rather than decided — deciding outright made
- * every throw the mirror of the last one, which is its own kind of
- * obviously-not-random.
+ * No aim (`ax`/`ay` absent) and no speed worth measuring, so it gets the tray's
+ * own throw: down the long axis, from whichever end the dice are *not* already
+ * lying at, so a second throw crosses the tray rather than nudging the pile
+ * where it stands. Leaned rather than decided, because deciding outright made
+ * every throw the mirror of the last one, its own kind of obviously-not-random.
  */
 export function entryOf(opts: {
   flick: { x: number; y: number; ax?: number; ay?: number };
@@ -398,7 +528,7 @@ export function entryOf(opts: {
 }): Entry {
   const { flick, w, h, rng } = opts;
   // Far enough in that the handful is released beside the wall rather than
-  // inside it — the walls are thick slabs, and a die spawned in one is a die
+  // inside it. The walls are thick slabs, and a die spawned in one is a die
   // Rapier has to eject before the throw can begin.
   const inset = DIE_HALF * 2.2;
   const hard = Math.hypot(flick.x, flick.y);
@@ -424,7 +554,7 @@ export function entryOf(opts: {
     Not the flick's own speed converted into physics units, which would be
     nonsense: eight tray widths a second across a tray thirty-five units wide
     is 280 units a second, an order of magnitude past anything these dice are
-    tuned for and straight through the far wall. It is a *dial* — the range of
+    tuned for and straight through the far wall. It is a *dial*: the range of
     throws a hand can ask for, from a gentle roll to a hard one, spread across
     the range of speeds a hand can actually flick at.
   */
@@ -472,6 +602,22 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
 
   const world = new RAPIER.World({ x: 0, y: PHYS.GRAVITY, z: 0 });
   world.timestep = PHYS.STEP;
+  /*
+    Tell Rapier what a metre is, because several of its thresholds are lengths
+    and it assumes SI unless told otherwise.
+
+    `allowedLinearError`, `predictionDistance`, `maxPenetrationCorrection` and,
+    the one that bit, `RigidBodyActivation.linearThreshold` are all scaled by
+    this. The sleep threshold defaults to something sensible for a human-sized
+    object in metres, which in centimetres is a hundred times too *small*: a die
+    creeping across the tray at two millimetres a second is stopped as far as
+    anybody watching is concerned, and Rapier would keep simulating it.
+
+    That is not a theory. Before this line, 4% of Liar's Dice throws ran to
+    `HARD_STOP`, the full ten seconds, because one die of five never quite fell
+    below a threshold meant for a crate sliding across a warehouse.
+  */
+  world.lengthUnit = 100;
   buildTray(world, w, h);
 
   const entry = entryOf({
@@ -494,8 +640,8 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
     hard enough that the push-apart, rather than the throw, was most of where
     they ended up. On the contact sheet it read as five dice exploding out of a
     single point. So the row is squeezed to fit the tray rather than allowed to
-    overlap, and where the tray is too short to hold the handful in one row —
-    Backgammon's is a strip — the stagger below keeps them apart instead.
+    overlap, and where the tray is too short to hold the handful in one row
+    (Backgammon's is a strip) the stagger below keeps them apart instead.
 
     Measured along the lateral axis rather than simply down the tray's height,
     because the throw is no longer always down its length: a diagonal one has
@@ -538,7 +684,7 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
         And staggered in height too, which is the third way five dice in a
         handful are kept out of one another.
 
-        Tighter than it was — it used to spread them over another 2.6 units,
+        Tighter than it was: it used to spread them over another 2.6 units,
         which put the highest die of a handful at 4.6 before the throw had even
         started. The camera frames four units of headroom (see `HEADROOM` in
         `scene.ts`), so that die spent the first part of its flight above the
@@ -599,8 +745,27 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
     }
 
     const body = world.createRigidBody(desc);
+    /*
+      A cube with its corners rolled off, not a cube.
+
+      The inner half-extent is shrunk by exactly the radius that is added back
+      outside it, so the die is still 16 mm across its flats. `roundCuboid`
+      inflates the box it is given rather than carving into it, and a die built
+      from the full half-extent would be 3 mm too big in every direction. That
+      error would be invisible on screen, because `scene.ts` draws the shape it
+      is told to, and wrong in every single contact.
+
+      This is the change that lets `DIE_FRICTION` be a real material number: a
+      rounded corner rolls, a sharp one can only pivot and fall. See
+      `DIE_ROUND`.
+    */
     world.createCollider(
-      RAPIER.ColliderDesc.cuboid(DIE_HALF, DIE_HALF, DIE_HALF)
+      RAPIER.ColliderDesc.roundCuboid(
+        DIE_HALF - DIE_ROUND,
+        DIE_HALF - DIE_ROUND,
+        DIE_HALF - DIE_ROUND,
+        DIE_ROUND,
+      )
         .setRestitution(PHYS.DIE_RESTITUTION)
         .setFriction(PHYS.DIE_FRICTION)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
@@ -638,7 +803,7 @@ export function stepThrow(live: ThrowWorld, hits: Hit[]): number {
     Only contacts that *began* this step, and this is not a detail.
 
     A contact force event fires every frame the contact exists, and a die lying
-    against a wall is in contact with it for the rest of the throw — the first
+    against a wall is in contact with it for the rest of the throw. The first
     cut reported 440 wall contacts for a throw with maybe a dozen real ones,
     because five resting dice re-announced themselves sixty times a second. Fed
     to `clatter` that is not a clatter, it is a tone.
@@ -696,56 +861,6 @@ export function settleThrow(live: ThrowWorld): { faces: number[]; rest: Rest3[] 
   return { faces: facesOf(live), rest: restOf(live) };
 }
 
-/**
- * How loud a contact has to be, against the loudest one in this throw, to count
- * as the moment the throw was about.
- *
- * Relative rather than absolute, because a lobbed tap and a hard flick are two
- * orders of magnitude apart in impulse and a fixed threshold would find every
- * contact in one and none in the other. A quarter of the loudest is, in
- * practice, the difference between a die falling over and a die nudging one.
- */
-const DECISIVE = 0.25;
-
-/**
- * Run the throw once *before* it is watched, to find out where its beats are.
- *
- * The animation needs to slow down for the contact that settles the last die,
- * and it has to start slowing *before* that contact rather than after it —
- * which is only knowable by having already run the throw. So it is run twice:
- * once here, discarded except for two numbers, and once for real.
- *
- * That is about two milliseconds for five dice, on top of the two the throwing
- * client already spends in `settleThrow`. It buys the one thing a live loop
- * cannot have, which is foresight.
- *
- * The world is opened, settled and freed here rather than handed back, because
- * a caller holding a finished Rapier world is a caller who can forget to free
- * it — and the only two numbers worth keeping are these.
- */
-export function scoutThrow(spec: ThrowSpec): Beats {
-  const live = openThrow(spec);
-  const bin: Hit[] = [];
-  const heard: Array<{ step: number; impulse: number }> = [];
-  let moving = 1;
-  let loudest = 0;
-  while (moving > 0) {
-    moving = stepThrow(live, bin);
-    for (const hit of bin) {
-      heard.push({ step: live.steps, impulse: hit.impulse });
-      if (hit.impulse > loudest) loudest = hit.impulse;
-    }
-  }
-  const steps = live.steps;
-  disposeThrow(live);
-
-  let decisive = -1;
-  for (const hit of heard) {
-    if (hit.impulse >= loudest * DECISIVE) decisive = hit.step;
-  }
-  return { steps, decisive };
-}
-
 /** Where every die is, in tray units. */
 export function restOf(live: ThrowWorld): Rest3[] {
   const w = live.tray.w / live.k;
@@ -765,9 +880,9 @@ export function restOf(live: ThrowWorld): Rest3[] {
 /**
  * Every die as the renderer wants it: physics frame, centred on the tray.
  *
- * Here rather than in `scene.ts` so that the renderer never has to reach into
- * a Rapier body — `scene.ts` reads this and nothing else, which is what keeps
- * the simulation runnable in Node.
+ * Here rather than in `scene.ts` so the renderer never has to reach into a
+ * Rapier body. `scene.ts` reads this and nothing else, which is what keeps the
+ * simulation runnable in Node.
  */
 export function placedOf(live: ThrowWorld): Array<{ x: number; y: number; z: number; q: Quat }> {
   return live.bodies.map((body) => {

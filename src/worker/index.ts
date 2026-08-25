@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { RoomEngine, isRoomCode, type RoomSnapshot } from '../shared/room.js';
-// The protocol above the engine — reading a frame, validating a hello, which
+// The protocol above the engine: reading a frame, validating a hello, which
 // room a hello gets, running an action without throwing. Shared with the dev
-// server, because two copies of those rules is two copies that can drift.
+// server, because two copies of those rules can drift.
 import {
   admit,
   applyAction,
@@ -31,7 +31,7 @@ const PENDING_TICK_MS = 30 * 1000;
  *
  * Set at accept time rather than at join, so a socket that never says hello is
  * still visible to the sweeper. An empty `playerId` means "connected but not
- * yet seated" — use `isSeated` rather than testing the attachment itself.
+ * yet seated", so use `isSeated` rather than testing the attachment itself.
  */
 interface SocketMeta {
   playerId: string;
@@ -46,7 +46,7 @@ function isSeated(meta: SocketMeta | null): boolean {
 /**
  * One Durable Object per room code. Cloudflare guarantees a single instance
  * globally for a given code, which is exactly the "one authoritative process
- * per game" model — no locking, no shared database.
+ * per game" model: no locking, no shared database.
  */
 export class GameRoom implements DurableObject {
   private state: DurableObjectState;
@@ -55,16 +55,16 @@ export class GameRoom implements DurableObject {
   constructor(state: DurableObjectState) {
     this.state = state;
     // Answer the client's heartbeat in the runtime, below this object. A
-    // hibernating room is one that costs nothing until somebody plays a move;
-    // if the ping arrived as an ordinary message it would wake the object
-    // every twenty seconds per open tab, and a room left open overnight would
-    // bill like a room being played in all night. The pair is matched byte for
-    // byte, which is why both frames come from `protocol.ts` rather than being
-    // written out here.
+    // hibernating room costs nothing until somebody plays a move; if the ping
+    // arrived as an ordinary message it would wake the object every twenty
+    // seconds per open tab, and a room left open overnight would bill like one
+    // played in all night. The pair is matched byte for byte, which is why both
+    // frames come from `protocol.ts`.
+    //
     // Guarded because this is a workerd affordance rather than part of the
     // Durable Object contract: the tests drive this class through a hand-built
-    // state double, which has no such global. Skipping it there costs nothing
-    // — without hibernation there is nothing to protect.
+    // state double with no such global, and without hibernation there is
+    // nothing to protect.
     if (
       typeof WebSocketRequestResponsePair === 'function' &&
       typeof state.setWebSocketAutoResponse === 'function'
@@ -86,8 +86,8 @@ export class GameRoom implements DurableObject {
     if (!stored) return null;
     const engine = RoomEngine.restore(stored);
     if (!engine) {
-      // A snapshot we can no longer read — an older shape, or a game that has
-      // been removed. Discard it, rather than failing to restore it on every
+      // A snapshot we can no longer read: an older shape, or a game that has
+      // been removed. Discard it rather than failing to restore it on every
       // message from now until the end of time.
       await this.state.storage.deleteAll();
       return null;
@@ -139,10 +139,10 @@ export class GameRoom implements DurableObject {
 
   /**
    * `exclude` is the socket that is currently closing. It is still listed by
-   * getWebSockets() while its close handler runs, so without this the
-   * broadcast that exists to raise the "away" badge would report the departing
-   * player as still connected — and then the room hibernates, so nothing
-   * corrects it until the next move.
+   * getWebSockets() while its close handler runs, so without this the broadcast
+   * that exists to raise the "away" badge would report the departing player as
+   * still connected, and then the room hibernates and nothing corrects it until
+   * the next move.
    */
   private broadcast(exclude?: WebSocket): void {
     if (!this.engine) return;
@@ -200,9 +200,9 @@ export class GameRoom implements DurableObject {
       if (!greeting.ok) return this.fail(ws, greeting);
       const { hello } = greeting;
 
-      // The only I/O in finding a room: in the dev server this same step is a
-      // lookup in a `Map`, which is why `admit` takes the engine rather than
-      // going and getting one.
+      // The only I/O in finding a room. In the dev server the same step is a
+      // `Map` lookup, which is why `admit` takes the engine rather than going
+      // and getting one.
       const found = admit(await this.loadEngine(), hello);
       if (!found.ok) return this.fail(ws, found);
       const engine = found.engine;
@@ -226,7 +226,7 @@ export class GameRoom implements DurableObject {
 
       // The clock can run out while an object is hibernating, so settle before
       // answering rather than welcoming someone into a game that is over and
-      // does not know it yet.
+      // does not know it.
       if (engine.tick()) await this.persist();
       this.post(ws, {
         t: 'welcome',
@@ -244,8 +244,8 @@ export class GameRoom implements DurableObject {
     const engine = await this.loadEngine();
     if (!engine) {
       // The routing code is the object's identity and outlives the engine, so
-      // a player whose room has been swept is told *which* room went — they
-      // very likely still have the invite link open in another tab.
+      // a player whose room was swept is told *which* room went. They very
+      // likely still have the invite link open in another tab.
       const code = await this.state.storage.get<string>('code');
       return this.fail(ws, {
         kind: 'no-room',
@@ -268,9 +268,9 @@ export class GameRoom implements DurableObject {
   /**
    * A socket can leave either way, and for a while these two did different
    * things: `close` started the empty-room countdown and `error` did not. A
-   * room whose last socket failed rather than closed was therefore never swept
-   * — it kept its storage and, worse, its room code, for good. Both doors now
-   * lead to the same place.
+   * room whose last socket failed rather than closed was never swept, and kept
+   * its storage and its room code for good. Both doors now lead to the same
+   * place.
    */
   async webSocketError(ws: WebSocket): Promise<void> {
     await this.departed(ws);
@@ -294,8 +294,8 @@ export class GameRoom implements DurableObject {
   async alarm(): Promise<void> {
     const now = Date.now();
 
-    // A timed game ends on the clock, whether or not anyone is still watching
-    // — which is the whole point of putting it on one.
+    // A timed game ends on the clock whether or not anyone is still watching,
+    // which is the whole point of putting it on one.
     const engine = await this.loadEngine();
     if (engine?.tick(now)) {
       await this.state.storage.put('room', engine.snapshot());
@@ -318,8 +318,8 @@ export class GameRoom implements DurableObject {
         // deleteAll() took the 'code' key with it, so the routing-code check in
         // fetch() would wave through a socket arriving with any valid code and
         // let it create a room whose code does not match the object it lives
-        // in. Close whatever is still attached: this object is now a blank one,
-        // and anything holding it open is holding a room that no longer exists.
+        // in. Close whatever is still attached: this object is blank now, and
+        // anything holding it open is holding a room that no longer exists.
         for (const ws of this.state.getWebSockets()) ws.close(4002, 'Room closed');
         return; // nothing left to watch
       }
@@ -328,9 +328,9 @@ export class GameRoom implements DurableObject {
 
     // Only keep ticking if there is something to watch: an unseated socket on
     // its hello timer, or an empty room counting down to deletion. A room with
-    // players in it needs no housekeeping, and rescheduling regardless woke the
-    // object every few minutes for as long as anyone held a socket open.
-    // `persist()` and `webSocketClose` re-arm the alarm when that changes.
+    // players needs no housekeeping, and rescheduling regardless woke the object
+    // every few minutes for as long as anyone held a socket open. `persist()`
+    // and `webSocketClose` re-arm the alarm when that changes.
     const deadline = this.engine?.deadline() ?? null;
     if (deadline !== null) await this.state.storage.setAlarm(deadline);
     if (pending || this.connectedSeats().size === 0) {

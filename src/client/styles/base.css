@@ -1,7 +1,7 @@
-/* ── Type ──────────────────────────────────────────────────────────────
+/* Type
    A condensed signage face for every name, title, status line and button, and
    a plain sans for anything read in sentences. All system stacks so nothing is
-   fetched over the network — the Android build has to work offline.
+   fetched over the network, since the Android build has to work offline.
 
    Roboto Condensed is present on Android, which is the build that matters
    most here; Avenir Next Condensed covers iOS and macOS, Arial Narrow covers
@@ -34,16 +34,21 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ── The one layout primitive: a ruled panel, repeated ────────────────
+/* The one layout primitive: a ruled panel, repeated
    Named by the things that use it, not by a `.panel` class -- there was one,
    and nothing ever rendered it, so it described the primitive instead of
    applying it. Backgrounds stay per-site (chrome sits on --surface, the playing
    surfaces on --board); the rule and the radius are the shared part, and live
    here once so a change to either lands everywhere. */
+/* `.game` used to be on this list and is not any more. A lobby card is no
+   longer a ruled panel: it carries its own colour, its own radius and a lip,
+   and it draws its own edge with all three (see `picker.css`). Leaving it here
+   meant the primitive's border and radius were being set and then overridden a
+   file later, which reads as if a card were still a panel with exceptions. It
+   is a different object now, and the list should say so. */
 .code,
 .banner,
 .player,
-.game,
 .wof-puzzle,
 .wof-purse,
 .wof-wheel,
@@ -76,8 +81,8 @@ input {
 }
 /* Wide enough that the board grows on a desktop instead of the margins, and
    still narrow enough that a two-row puzzle stays readable. The setup screen
-   keeps the old column width — a name field 640px wide is not a better name
-   field. */
+   keeps the old column width, because a name field 640px wide is not a better
+   name field. */
 .app {
   max-width: 640px;
   margin: 0 auto;
@@ -102,7 +107,7 @@ input {
   white-space: nowrap;
 }
 
-/* ── Wider than a phone ────────────────────────────────────────────────
+/* Wider than a phone
    The setup screen used to stay one 480px column at every width, and the
    reasoning was sound as far as it went: letting the game grid *alone* break
    out to spend the extra room made the cards the widest thing on the page, so

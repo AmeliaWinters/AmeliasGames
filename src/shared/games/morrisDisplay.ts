@@ -1,9 +1,9 @@
 /**
- * The parts of Nine Men's Morris the board may know — see the boundary note in
- * `types.ts`. Nothing is hidden in Morris, so the reason here is not secrecy:
- * board and reducer must agree exactly on where the twenty-four points are,
- * which touch, and which lines are mills. Two copies of that geometry would be
- * a board offering moves the rules refuse.
+ * The parts of Nine Men's Morris the board may know. See the boundary note in
+ * `types.ts`. Nothing is hidden in Morris, so the reason is not secrecy: board
+ * and reducer must agree exactly on where the twenty-four points are, which
+ * touch, and which lines are mills. Two copies of that geometry would be a
+ * board offering moves the rules refuse.
  */
 
 /** Three concentric squares of eight points. */
@@ -25,24 +25,24 @@ export type Cell = 0 | 1 | null;
  * clockwise from the top-left corner:
  *
  * ```
- *   0 ────────── 1 ────────── 2      ring 0, the outer square
- *   │            │            │
- *   │    8 ───── 9 ───── 10   │      ring 1
- *   │    │       │        │   │
- *   │    │   16 ─17─ 18   │   │      ring 2, the inner square
- *   │    │    │       │   │   │
- *   7 ── 15 ──23     19 ──11──3
- *   │    │    │       │   │   │
- *   │    │   22 ─21─ 20   │   │
- *   │    │       │        │   │
- *   │   14 ──── 13 ───── 12   │
- *   │            │            │
- *   6 ────────── 5 ────────── 4
+ *   0 ---------- 1 ---------- 2      ring 0, the outer square
+ *   |            |            |
+ *   |    8 ----- 9 ----- 10   |      ring 1
+ *   |    |       |        |   |
+ *   |    |   16 -17- 18   |   |      ring 2, the inner square
+ *   |    |    |       |   |   |
+ *   7 -- 15 --23     19 --11--3
+ *   |    |    |       |   |   |
+ *   |    |   22 -21- 20   |   |
+ *   |    |       |        |   |
+ *   |   14 ---- 13 ----- 12   |
+ *   |            |            |
+ *   6 ---------- 5 ---------- 4
  * ```
  *
  * The scheme makes every rule below arithmetic rather than a table:
  * neighbours are the next spot round, and spokes pass through exactly the odd
- * spots. Corners have no spoke — the one thing here that surprises people.
+ * spots. Corners have no spoke, the one thing here that surprises people.
  */
 export function ring(point: number): number {
   return Math.floor(point / SPOTS);
@@ -104,7 +104,7 @@ function buildMills(): number[][] {
 
 /**
  * Sixteen lines of three: twelve along the edges, four along the spokes. The
- * corner diagonals do *not* count — those belong to a different game played on
+ * corner diagonals do *not* count; those belong to a different game played on
  * the same drawing.
  */
 export const MILLS: ReadonlyArray<readonly number[]> = buildMills();
@@ -117,8 +117,8 @@ export const MILLS_AT: ReadonlyArray<ReadonlyArray<readonly number[]>> = Array.f
 
 /**
  * Where a point sits, in a square running -3 to 3 with y downward: outer ring
- * at ±3, middle ±2, inner ±1. Not pixels — the board scales these to whatever
- * width it is given, and the lobby card motif draws them smaller.
+ * at +/-3, middle +/-2, inner +/-1. Not pixels, since the board scales these to
+ * whatever width it is given and the lobby card motif draws them smaller.
  */
 const OFFSET: ReadonlyArray<readonly [number, number]> = [
   [-1, -1], // 0  top left
@@ -149,7 +149,7 @@ const SPOT_NAMES = [
   'left',
 ] as const;
 
-/** "middle top right" — how a point is said aloud, for the screen reader. */
+/** "middle top right", how a point is said aloud for the screen reader. */
 export function pointName(point: number): string {
   return `${RING_NAMES[ring(point)]} ${SPOT_NAMES[spot(point)]}`;
 }
@@ -175,8 +175,8 @@ export interface MmState {
   turn: 0 | 1;
   /**
    * The seat that closed a mill and owes itself a man, or null. A move of its
-   * own, not a field on the move that closed the mill: the player must look at
-   * the board first, the choice can be refused, and a client guessing for them
+   * own rather than a field on the move that closed the mill: the player must
+   * look at the board first, the choice can be refused, and a client guessing
    * would guess at the most consequential decision in the game. `turn` stays
    * with them while this is set.
    */
@@ -194,13 +194,13 @@ export interface MmState {
   quiet: number;
   /**
    * Positions seen since the last take. Cleared by a take, which makes every
-   * earlier position unreachable — otherwise this grows all game.
+   * earlier position unreachable. Otherwise this grows all game.
    */
   seen: Record<string, number>;
 }
 
 /**
- * Plies without a take before a draw — fifty moves each, counted as chess does.
+ * Plies without a take before a draw: fifty moves each, counted as chess does.
  * Two careful players can walk men back and forth forever, and a room that
  * never finishes is one nobody leaves gracefully. Threefold repetition catches
  * the tight loops; this catches the wandering ones.
@@ -215,7 +215,7 @@ export function menOnBoard(board: readonly Cell[], seat: number): number {
 }
 
 /**
- * In hand and on the board together — the total the losing condition is
+ * In hand and on the board together: the total the losing condition is
  * measured against. Two on the board with five in hand is not beaten.
  */
 export function menLeft(state: MmState, seat: number): number {
@@ -251,8 +251,8 @@ export function inMill(board: readonly Cell[], point: number): boolean {
 }
 
 /**
- * A man in a mill is protected — unless every man they have left is in one,
- * or a player whose men were all milled could never be taken from again.
+ * A man in a mill is protected, unless every man they have left is in one.
+ * Otherwise a player whose men were all milled could never be taken from.
  */
 export function takeable(board: readonly Cell[], victim: number): number[] {
   const theirs: number[] = [];
@@ -285,13 +285,13 @@ export function movers(state: MmState, seat: number): number[] {
 }
 
 /**
- * Whether a seat has any legal move. One with men in hand always does —
- * eighteen men on twenty-four points leaves six empty however the game went —
+ * Whether a seat has any legal move. One with men in hand always does, since
+ * eighteen men on twenty-four points leaves six empty however the game went,
  * so only a player out of men to place can be walled in.
  *
  * Deliberately *not* `canAct`, which asks "may this seat move right now" and
  * would be false for the player not on turn. This asks the losing condition,
- * about the seat that is about to receive the turn.
+ * about the seat about to receive the turn.
  */
 export function hasMove(state: MmState, seat: number): boolean {
   if (mustPlace(state, seat)) return state.board.some((cell) => cell === null);

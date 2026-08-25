@@ -4,7 +4,7 @@
  * The successor to the orthographic `render-throw.ts`, and it exists for the
  * same reason that one did: a throw is a couple of hundred frames of animation, the Browser
  * pane runs as a hidden document where `requestAnimationFrame` never fires,
- * and measurement has already been confidently wrong about these dice once —
+ * and measurement has already been confidently wrong about these dice once:
  * a retune moved every number the right way while the dice were using a fifth
  * of the tray and dying in the corner they started beside. One sheet made it
  * obvious.
@@ -13,13 +13,13 @@
  * because the app was orthographic too: `.dice-tray` had no `perspective`, so
  * dropping z reproduced the shipped projection precisely rather than
  * approximating it. These dice are drawn by three.js through a real camera, so
- * this is now an *approximation* — same geometry, same physics, a simpler
+ * this is now an *approximation*: same geometry, same physics, a simpler
  * shading model. It is here to answer "do the dice go anywhere, tumble, and
  * end up spread out", which it answers well. It is not here to check a
  * material or a shadow's softness; open the app for that.
  *
- * The camera is steep and long-lensed on purpose — the same near-orthographic
- * read the app uses — but tilted enough that height is visible, which is the
+ * The camera is steep and long-lensed on purpose, the same near-orthographic
+ * read the app uses, but tilted enough that height is visible, which is the
  * whole thing the old sheet could not show.
  *
  *     npm run render:throw
@@ -70,8 +70,8 @@ const spin = (q: readonly [number, number, number, number], v: Vec): Vec => {
 
 /**
  * The six faces by the direction they point in the die's own frame, matching
- * `FACE_AXES` in `engine.ts` — y up. `u` is an in-plane axis; the other is
- * derived as `n × u` so the two cannot drift apart.
+ * `FACE_AXES` in `engine.ts`, y up. `u` is an in-plane axis; the other is
+ * derived as `n x u` so the two cannot drift apart.
  */
 const FACES = [
   { num: 1, n: [0, 1, 0] as Vec, u: [1, 0, 0] as Vec },
@@ -82,7 +82,7 @@ const FACES = [
   { num: 4, n: [-1, 0, 0] as Vec, u: [0, 0, 1] as Vec },
 ];
 
-/** Pip positions on a face's own 3×3, in units of half the face. */
+/** Pip positions on a face's own 3x3, in units of half the face. */
 const PIPS: Record<number, ReadonlyArray<readonly [number, number]>> = {
   1: [[0, 0]],
   2: [[-1, -1], [1, 1]],

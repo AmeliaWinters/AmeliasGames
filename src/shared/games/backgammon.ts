@@ -9,12 +9,12 @@ import type { Toss } from "./toss.js";
  *
  * Board layout: `points[0..23]`, one number per point. Positive means that
  * many seat-0 checkers, negative means seat-1. Seat 0 travels downward
- * (23 → 0) and bears off past 0; seat 1 travels upward and bears off past 23.
+ * (23 -> 0) and bears off past 0; seat 1 travels upward and bears off past 23.
  * Each player's home board is the last six points of their own journey.
  *
  * Not implemented: the doubling cube. Everything else is here, including the
- * two rules people usually skip — you must play as many dice as you can, and
- * if only one of two can be played it has to be the higher one.
+ * two rules people usually skip: you must play as many dice as you can, and if
+ * only one of two can be played it has to be the higher one.
  */
 
 export const POINTS = 24;
@@ -25,9 +25,9 @@ export const CHECKERS = 15;
  *
  * Not pixels: the server simulates the throw and reads the pair off it, so the
  * tray it simulates has to be the tray every device draws, whatever size that
- * device draws it at. Shallower than Yahtzee's and with a bigger die — two
- * dice in a tray sized for five read as two dice that got lost. Kept in step
- * with Yahtzee's when both were made a quarter smaller.
+ * device draws it at. Shallower than Yahtzee's and with a bigger die, because
+ * two dice in a tray sized for five read as two dice that got lost. Kept in
+ * step with Yahtzee's when both were made a quarter smaller.
  */
 export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 6 };
 
@@ -38,8 +38,8 @@ export const BACKGAMMON_TRAY: Tray = { w: 100, h: 34, die: 6 };
  * board that were never thrown: a double is four *moves* and it was drawn as
  * four dice, but the tray draws the cubes the simulation tumbled and there
  * are only ever two of those. The two spare ones sat unrotated in the corner
- * of the tray, and an unrotated cube shows a one — so a double four showed
- * two fours and two ones, and the ones were not dice.
+ * of the tray, and an unrotated cube shows a one, so a double four showed two
+ * fours and two ones, and the ones were not dice.
  *
  * Two dice, then, always. The four is bookkeeping, and `left` is what the
  * board says in words.
@@ -54,7 +54,7 @@ export function diceOnTable(state: BgState): {
   /**
    * Which of the two are used up, matched by value rather than by count:
    * `dice` holds what is unplayed, and playing the 5 of a 3-and-5 leaves [3],
-   * so counting from the end would strike out the 3 — the one you still have.
+   * so counting from the end would strike out the 3, the one you still have.
    *
    * Never one of a double. Both dice are the same number and neither is spent
    * until all four moves are, so dimming one would be picking a die at random
@@ -103,8 +103,8 @@ export interface BgLast {
  * Kept in state rather than derived at the end because none of it survives in
  * the position: a hit leaves no trace once the checker comes back in, and a
  * die you could not play leaves none at all. `off` and `pipCount` already say
- * where the game got to, so nothing here repeats them — this is the story of
- * how it got there.
+ * where the game got to, so nothing here repeats them. This is the story of how
+ * it got there.
  */
 export interface BgStats {
   /** Turns this seat rolled the dice. */
@@ -151,8 +151,8 @@ export interface BgState {
    *
    * One number rather than two because the lead is the thing worth drawing:
    * both pip counts fall all game, so a chart of them is two lines sloping the
-   * same way, and who was actually ahead — the only question a race asks — is
-   * the gap between them that neither line shows.
+   * same way, and who was actually ahead (the only question a race asks) is the
+   * gap between them that neither line shows.
    */
   race: number[];
 }
@@ -161,14 +161,14 @@ export type Source = number | "bar";
 
 export type BgMove =
   // The flick is how the dice were thrown, not what they landed on.
-  // The throw is what the client's simulation did, reported back — not a
+  // The throw is what the client's simulation did, reported back, not a
   // request to roll. `readThrow` in `toss.ts` says how far it is believed, and
   // a move with nothing usable in it is rolled here instead.
   | { type: "roll"; throw?: unknown }
   | { type: "move"; from: Source; die: number }
   | { type: "pass" };
 
-// ── Geometry ───────────────────────────────────────────────────────────
+// Geometry
 
 /** Seat 0 counts down, seat 1 counts up. */
 export function direction(seat: number): -1 | 1 {
@@ -192,7 +192,7 @@ export function barEntry(seat: number, die: number): number {
 /**
  * Where a checker ends up, or "off" if the die runs it past the edge.
  *
- * Geometry only — it says nothing about whether the move is legal, which is
+ * Geometry only: it says nothing about whether the move is legal, which is
  * `applyOne`'s business. Both the reducer (recording what just happened) and
  * the board (marking where a picked-up checker may land) need the same answer,
  * and they had two copies of it.
@@ -237,9 +237,9 @@ function clone(state: BgState): BgState {
     // corrupting a stored snapshot.
     roll: state.roll ? ([...state.roll] as [number, number]) : null,
     // The throw carries two arrays of its own, and the spread above copies
-    // only the reference to it. Nothing writes to a stored `Toss` today —
-    // `nextToss` only ever fills in the object it just built — so this costs
-    // nothing now and is here for the same reason `roll` is.
+    // only the reference to it. Nothing writes to a stored `Toss` today, since
+    // `nextToss` only fills in the object it just built, so this costs nothing
+    // now and is here for the same reason `roll` is.
     toss: state.toss
       ? {
           ...state.toss,
@@ -254,7 +254,7 @@ function place(state: BgState, point: number, seat: number, delta: number): void
   state.points[point] += seat === 0 ? delta : -delta;
 }
 
-// ── Legality ───────────────────────────────────────────────────────────
+// Legality
 
 /** Every checker home (and none on the bar) is the gate to bearing off. */
 export function canBearOff(state: BgState, seat: number): boolean {
@@ -355,7 +355,7 @@ function key(state: BgState, seat: number): string {
   return `${seat}|${state.points.join(",")}|${state.bar.join(",")}|${[...state.dice].sort().join(",")}`;
 }
 
-/** Longest run of moves playable from here. Memoised — positions repeat a lot. */
+/** Longest run of moves playable from here. Memoised: positions repeat a lot. */
 function longestRun(state: BgState, seat: number, seen = new Map<string, number>()): number {
   if (state.dice.length === 0) return 0;
   const cacheKey = key(state, seat);
@@ -401,7 +401,7 @@ export function legalMoves(state: BgState): Array<{ from: Source; die: number }>
   return allowed;
 }
 
-// ── Outcome ────────────────────────────────────────────────────────────
+// Outcome
 
 /** 1 single, 2 gammon (loser bore none off), 3 backgammon (and still stuck). */
 function scoreFor(state: BgState, winner: number): 1 | 2 | 3 {
@@ -416,9 +416,9 @@ function scoreFor(state: BgState, winner: number): 1 | 2 | 3 {
 }
 
 function endTurn(state: BgState): void {
-  // Whatever is still in `dice` is what the position refused to let them
-  // play. Counted here because this is the only place a turn ends — and it
-  // ends here whether they gave up on it or the board did it for them.
+  // Whatever is still in `dice` is what the position refused to let them play.
+  // Counted here because this is the only place a turn ends, whether they gave
+  // up on it or the board did it for them.
   for (const die of state.dice) state.stats[state.turn].wasted += die;
   state.race.push(pipCount(state, 1) - pipCount(state, 0));
   state.dice = [];
@@ -477,9 +477,9 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
 
     if (move.type === "roll") {
       if (state.phase !== "roll") return { ok: false, error: "You have already rolled." };
-      // The pair is read off the dice where they stop — but the dice stopped
-      // in the browser that threw them, so this is the *reported* pair. See
-      // `toss.ts`: the shape is checked, the numbers cannot be.
+      // The pair is read off the dice where they stop, but they stopped in the
+      // browser that threw them, so this is the *reported* pair. See `toss.ts`:
+      // the shape is checked, the numbers cannot be.
       const thrown = nextToss({
         previous: state.toss,
         sent: move.throw,
@@ -530,7 +530,7 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
       return {
         ok: false,
         error: wouldWork
-          ? "You must play as many dice as possible — that move wastes one."
+          ? "You must play as many dice as possible, and that move wastes one."
           : "That move isn't legal.",
       };
     }
@@ -555,7 +555,7 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
       next.winner = seat as 0 | 1;
       next.result = scoreFor(next, seat);
       // The last turn never ends through `endTurn`, so the race would stop one
-      // entry short — at the position before the checker that won it came off.
+      // entry short, at the position before the checker that won it came off.
       next.race.push(pipCount(next, 1) - pipCount(next, 0));
       next.dice = [];
       return { ok: true, state: next };
@@ -585,7 +585,7 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
 
     if (state.winner !== null) {
       const suffix =
-        state.result === 3 ? " — a backgammon" : state.result === 2 ? " — a gammon" : "";
+        state.result === 3 ? ", a backgammon" : state.result === 2 ? ", a gammon" : "";
       return `${nameFor(state.winner)} wins${suffix}`;
     }
     if (state.phase === "roll") return `${nameFor(state.turn)} to roll`;

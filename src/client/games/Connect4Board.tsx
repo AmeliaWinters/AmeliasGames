@@ -27,7 +27,7 @@ export function Connect4Board({
             {Array.from({ length: ROWS }, (_, row) => {
               const cell = state.board[row][col];
               // The class lands on a different element each move, which is what
-              // restarts the drop animation — a re-render of the same position
+              // restarts the drop animation. A re-render of the same position
               // (a reconnect, say) deliberately does not replay it.
               const justLanded =
                 state.lastMove?.row === row && state.lastMove?.col === col;

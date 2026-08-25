@@ -33,7 +33,7 @@ function must(result: MoveResult<MmState>): MmState {
   return result.state;
 }
 
-/** Play moves in order, each by whoever is to play — which after a mill is the
+/** Play moves in order, each by whoever is to play, which after a mill is the
  *  same player twice, since taking a man is a move of its own. */
 function play(state: MmState, ...moves: MmMove[]): MmState {
   for (const move of moves) state = must(apply(state, move, state.turn));
@@ -110,7 +110,7 @@ describe('the board', () => {
     }
   });
 
-  it('does not call a line a mill when one of the three men is the opponent’s', () => {
+  it("does not call a line a mill when one of the three men is the opponent's", () => {
     const [a, b, c] = MILLS[0];
     const state = position({ 0: [a, b], 1: [c] });
     expect(inMill(state.board, a)).toBe(false);
@@ -340,7 +340,7 @@ describe('losing', () => {
     expect(taken.ending).toBe('starved');
     expect(morris.isOver(taken)).toBe(true);
     expect(morris.turn(taken)).toBeNull();
-    expect(morris.status(taken, ['Ada', 'Bo'])).toMatch(/Ada wins — Bo is down to two men/);
+    expect(morris.status(taken, ['Ada', 'Bo'])).toMatch(/Ada wins: Bo is down to two men/);
     expect(apply(taken, { type: 'move', from: 8, to: 15 }, 1).ok).toBe(false);
   });
 
@@ -367,7 +367,7 @@ describe('losing', () => {
     expect(closed.taking).toBeNull();
     expect(closed.winner).toBe(0);
     expect(closed.ending).toBe('blocked');
-    expect(morris.status(closed, ['Ada', 'Bo'])).toMatch(/Ada wins — Bo has no move left/);
+    expect(morris.status(closed, ['Ada', 'Bo'])).toMatch(/Ada wins: Bo has no move left/);
   });
 
   it('never calls a player blocked while they still have men to place', () => {
@@ -472,8 +472,8 @@ describe('full games', () => {
    * display helpers rather than from the reducer.
    *
    * That is the point of it: the board offers exactly this list, so a move in
-   * here that the reducer refuses — or a move the reducer would allow that is
-   * not in here — is a button that lies, and the loop below asserts both
+   * here that the reducer refuses, or a move the reducer would allow that is
+   * not in here, is a button that lies, and the loop below asserts both
    * directions on every ply of every game.
    */
   function legalMoves(state: MmState): MmMove[] {

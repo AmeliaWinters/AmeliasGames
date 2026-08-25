@@ -41,9 +41,9 @@ function percent(value: number): string {
 
 /**
  * The lines. Three nested squares and four spokes, drawn from the same
- * geometry the rules use — so a line on screen is a road a man may actually
- * walk, which on this board is the entire question. The corners have no
- * spokes, and a player who thinks they do will lose a man to it.
+ * geometry the rules use, so a line on screen is a road a man may actually
+ * walk, which on this board is the entire question. The corners have no spokes,
+ * and a player who thinks they do will lose a man to it.
  */
 function Lines() {
   return (
@@ -111,7 +111,7 @@ function Hand({ name, held, standing, fly }: {
         {held > 0
           ? `${held} to place`
           : fly
-            ? `${standing} left — flying`
+            ? `${standing} left, flying`
             : `${standing} on the board`}
       </span>
     </li>
@@ -121,7 +121,7 @@ function Hand({ name, held, standing, fly }: {
 export function MorrisBoard({ state, seat, names, canAct, onMove }: Props) {
   const [chosen, setChosen] = useState<number | null>(null);
 
-  // A selection stops meaning anything the moment the position changes — and
+  // A selection stops meaning anything the moment the position changes, and
   // that includes the man being taken off by somebody else's mill.
   useEffect(() => setChosen(null), [state.board, state.turn, state.taking]);
 

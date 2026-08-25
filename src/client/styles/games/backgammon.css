@@ -1,4 +1,4 @@
-/* ── Backgammon ────────────────────────────────────────────────────────
+/* Backgammon
    Twelve points to a side with the bar down the middle. The bar is placed
    absolutely over a fixed-width gap left in each row, so both rows and the
    bar stay in register at any screen width. */
@@ -213,7 +213,7 @@
   bottom: -3px;
 }
 
-/* ── Motion ────────────────────────────────────────────────────────────
+/* Motion
    Two animations, and both carry the same piece of news: something happened
    somewhere you were not looking. A checker crossing the board is where it
    went (that flight is measured in the board component, since the distance
@@ -251,7 +251,7 @@
   animation: bg-borne 700ms ease-out;
 }
 
-/* ── The summary ───────────────────────────────────────────────────────
+/* The summary
    What the two of you did with the dice, in the place the tray was. It stands
    where the controls stood rather than below them, so the end of a game does
    not push the board up the screen on the one screen where the board is worth

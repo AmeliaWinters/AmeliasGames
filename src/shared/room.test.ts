@@ -42,7 +42,7 @@ describe('room codes', () => {
 
   it('rejects glyphs the generator never emits, rather than sending them off to fail', () => {
     // Digits, O and I are not in the alphabet, so a code containing one is
-    // always a typo — better to say so at once than to come back with "no room".
+    // always a typo, and better to say so at once than to come back with "no room".
     for (const bad of ['ABCO', 'ABC0', 'ABCI', 'ABC1', 'AB12']) {
       expect(isRoomCode(bad)).toBe(false);
     }
@@ -104,7 +104,7 @@ describe('seating', () => {
    *
    * Open seating removed the problem rather than the exception. A room is
    * dealt when the people in it say they are all here, so by the time there is
-   * a fleet to place there is nobody still to arrive — placing happens in an
+   * a fleet to place there is nobody still to arrive, so placing happens in an
    * ordinary dealt game like every other move.
    */
   it('lets a fleet be placed once the room has been dealt', () => {
@@ -138,7 +138,7 @@ describe('seating', () => {
 });
 
 describe('snapshot round-trip', () => {
-  it('restores seats and board exactly — this is what survives hibernation', () => {
+  it('restores seats and board exactly, which is what survives hibernation', () => {
     const room = newRoom();
     room.join('a', 'Ann');
     room.join('b', 'Bo');
@@ -169,7 +169,7 @@ describe('snapshot round-trip', () => {
 describe('snapshot versioning', () => {
   it('refuses a snapshot from a shape it no longer understands', () => {
     // Otherwise a deploy that changes a game's state shape bricks every stored
-    // room for it — restore throws on every message, forever, and the bad
+    // room for it: restore throws on every message, forever, and the bad
     // snapshot is never cleared.
     const stale = { ...newRoom().snapshot(), version: SNAPSHOT_VERSION - 1 };
     expect(RoomEngine.restore(stale)).toBeNull();
@@ -293,7 +293,7 @@ describe('open seating', () => {
 
   it('says what it is waiting for, and it is not always the same thing', () => {
     const short = table(1);
-    expect(short.viewFor(0, new Set()).status).toMatch(/1 more player…/);
+    expect(short.viewFor(0, new Set()).status).toMatch(/1 more player.../);
     expect(short.viewFor(0, new Set()).canStart).toBe(false);
 
     const ready = table(2);
@@ -377,8 +377,8 @@ describe('a game on a clock', () => {
     room.join('a', 'A');
     expect(room.deadline()).toBe(null);
 
-    // Ten minutes of nobody turning up, and the round is still all there —
-    // the clock belongs to the game being played, not to the room being open.
+    // Ten minutes of nobody turning up, and the round is still all there. The
+    // clock belongs to the game being played, not to the room being open.
     const late = START + 10 * 60 * 1000;
     expect(room.tick(late)).toBe(false);
     expect(room.viewFor(0, new Set(), late).over).toBe(false);

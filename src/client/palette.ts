@@ -57,7 +57,7 @@ export function otherPalette(palette: Palette): Palette {
  *
  * Each game takes one of the four signal colours. That accent themes the
  * game's card, the second half of the wordmark, the emphasised word in the
- * status line and the primary button — and nothing else. The colours are the
+ * status line and the primary button, and nothing else. The colours are the
  * same four the seats use, deliberately: four hues doing two jobs is a palette
  * you can hold in your head, and a fifth set for "game identity" would not be.
  *

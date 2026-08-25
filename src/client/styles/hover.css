@@ -1,4 +1,4 @@
-/* ── Hover ─────────────────────────────────────────────────────────────
+/* Hover
    Gated on a device that genuinely hovers. On a touchscreen :hover sticks
    after a tap, which left the tapped column highlighted for the rest of
    the turn. */
@@ -44,12 +44,55 @@
     box-shadow: inset 0 0 0 2px var(--accent);
   }
 
-  /* A picker card is a <label>, so the button rule above never reaches it and
-     the whole grid sat inert under a pointer while everything around it moved.
-     The card answers in its own channel colour, which is also what picking it
-     does -- so the hover is a preview of the commitment. */
+  /*
+    A card has no border to answer in any more, so the hover had to become
+    something a coloured object can do. It lifts.
+
+    The comment here used to say the card answered in its own channel colour,
+    as a preview of the commitment. That reading still holds and the colour is
+    simply always on now -- the card *is* its colour, so lighting it up on
+    hover would be saying a thing already said, and there is no border left to
+    say it with.
+
+    So the hover is the other half of the press: the card rises 2px and its lip
+    and shadow grow to match, and pressing takes it 4px the other way. One
+    object, three positions -- off the shelf, at rest, and down.
+
+    `button:hover:not(:disabled)` above sets `border-color: var(--ink)` on
+    every button in the app, and a card is a button. It has no border, so the
+    declaration lands on nothing -- but it is also why this rule cannot simply
+    be deleted and left to the generic one.
+  */
   .game:hover {
-    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow:
+      0 6px 0 var(--card-well),
+      0 10px 20px rgb(0 0 0 / 0.36);
+  }
+  .game.featured:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 0 var(--card-well),
+      0 14px 28px rgb(0 0 0 / 0.4);
+  }
+  /* The press wins over the hover: on a mouse both are true at once, and a
+     card being held down must not be drawn hovering. Same specificity as the
+     rules above, so this has to come after them. */
+  .game:active,
+  .game.featured:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 var(--card-well), 0 1px 3px rgb(0 0 0 / 0.3);
+  }
+  .game.featured:active {
+    transform: translateY(6px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .game:hover,
+    .game.featured:hover,
+    .game:active,
+    .game.featured:active {
+      transform: none;
+    }
   }
 }
 

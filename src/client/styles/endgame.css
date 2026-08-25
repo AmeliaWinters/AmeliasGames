@@ -1,4 +1,4 @@
-/* ── Winning ───────────────────────────────────────────────────────────
+/* Winning
    The end of a game was a status line and a button, which is the one moment
    the app should raise its voice. The winner's name goes to hero size in the
    channel colour, with one line underneath saying *why* they won -- the same
@@ -31,7 +31,83 @@
   color: var(--muted);
 }
 
-/* ── Changing game ─────────────────────────────────────────────────────
+/* Winning, arriving
+   The one moment the app raises its voice, and until now it raised it between
+   two frames: the board went still, and a hero-sized name was simply there,
+   indistinguishable from a panel that had been on screen all along.
+
+   Three beats, in the order you would read them. The panel opens -- the accent
+   border closes in from nothing, the same `claim` gesture Connect Four draws
+   round a winning line, because it is the same claim at the scale of a whole
+   game. The name lands a beat later, dropping the short distance a thing
+   dropped from the hand falls and overshooting once, which is `value-land` on
+   the Wheel and the counter falling in Connect Four -- this app's one idea
+   about how a result arrives. Then the line saying why, last and quietly,
+   because it is the footnote and it should read as one.
+
+   It mounts when the game ends and never re-renders in place, so the
+   animations run exactly once, on arrival, with no key or timer holding them.
+
+   Not a celebration: no confetti, no bounce on the panel, nothing that plays
+   differently for the winner than for whoever just lost. Three quarters of a
+   second, and then it is a panel with a name in it. */
+.result {
+  animation: result-open 380ms ease-out both;
+}
+
+.result .who {
+  animation: result-land 420ms cubic-bezier(0.2, 1.3, 0.5, 1) 260ms both;
+}
+
+.result .why {
+  animation: result-note 300ms ease-out 560ms both;
+}
+
+@keyframes result-open {
+  from {
+    border-color: transparent;
+    /* The panel arrives at its own size. A box that grows pushes the board
+       below it down the page at the moment a player is still looking at the
+       board, which is the reflow the toasts exist to avoid. */
+    background: transparent;
+  }
+}
+
+@keyframes result-land {
+  from {
+    transform: translateY(-24%);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(4%);
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes result-note {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The result is the whole point of the screen and none of it is being
+     withheld -- only the order it arrives in. Dropped entirely, and it is
+     there. */
+  .result,
+  .result .who,
+  .result .why {
+    animation: none;
+  }
+}
+
+/* Changing game
    The same cards as the lobby, minus the motifs. At the end of a game the
    question is "what next", not "what does Backgammon look like" -- everybody
    here has just played, so the name and its channel stripe are the whole
@@ -72,7 +148,7 @@
   text-align: center;
 }
 
-/* ── Waiting room ──────────────────────────────────────────────────────
+/* Waiting room
    Sharing the room is the only job on this screen, so the code stops being a
    0.72rem button in the corner and becomes the thing you read out -- and the
    corner one goes away while it does, so the code is on screen once.

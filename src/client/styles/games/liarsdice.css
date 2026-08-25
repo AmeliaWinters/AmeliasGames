@@ -1,7 +1,7 @@
-/* ── Liar's Dice ───────────────────────────────────────────────────────
+/* Liar's Dice
    The board is the hands: yours face up, everyone else's face down, and how
-   many each is holding — which is half of what any bid is reasoned from, so
-   they are drawn as dice to be counted rather than written out as a number.
+   many each is holding, which is half of what any bid is reasoned from, so they
+   are drawn as dice to be counted rather than written out as a number.
 
    A call turns every hand over in the rows they were already in. Nothing
    moves; only the dice change, which is what makes the reveal readable as an
@@ -38,9 +38,9 @@
   gap: 8px;
 }
 
-/* A seat, laid out like the players strip above the board — the same object,
-   with its dice on the end. Full width rather than two to a row: five dice and
-   a name do not share 42% of a phone. */
+/* A seat, laid out like the players strip above the board: the same object,
+   with its dice on the end. Full width rather than two to a row, because five
+   dice and a name do not share 42% of a phone. */
 .ld-hand {
   display: flex;
   align-items: center;
@@ -50,7 +50,7 @@
   background: var(--surface);
   font-size: 0.88rem;
 }
-/* Whose turn it is gets weight, not a colour wash — as everywhere else. */
+/* Whose turn it is gets weight, not a colour wash, as everywhere else. */
 .ld-hand.active {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
@@ -86,7 +86,7 @@
 }
 /* Smaller than a thrown die: five of them sit on one line beside a name, and
    they are there to be counted rather than read one at a time. These are not
-   in a tray — the showdown turns hands over, it does not throw them. */
+   in a tray: the showdown turns hands over, it does not throw them. */
 .ld-hand .die {
   --die: 26px;
 }
@@ -258,3 +258,92 @@
   text-align: center;
 }
 
+
+/* Liar's Dice: turning a hand over
+   The showdown deals the hands out one at a time -- `useReveal` holds the
+   order and the beat between them -- and until now each one arrived in a
+   single frame, face up, fully formed. So the *staging* was slow and the
+   *turn* was instant, which is the wrong way round: the beat between hands
+   said "here comes another one" and the hand itself said nothing at all.
+
+   This is the turn. Each die rotates about its vertical axis, and the five in
+   a hand go over in a short cascade rather than together, because a hand of
+   five is picked up and laid down one die at a time and that is what the
+   cascade is a picture of.
+
+   The veil is the load-bearing half. The board swaps in the revealed face the
+   moment the hand's step arrives, so without it the first half of the turn
+   would be spent showing the answer edge-on -- the reveal printing the face
+   before the die has finished turning to it, which is the exact fault the
+   staged reveal was written to fix. `--board` is the colour a face-down die
+   already wears, so the first half is a face-down die turning and the second
+   half is the face it turned up. It snaps at the midpoint rather than fading,
+   because a die does not cross-dissolve. */
+.ld-dice.up .die {
+  /* The veil hangs off the die, so the die has to be something to hang off. */
+  position: relative;
+  animation: die-turn 240ms ease-in-out var(--turn-at, 0ms) both;
+}
+.ld-dice.up .die::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--board);
+  animation: die-veil 240ms steps(1, end) var(--turn-at, 0ms) both;
+}
+
+/* One die at a time, near enough. Five dice at 34ms apart puts the last one
+   moving until 376ms, which is what sets `REVEAL_MS` in `useReveal.ts` -- the
+   next hand must not start turning while this one still is. Widen the cascade
+   and that number has to follow it. */
+.ld-dice.up .die:nth-child(2) {
+  --turn-at: 34ms;
+}
+.ld-dice.up .die:nth-child(3) {
+  --turn-at: 68ms;
+}
+.ld-dice.up .die:nth-child(4) {
+  --turn-at: 102ms;
+}
+.ld-dice.up .die:nth-child(5) {
+  --turn-at: 136ms;
+}
+
+@keyframes die-turn {
+  from {
+    transform: rotateY(0deg);
+  }
+  50% {
+    /* Edge on, and a hair narrower than the flat die -- a real die turning
+       away from you loses a little of itself before it comes back. */
+    transform: rotateY(90deg) scale(0.94);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+
+/* Two steps and no interpolation between them: face down, then face up, and
+   the change happens behind the edge-on frame where nothing is legible. */
+@keyframes die-veil {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* `useReveal` already hands the whole table over at once here, so there is
+     nothing left to turn -- but the veil would still be sitting on the dice
+     with no animation to lift it. */
+  .ld-dice.up .die {
+    animation: none;
+  }
+  .ld-dice.up .die::after {
+    display: none;
+  }
+}

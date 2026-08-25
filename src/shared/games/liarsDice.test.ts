@@ -314,7 +314,7 @@ describe('calling it spot on', () => {
       expect(after.showdown?.loser).toBe(1);
       expect(after.showdown?.gainer).toBeNull();
       expect(after.dice[1]).toHaveLength(DICE_PER_PLAYER - 1);
-      // The bidder is untouched either way — a spot-on call is made against the
+      // The bidder is untouched either way: a spot-on call is made against the
       // number, not against them.
       expect(after.dice[0]).toHaveLength(DICE_PER_PLAYER);
     }
@@ -350,7 +350,7 @@ describe('calling it spot on', () => {
     });
     const after = ok(apply(state, { type: 'exact' }, 1));
 
-    // Exactly one 3 was on the table, so the bid was spot on — but calling it
+    // Exactly one 3 was on the table, so the bid was spot on, but calling it
     // spot on is a claim about the count, and this one was made by the player
     // who could least afford to be wrong about it. It was right.
     expect(after.showdown?.gainer).toBe(1);
@@ -381,7 +381,7 @@ describe('the bidding history', () => {
       { seat: 0, quantity: 3, face: 5 },
     ]);
     // The bid on the table is the last thing said, and is the same object's
-    // worth of information — the history is the run, not a second source.
+    // worth of information: the history is the run, not a second source.
     expect(state.history[state.history.length - 1]).toEqual(state.bid);
   });
 
@@ -557,7 +557,7 @@ describe('the helpers the board shares', () => {
     const state = position({ dice: [[1], [], [2], []] });
     expect(nextLive(state, 0)).toBe(2);
     expect(nextLive(state, 2)).toBe(0);
-    // Nobody left is not a position a round can reach — and is not a hang either.
+    // Nobody left is not a position a round can reach, nor a hang either.
     expect(nextLive(position({ dice: [[], []] }), 1)).toBe(1);
   });
 
@@ -626,7 +626,7 @@ describe('full games', () => {
     if (state.phase === 'reveal') return { type: 'next' };
 
     const floor = smallestRaise(state);
-    // Nothing left to raise to means the only moves are the two calls — which
+    // Nothing left to raise to means the only moves are the two calls, which
     // is the position the bid ceiling exists to force.
     if (floor === null) return rng() < 0.5 ? { type: 'challenge' } : { type: 'exact' };
     if (state.bid !== null) {
@@ -691,7 +691,7 @@ describe('throwing your own dice', () => {
     when, how often, and what the reducer refuses.
 
     What none of it tests is whether the reported hand is a real throw, because
-    nothing can — that is the accepted cost of client-side physics, and
+    nothing can. That is the accepted cost of client-side physics, and
     `reportHand` says so at length.
   */
   const owes = (over: Partial<LdState> = {}) =>
@@ -770,7 +770,7 @@ describe('throwing your own dice', () => {
     expect(next.state.phase).toBe('bid');
   });
 
-  it('is optional — a round nobody reports is still a playable round', () => {
+  it('is optional, and a round nobody reports is still a playable round', () => {
     // The reducer dealt these hands, and a client that never sends anything is
     // not a round that hangs.
     const before = owes();

@@ -34,8 +34,8 @@ import { useLanding } from "../dice/useLanding.js";
 /**
  * The tray, read out. One label rather than five, because "die showing three,
  * die showing three, die showing five" is a worse way to hear a hand than
- * "3, 3, 5, 2, 6" is — and the dice inside are moved by a solver, so they are
- * not five things to visit in order.
+ * "3, 3, 5, 2, 6", and the dice inside are moved by a solver, so they are not
+ * five things to visit in order.
  */
 function trayLabel(state: YState, flying: boolean, rolled: boolean): string {
   if (flying) return "The dice, in the air";
@@ -121,7 +121,7 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
     which is how Backgammon gets the same gesture for a double without either
     game knowing about the other.
 
-    Not gated on `flying` — the move arrives while the dice it describes are
+    Not gated on `flying`: the move arrives while the dice it describes are
     still in the air, and the tray holds the flourish back until they land. Read
     `beats.ts` for why that has to be its decision and not this one.
   */
@@ -188,8 +188,8 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
           className="primary"
           disabled={!canRoll}
           // Through the tray, so the button throws the same dice the flick
-          // does — the physics is in there, and a move sent from here without
-          // it would land the dice with no throw to watch.
+          // does. The physics is in there, and a move sent from here without it
+          // would land the dice with no throw to watch.
           onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}
         >
           {rolled ? `Roll again (${state.rollsLeft})` : "Roll"}
@@ -198,11 +198,11 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
           {!canAct
             ? "Waiting for the dice"
             : flying
-              ? "…"
+              ? "..."
               : !rolled
                 ? "Three rolls, then fill a box. Flick the tray to throw."
                 : keepingAll
-                  ? "You are keeping all five — fill a box."
+                  ? "You are keeping all five, so fill a box."
                   : state.rollsLeft > 0
                     ? "Tap a die to keep it, or throw the rest."
                     : "Tap a score to fill that box."}
@@ -235,7 +235,7 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
           <tr className="yz-sum">
             <th scope="row">
               Bonus at {UPPER_TARGET}
-              <span className="sr-only"> — {UPPER_BONUS} points</span>
+              <span className="sr-only">, {UPPER_BONUS} points</span>
             </th>
             {state.sheets.map((sheet, index) => (
               <td key={index}>

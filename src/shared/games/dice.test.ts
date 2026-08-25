@@ -35,9 +35,9 @@ describe('the cube', () => {
 describe('a die stood up on purpose', () => {
   it('shows the number it was stood up for', () => {
     /*
-      `UPRIGHT` and `faceUp` are the same fact from opposite ends — one puts a
-      face up, the other reads which face is up — and this is the assertion
-      that stops them drifting apart. It matters more than it looks: `row3` in
+      `UPRIGHT` and `faceUp` are the same fact from opposite ends, one putting
+      a face up and the other reading which face is up, and this is the
+      assertion that stops them drifting apart. It matters more than it looks: `row3` in
       `toss.ts` places dice with `UPRIGHT` whenever the server has to roll for
       itself, and every board reads them back with `faceUp`. The two disagreeing
       is a die showing a number the scoresheet does not have, which is a bug

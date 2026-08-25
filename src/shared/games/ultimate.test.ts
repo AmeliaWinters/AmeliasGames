@@ -63,7 +63,7 @@ describe('the opening', () => {
 describe('the one rule', () => {
   it('sends the opponent to the board named by the square played', () => {
     // The centre of the top-left board. Its square index is 4, so the reply
-    // has to be played in board 4 — the centre board.
+    // has to be played in board 4, the centre board.
     const state = play(start(), cellAt(0, 4));
     expect(state.sent).toBe(4);
     expect(openBoards(state)).toEqual([4]);
@@ -93,7 +93,7 @@ describe('the one rule', () => {
 
 describe('a settled board', () => {
   it('frees the opponent to play anywhere when they are sent to it', () => {
-    // Board 3 has already gone to seat 1, and seat 0 now plays square 3 —
+    // Board 3 has already gone to seat 1, and seat 0 now plays square 3,
     // which points at it. The tournament rule: play anywhere instead.
     const state = winTopRow(start(), 3, 1);
     const next = play(state, cellAt(0, 3));
@@ -165,7 +165,7 @@ describe('winning the game', () => {
     expect(next.winningLine).toEqual([0, 1, 2]);
     expect(ultimate.isOver(next)).toBe(true);
     expect(ultimate.turn(next)).toBeNull();
-    expect(ultimate.status(next, ['Amelia', 'Bo'])).toBe('Amelia wins — three boards in a row');
+    expect(ultimate.status(next, ['Amelia', 'Bo'])).toBe('Amelia wins with three boards in a row');
   });
 
   it('refuses any further move once it is over', () => {
@@ -179,7 +179,7 @@ describe('winning the game', () => {
 
   it('goes to whoever holds more boards when every board is settled', () => {
     // Boards 0-7 shared out four each with no line in either hand, and seat 0
-    // takes the ninth. Seat 0 ends 5-4 up with nothing three in a row — and
+    // takes the ninth. Seat 0 ends 5-4 up with nothing three in a row, and
     // neither hand holds a line at any point on the way, so this is a
     // position the game could actually have reached.
     let state = start();
@@ -196,7 +196,7 @@ describe('winning the game', () => {
     expect(next.winner).toBe(0);
     expect(next.ending).toBe('count');
     expect(tally(next)).toEqual([5, 4]);
-    expect(ultimate.status(next, ['Amelia', 'Bo'])).toBe('Amelia wins — 5 boards to 4');
+    expect(ultimate.status(next, ['Amelia', 'Bo'])).toBe('Amelia wins, 5 boards to 4');
   });
 
   it('is a draw only when the two are level on boards', () => {
@@ -244,9 +244,9 @@ describe('the reducer itself', () => {
 
   it('says where the mover has to play, in words', () => {
     const names = ['Amelia', 'Bo'];
-    expect(ultimate.status(start(), names)).toBe('Amelia to play — any open board');
+    expect(ultimate.status(start(), names)).toBe('Amelia to play, any open board');
     expect(ultimate.status(play(start(), cellAt(0, 6)), names)).toBe(
-      'Bo to play — the bottom-left board',
+      'Bo to play, the bottom-left board',
     );
   });
 
@@ -259,8 +259,8 @@ describe('the reducer itself', () => {
   it('plays two hundred games out without ever offering an illegal square', () => {
     // A walk that stops only when the game says it has. It would trip on any
     // position where `legal` and `applyMove` disagreed, on a stalemate the
-    // rules cannot express, and on any ending that leaves the game open —
-    // which is the set of bugs a fixed position cannot reach.
+    // rules cannot express, and on any ending that leaves the game open, which
+    // is the set of bugs a fixed position cannot reach.
     for (let game = 0; game < 200; game++) {
       let state = start();
       let seed = (game * 2654435761) >>> 0;

@@ -1,5 +1,5 @@
 {
-  // Shared compiler settings. Each surface — browser, Node, workerd — extends
+  // Shared compiler settings. Each surface (browser, Node, workerd) extends
   // this and adds only the globals it actually has. One program spanning all
   // three left `src/shared` free to reach for `document` or `process` and still
   // typecheck, which made the "shared code runs everywhere" rule a convention

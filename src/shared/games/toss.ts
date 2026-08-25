@@ -8,7 +8,7 @@ import type { Rng } from '../types.js';
  * Three games roll dice and two of them throw them into a tray, so this is one
  * type rather than two fields invented separately.
  *
- * ── Why the throw is on the wire, and who computed it ─────────────────
+ * Why the throw is on the wire, and who computed it
  *
  * The dice are simulated and the number a die shows is read off the cube when
  * it stops, so the simulation is what decides and every client has to be able
@@ -16,20 +16,19 @@ import type { Rng } from '../types.js';
  * them and where they were standing when it happened are between them the
  * whole input.
  *
- * What changed, and it is the largest architectural decision in this app: the
- * simulation is **Rapier, and it runs on the client**. The server no longer
- * throws the dice, because the thing that throws them is now a WebAssembly
- * physics engine in a browser. The client that rolled computes the whole throw
- * before it sends anything, and sends what happened; the reducer checks the
- * shape and keeps it. See `readThrow` for exactly how much is checked, and
- * `src/client/dice3d/engine.ts` for what was traded away.
+ * The largest architectural decision in this app: the simulation is **Rapier,
+ * and it runs on the client**. The server no longer throws the dice, because
+ * the thing that throws them is a WebAssembly physics engine in a browser. The
+ * client that rolled computes the whole throw and sends what happened; the
+ * reducer checks the shape and keeps it. See `readThrow` for how much is
+ * checked, and `src/client/dice3d/engine.ts` for what was traded away.
  *
  * The consequence, stated plainly because it is easy to forget: **a modified
  * client can choose its own dice.** That was accepted deliberately in exchange
  * for real cubes. Nothing downstream should be written as though the faces
  * were trustworthy.
  *
- * ── Why `n` exists ────────────────────────────────────────────────────
+ * Why `n` exists
  *
  * Two throws running can produce the same faces from the same places, and dice
  * that sat still on the second one would read as broken. It is the same lesson
@@ -42,11 +41,11 @@ export interface Toss extends Flick {
    * Drives everything random in the throw: where the dice start, how they are
    * turned, how hard they go.
    *
-   * The **client's**, now, and drawn by whoever rolled. It used to be the
-   * server's and drawn after the flick arrived, which is what made a throw
-   * impossible to aim. That protection is gone with server authority; what it
-   * still buys is that the other player replays exactly this throw rather than
-   * inventing a different one.
+   * The **client's** now, drawn by whoever rolled. It used to be the server's
+   * and drawn after the flick arrived, which is what made a throw impossible
+   * to aim. That protection went with server authority. What it still buys is
+   * that the other player replays exactly this throw rather than a different
+   * one.
    */
   seed: number;
   /** Where the dice were standing when it was thrown. */
@@ -59,15 +58,15 @@ export interface Toss extends Flick {
  * Where a die came to rest: on the tray, at a height, turned some way.
  *
  * This used to be `{ x, y, o }`, where `o` indexed the 24 ways a cube can sit
- * square — which was enough, because the old solver met dice as squares in a
- * plane and a die could only ever finish flat on the floor. A die can now
- * finish on top of another one, or leaning on a wall, so it needs a height and
- * a full rotation and cannot be one of 24.
+ * square. That was enough while the old solver met dice as squares in a plane
+ * and a die could only finish flat on the floor. A die can now finish on top
+ * of another one or leaning on a wall, so it needs a height and a full
+ * rotation.
  *
  * In **tray units**, origin at the tray's top-left corner, `up` being height
  * above the floor. Not pixels: a tray is about 320px on a phone and twice that
  * on a laptop, and a throw measured in pixels would land on different faces on
- * the two of them.
+ * the two.
  */
 export interface Rest3 {
   x: number;
@@ -80,11 +79,10 @@ export interface Rest3 {
 /**
  * How the dice were thrown, as measured by the hand that threw them.
  *
- * Still clamped, and the clamp still earns its place even though a client that
- * can lie about the faces has no need to lie about the flick: a velocity of
- * 1e308 would put the dice through the wall on the first step, on *every*
- * device in the room, and the other player's client is not the one that chose
- * to send it.
+ * Still clamped, and the clamp earns its place even though a client that can
+ * lie about the faces has no need to lie about the flick: a velocity of 1e308
+ * puts the dice through the wall on the first step on *every* device in the
+ * room, and the other player's client did not choose to send it.
  */
 export interface Flick {
   /**
@@ -101,15 +99,14 @@ export interface Flick {
    * own width and height: `0,0` is the top-left corner and `1,1` the bottom
    * right.
    *
-   * **Absent for a tap**, and absent rather than centred on purpose — a tap
-   * has no aim, and a tap recorded as "aimed at the middle" would be a
-   * different throw from the one the player made. `openThrow` reads the two
-   * together: with a speed, this is where the dice come *in* from; without
-   * one, it is not consulted at all.
+   * **Absent for a tap**, and absent rather than centred on purpose: a tap has
+   * no aim, and one recorded as "aimed at the middle" would be a different
+   * throw from the one the player made. `openThrow` reads the two together:
+   * with a speed this is where the dice come *in* from, without one it is not
+   * consulted at all.
    *
-   * A fraction rather than tray units so that the number means the same thing
-   * on a phone and on a laptop, which is the same reason everything else here
-   * is measured in widths.
+   * A fraction rather than tray units so the number means the same thing on a
+   * phone and on a laptop, the same reason everything else here is in widths.
    */
   ax?: number;
   ay?: number;
@@ -118,10 +115,10 @@ export interface Flick {
 /**
  * The whole result of a throw, as the client that ran it reports it.
  *
- * `faces` is redundant with `rest` — the face is a function of the rotation,
- * and `src/client/dice3d/engine.ts` computes it from there. It is sent anyway
- * because the reducer must not have to know how a cube is read to score a
- * hand, and because the two disagreeing is a thing a test can catch.
+ * `faces` is redundant with `rest`, since the face is a function of the
+ * rotation and `src/client/dice3d/engine.ts` computes it from there. Sent
+ * anyway so the reducer need not know how a cube is read to score a hand, and
+ * because the two disagreeing is something a test can catch.
  */
 export interface ThrownDice extends Flick {
   seed: number;
@@ -145,7 +142,7 @@ function real(value: unknown, low: number, high: number): number {
     : 0;
 }
 
-/** A number in range, or undefined — for a field whose absence means something. */
+/** A number in range, or undefined, for a field whose absence means something. */
 function maybe(value: unknown, low: number, high: number): number | undefined {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(Math.max(value, low), high)
@@ -200,11 +197,10 @@ function readRest(value: unknown, tray: Tray): Rest3 | null {
 /**
  * A throw as it arrived from a client: anything at all, until this says so.
  *
- * Returns null for anything it does not fully believe, and the caller's job is
- * then to roll the dice itself — see `fallbackThrow`. Null is not an error to
- * show a player: a client with no WebAssembly, a keyboard-only roll, or a
- * build older than this one all arrive here, and all of them should still be
- * able to play a turn.
+ * Returns null for anything it does not fully believe, and the caller then
+ * rolls the dice itself (see `fallbackThrow`). Null is not an error to show a
+ * player: no WebAssembly, a keyboard-only roll, or a build older than this one
+ * all arrive here, and all of them should still be able to play a turn.
  *
  * **What this does not check is the part that matters.** It cannot tell a real
  * throw from a made-up one, because the only thing that could is running the
@@ -263,11 +259,10 @@ export function row3(tray: Tray, count: number, faces?: readonly number[]): Rest
  * The dice, rolled by whoever is holding the rules, and laid out in a row.
  *
  * The path taken when a client sends no throw this believes: no WebAssembly,
- * a build older than this one, a keyboard-only roll, or a `readThrow` that
- * refused what arrived. There is no animation to replay — `seed` is zero and
- * the dice are simply *there* — and that is the honest result, because nothing
- * simulated this and pretending otherwise would put a tumble on screen that
- * did not decide anything.
+ * an older build, a keyboard-only roll, or a `readThrow` that refused what
+ * arrived. There is no animation to replay, `seed` is zero and the dice are
+ * simply *there*. That is the honest result, because nothing simulated this
+ * and a tumble on screen would not have decided anything.
  *
  * It is deliberately still here after the physics left. A game whose only way
  * to roll is "the client managed to load a physics engine" is a game that
@@ -289,12 +284,11 @@ export function fallbackThrow(
  * games call it and neither of them needs to know whether the throw on screen
  * was simulated by a browser or invented here.
  *
- * **Kept dice are overruled, not trusted.** A die being held keeps the place
- * and the rotation it already had, whatever the client reported for it. This
- * is the one part of a throw the rules still know the answer to, so it is the
- * one part still enforced — and with the faces themselves now unverifiable it
- * is worth more than it was, not less: a client that lies about a held die is
- * changing a number the player already committed to.
+ * **Kept dice are overruled, not trusted.** A held die keeps the place and
+ * rotation it already had, whatever the client reported. It is the one part of
+ * a throw the rules still know the answer to, so it is the one part still
+ * enforced, and with the faces unverifiable it is worth more than before: a
+ * client lying about a held die is changing a number the player committed to.
  */
 /**
  * Where the dice are standing before a throw.
@@ -336,7 +330,7 @@ export function nextToss(opts: {
     toss: {
       n: (previous?.n ?? 0) + 1,
       seed: thrown.seed,
-      // The flick entire, aim included: a stored throw is re-run rather than
+      // The whole flick, aim included: a stored throw is re-run rather than
       // replayed frame by frame, and a re-run missing where the dice came in
       // from lands them somewhere else.
       ...readFlick(thrown),

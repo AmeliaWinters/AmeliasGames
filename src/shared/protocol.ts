@@ -4,15 +4,28 @@
  * Bumped whenever a message shape changes incompatibly. A tab left open across
  * a deploy reconnects with whatever shape it was built with, so the server
  * checks this and asks that client to refresh rather than misreading it.
+ *
+ * Meaning counts, not just shape. `spin.velocity` kept its type and units at
+ * 6 and changed what they *buy* (the wheel gained `FLICK_GAIN` and the speed
+ * floor became a gate), and a stale bundle would have gone on timing the
+ * animation off its own constants, drawing a journey a quarter longer than the
+ * one the server resolved. The wheel is meant to be the same equation drawn.
+ *
+ * 7 is the same kind of thing one layer down. Vocab Race now asks every third
+ * clue as a choice of four meanings, and on those rounds the server redacts the
+ * *clue* and sends the word, the reverse of every other round. Nothing on the
+ * wire changed type; a board built before it simply reads the field it always
+ * read, finds it empty, and draws a text box under a question that is not there.
+ * A tab left open across the deploy has to refresh rather than play that.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 7;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message
  * is still the thing shown; this only decides how it is introduced.
  */
 export type ErrorKind =
-  /** No room with that code — expired, swept, or never existed. */
+  /** No room with that code: expired, swept, or never existed. */
   | 'no-room'
   /** The room exists but every seat at its table is taken. */
   | 'full'
@@ -40,13 +53,13 @@ export interface RoomView {
   players: PlayerView[];
   /**
    * Already passed through the game's `view()` for the receiving seat, and
-   * null while `waiting` — a room exists before its game is dealt, and there
-   * is no state to send until somebody starts it.
+   * null while `waiting`. A room exists before its game is dealt, and there is
+   * no state to send until somebody starts it.
    */
   state: unknown;
   /**
-   * Whose turn it is — for the status line and the highlight on the seat list,
-   * and for nothing else. See `GameDefinition.turn`: four of these games are
+   * Whose turn it is, for the status line and the highlight on the seat list
+   * and nothing else. See `GameDefinition.turn`: four of these games are
    * free-simultaneous and answer it with a guess.
    */
   turn: number | null;
@@ -55,14 +68,14 @@ export interface RoomView {
    *
    * Computed by the server, from the same `canAct` the reducer will consult
    * when the move arrives, so a control that is offered and a move that is
-   * refused can no longer be the same tap. The client used to work this out
-   * as `turn === seat`, which was wrong for every free-simultaneous game — so
-   * their boards each imported a predicate of their own and the alternating
-   * ones took a `myTurn` prop. One field replaces both.
+   * refused can no longer be the same tap. The client used to work this out as
+   * `turn === seat`, which was wrong for every free-simultaneous game, so their
+   * boards each imported a predicate of their own and the alternating ones took
+   * a `myTurn` prop. One field replaces both.
    *
    * A board on a clock still has to check the clock itself: this was true when
-   * the message was built, and the last second of a round belongs to whoever
-   * is holding it. Word Hunt's grid is the case — see its `timeIsUp`.
+   * the message was built, and the last second of a round belongs to whoever is
+   * holding it. Word Hunt's grid is the case, see its `timeIsUp`.
    */
   canAct: boolean;
   status: string;
@@ -80,10 +93,10 @@ export interface RoomView {
   /**
    * The server's clock when this view was built, in epoch milliseconds.
    *
-   * Only a timed game needs it, and it needs it badly: a deadline is a server
-   * timestamp, and a device whose clock is minutes out would otherwise show a
-   * countdown that disagrees with the game it is counting down. Measuring the
-   * gap against this instead makes the clock skew cancel out.
+   * Only a timed game needs it, and needs it badly: a deadline is a server
+   * timestamp, and a device whose clock is minutes out would show a countdown
+   * that disagrees with the game it is counting down. Measuring the gap against
+   * this makes the skew cancel out.
    */
   now: number;
 }
@@ -116,24 +129,23 @@ export type ClientMessage =
   /**
    * Are you still there?
    *
-   * A WebSocket that dies without a close frame — a phone that locks, a
-   * carrier that rebinds its NAT mapping — leaves `readyState` at OPEN
-   * forever. Nothing arrives, nothing errors, and the player sits in front of
-   * a board that will never move again. This is how the client finds out:
-   * silence in answer to this is the only evidence that the socket is gone.
+   * A WebSocket that dies without a close frame (a phone that locks, a carrier
+   * that rebinds its NAT mapping) leaves `readyState` at OPEN forever. Nothing
+   * arrives, nothing errors, and the player sits in front of a board that will
+   * never move again. Silence in answer to this is the only evidence the socket
+   * is gone.
    *
-   * This needed no version bump of its own: both adapters ignore a `t` they do
-   * not know and so does the client, so a new client against an old server
-   * just gets silence — which is why the client counts *any* frame as proof of
-   * life, not only the pong. (The version did go to 2, for open seating, which
-   * is a genuinely incompatible change to `hello` and to `RoomView`.)
+   * No version bump of its own: both adapters ignore a `t` they do not know and
+   * so does the client, so a new client against an old server just gets
+   * silence, which is why the client counts *any* frame as proof of life and
+   * not only the pong. (The version did go to 2, for open seating, which is a
+   * genuinely incompatible change to `hello` and to `RoomView`.)
    */
   | { t: 'ping' }
   /**
    * Play something else with the people already here, once the current game
-   * is over. The room, its code and its seats all survive — only the reducer
-   * changes — so nobody has to swap links to move from Connect Four to
-   * Yahtzee.
+   * is over. The room, its code and its seats all survive and only the reducer
+   * changes, so nobody has to swap links to move from Connect Four to Yahtzee.
    *
    * The table is whoever is sitting here, so a game that cannot seat this
    * many is refused rather than quietly dropping somebody.
@@ -147,19 +159,19 @@ export type ServerMessage =
   /**
    * Yes. See `ping`.
    *
-   * In production this is answered by the runtime itself rather than by any
-   * code here — see `setWebSocketAutoResponse` in the worker — so that a
-   * heartbeat on an idle room does not drag the room out of hibernation once
-   * every twenty seconds for as long as somebody holds a tab open.
+   * In production the runtime answers this rather than any code here (see
+   * `setWebSocketAutoResponse` in the worker), so a heartbeat on an idle room
+   * does not drag it out of hibernation every twenty seconds for as long as
+   * somebody holds a tab open.
    */
   | { t: 'pong' };
 
 /**
  * The heartbeat frames as bytes, because Cloudflare's auto-responder matches
- * the request frame *exactly* — not by shape, by string. If the client built
- * its ping independently and a key order or a space ever differed, the match
- * would silently fail, every heartbeat would wake the room, and the bill would
- * be the first thing to notice. So neither side writes its own.
+ * the request frame *exactly*: by string, not by shape. If the client built its
+ * ping independently and a key order or a space ever differed, the match would
+ * silently fail, every heartbeat would wake the room, and the bill would be the
+ * first thing to notice. So neither side writes its own.
  */
 export const PING_FRAME = JSON.stringify({ t: 'ping' } satisfies ClientMessage);
 export const PONG_FRAME = JSON.stringify({ t: 'pong' } satisfies ServerMessage);

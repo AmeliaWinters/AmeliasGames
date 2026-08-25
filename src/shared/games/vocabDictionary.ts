@@ -5,11 +5,11 @@
  *
  * No new data. The lists in `chainWords.ts` are frequency-ordered and carry an
  * English gloss on every Polish and Japanese entry, which is exactly a deck of
- * flashcards read from the other side — and the worker bundle is close enough
- * to its ceiling (see `scripts/build-wordchain.ts`) that a second copy of the
- * same vocabulary to support a second game would not have fitted. This module
- * is the hand-written half; `chainDictionary.ts` is where the lists are parsed
- * and where a typed word is reduced to something comparable.
+ * flashcards read from the other side, and the worker bundle is close enough to
+ * its ceiling (see `scripts/build-wordchain.ts`) that a second copy of the same
+ * vocabulary would not have fitted. This module is the hand-written half;
+ * `chainDictionary.ts` is where the lists are parsed and where a typed word is
+ * reduced to something comparable.
  *
  * Server-only, and here it is a secret rather than a size: whoever can resolve
  * the clue has already won the round. `bundle.test.ts` holds the line for
@@ -20,17 +20,17 @@
  * playing Connect Four.
  */
 import { chainRanked } from './chainDictionary.js';
-import { DECK_DEPTH } from './vocabDisplay.js';
+import { DECK_DEPTH, PICK_OPTIONS } from './vocabDisplay.js';
 import type { VocabLang } from './vocabDisplay.js';
 
 /**
  * How many senses a clue is allowed to carry.
  *
  * The glosses run from one word to five or six, and a clue listing all of them
- * stops being a question — `cały` glossed "all, entire, whole; whole, entire,
+ * stops being a question: `cały` glossed "all, entire, whole; whole, entire,
  * all" tells you the shape of the dictionary rather than the meaning of the
- * word. Three is enough to disambiguate a word with genuinely separate senses
- * and few enough that the clue still reads as a definition.
+ * word. Three is enough to disambiguate genuinely separate senses and few
+ * enough that the clue still reads as a definition.
  */
 const MAX_SENSES = 3;
 
@@ -38,10 +38,10 @@ const MAX_SENSES = 3;
  * A sense of a word: what to print, and what to file it under.
  *
  * The two differ, and the difference matters in both directions. `być` is
- * glossed "to be", and *to be* is the clue a learner should read — the "to" is
- * how English marks an infinitive and dropping it makes the clue point at a
- * noun. But the same sense reached from the English side is "be", so the index
- * has to hold it stripped or a player who knows a synonym never matches.
+ * glossed "to be", and *to be* is the clue a learner should read, since "to"
+ * is how English marks an infinitive and dropping it points the clue at a noun.
+ * But the same sense reached from the English side is "be", so the index has to
+ * hold it stripped or a player who knows a synonym never matches.
  */
 interface Sense {
   show: string;
@@ -75,11 +75,11 @@ const LEADING = /^(?:to|a|an|the)\s+/;
  * sense is a word two reasonable answers can reach.
  *
  * A fragment survives only if it is letters and spaces. That drops the debris
- * the automatic glossing left behind — `tego=this`, the bare `-self` of a
- * reflexive marker, anything with a digit in it — and it drops single letters,
- * which are never a meaning and are usually the wreckage of a stripped
- * bracket. An entry with no fragment left is not cluable, and there is nothing
- * to be done about that but skip it.
+ * the automatic glossing left behind (`tego=this`, the bare `-self` of a
+ * reflexive marker, anything with a digit in it) and it drops single letters,
+ * which are never a meaning and usually the wreckage of a stripped bracket. An
+ * entry with no fragment left is not cluable, and there is nothing to be done
+ * about that but skip it.
  */
 function senses(gloss: string): Sense[] {
   const out: Sense[] = [];
@@ -109,9 +109,9 @@ export interface VocabQuestion {
   lemma: string;
   rank: number;
   /**
-   * Every folded word in the language that means one of the same things —
-   * including the word this clue was built from. This is what a guess is
-   * marked against.
+   * Every folded word in the language that means one of the same things,
+   * including the word this clue was built from. This is what a guess is marked
+   * against.
    */
   accepts: ReadonlySet<string>;
 }
@@ -128,11 +128,11 @@ const decks: Partial<Record<VocabLang, Deck>> = {};
  * game can reach.
  *
  * Two passes and they are not the same depth, which is the whole trick. The
- * *index* is built over every entry in the language — sixty-four thousand
- * Polish words — because it decides what counts as a right answer, and a
- * player who answers "small" with a rarer synonym than the one the clue was
- * cut from has answered the question. The *questions* are built only over the
- * first thousand ranks, because that is as deep as any difficulty asks.
+ * *index* is built over every entry in the language, sixty-four thousand Polish
+ * words, because it decides what counts as a right answer and a player who
+ * answers "small" with a rarer synonym than the one the clue was cut from has
+ * answered the question. The *questions* are built only over the first thousand
+ * ranks, because that is as deep as any difficulty asks.
  *
  * So the game is strict about what it asks and generous about what it takes,
  * which is the right way round for something being played by people who are
@@ -187,15 +187,91 @@ function build(lang: VocabLang): Deck {
 /**
  * The question for the word at `rank`, or null when that word cannot be clued.
  *
- * Null is ordinary rather than exceptional — roughly one Polish word in
- * fifteen inside the top thousand has a gloss with nothing printable left in
- * it. The caller deals past those; see `draw` in the reducer.
+ * Null is ordinary rather than exceptional: roughly one Polish word in fifteen
+ * inside the top thousand has a gloss with nothing printable left in it. The
+ * caller deals past those, see `draw` in the reducer.
  */
 export function vocabQuestion(lang: VocabLang, rank: number): VocabQuestion | null {
   return (decks[lang] ?? build(lang)).byRank.get(rank) ?? null;
 }
 
-/** How many of the first `cap` ranks can actually be asked — for the tests. */
+/**
+ * The meanings a `pick` round offers: the right one, and three that are not.
+ *
+ * Everything about this function is arranged around two hazards.
+ *
+ * **A distractor must not be a right answer.** The whole design of this game is
+ * generous about what it accepts -- `accepts` is every word in the language
+ * filed under any of the clue's senses, so a learner who knows a synonym is not
+ * marked wrong -- and that generosity turns into an unanswerable question the
+ * moment it is pointed the other way. If the word on the screen means "small"
+ * and one of the four options is "little", there is no correct answer to pick,
+ * and the player who reads the question properly is the one who gets it wrong.
+ * So a candidate is rejected when its `accepts` and the answer's share a single
+ * word: two words that any one meaning reaches are near enough synonyms for
+ * this to be unfair. Comparing the printed clues is not enough, because the
+ * clue is three senses of a word that may have five.
+ *
+ * **It must be decidable without an rng.** Rounds advance through `expire`,
+ * which is never handed one, so the options cannot be shuffled -- they have to
+ * be *read* from something already fixed. That something is the deck, dealt
+ * once at setup, and this walks it from the far end backwards. Backwards is
+ * deliberate: reading forwards would draw the distractors from the words the
+ * game is about to ask next, quietly telegraphing three of them, where the far
+ * end of a thousand-card deck is ranks a fifteen-round game will never reach.
+ *
+ * The right answer is placed at `rank % PICK_OPTIONS`, which is fixed for a
+ * given word and spread evenly across the four positions over a game. A fixed
+ * position would be learnable in about three rounds.
+ *
+ * Returns an empty array when three clean distractors cannot be found, which
+ * the caller reads as "ask this one the other way round" rather than as an
+ * error. It is not expected to happen at either difficulty -- the top hundred
+ * alone yields ninety-odd cluable words -- but a round with two options would
+ * be a worse game than a round asked as a `say`, so the fallback is the honest
+ * one.
+ */
+export function vocabOptions(
+  lang: VocabLang,
+  rank: number,
+  cap: number,
+  order: readonly number[],
+): string[] {
+  const deck = decks[lang] ?? build(lang);
+  const answer = deck.byRank.get(rank);
+  if (answer === undefined) return [];
+
+  const wrong: string[] = [];
+  const seen = new Set<string>([answer.clue]);
+  for (let i = order.length - 1; i >= 0 && wrong.length < PICK_OPTIONS - 1; i--) {
+    const other = order[i];
+    if (other === rank || other > cap) continue;
+    const question = deck.byRank.get(other);
+    if (question === undefined || seen.has(question.clue)) continue;
+    if (shareAnswer(answer, question)) continue;
+    seen.add(question.clue);
+    wrong.push(question.clue);
+  }
+  if (wrong.length < PICK_OPTIONS - 1) return [];
+
+  const options = wrong.slice();
+  options.splice(rank % PICK_OPTIONS, 0, answer.clue);
+  return options;
+}
+
+/**
+ * Whether any one word in the language answers both of these clues.
+ *
+ * The smaller set is walked, because these are wildly uneven: a function word's
+ * `accepts` runs to hundreds of entries and a concrete noun's to two or three.
+ */
+function shareAnswer(a: VocabQuestion, b: VocabQuestion): boolean {
+  const [small, large] = a.accepts.size <= b.accepts.size ? [a, b] : [b, a];
+  for (const key of small.accepts) if (large.accepts.has(key)) return true;
+  return false;
+}
+
+/** How many of the first `cap` ranks can actually be asked, for the tests. */
 export function vocabPoolSize(lang: VocabLang, cap: number): number {
   const deck = decks[lang] ?? build(lang);
   let n = 0;
@@ -203,7 +279,7 @@ export function vocabPoolSize(lang: VocabLang, cap: number): number {
   return n;
 }
 
-/** Here for the test that holds the laziness — see `chainDictionaryIsBuilt`. */
+/** Here for the test that holds the laziness. See `chainDictionaryIsBuilt`. */
 export function vocabDeckIsBuilt(lang: VocabLang): boolean {
   return decks[lang] !== undefined;
 }

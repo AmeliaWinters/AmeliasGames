@@ -1,4 +1,4 @@
-/* ── Palette ──────────────────────────────────────────────────────────
+/* Palette
    The two palettes and the channel each game takes, and nothing else. Every
    other file in here reads colour through the tokens defined below and names
    no hex of its own -- that is what makes `data-palette` a one-attribute
@@ -113,10 +113,10 @@
 
   /* The same four hues, not four different ones, so a player who learns "I'm
      the red one" in one palette still is in the other. Darkened until each
-     clears 3:1 against both the ground and the board — these are counters and
-     chips, so they are coloured components rather than text, and the one place
-     an accent is set in type (the result heading, the wordmark tail) it is
-     large and bold enough for the same threshold. */
+     clears 3:1 against both the ground and the board. These are counters and
+     chips, coloured components rather than text, and the one place an accent is
+     set in type (the result heading, the wordmark tail) it is large and bold
+     enough for the same threshold. */
   --seat-0: #cf3a24;
   --seat-1: #0a7d9e;
   --seat-2: #44861a;
@@ -165,12 +165,12 @@
   color-scheme: light;
 }
 
-/* ── Channels ──────────────────────────────────────────────────────────
+/* Channels
    The accent themes four things and no more: the game's card, the second
    half of the wordmark, the emphasised word in the status line, and the
    primary button. Let it onto borders and dividers and it stops meaning
    anything. The default is plain ink, which is what an unrecognised game id
-   gets — unstyled rather than wrong. */
+   gets: unstyled rather than wrong. */
 :root {
   --accent: var(--ink);
 }
@@ -204,3 +204,184 @@
 :root[data-game="wordchain"] { --accent: var(--seat-2); }
 :root[data-game="vocab"] { --accent: var(--seat-2); }
 
+
+/* Card identity
+   The thirteen card hues, and the only colour in this file that does not
+   belong to a palette.
+
+   The channels above are four hues doing double duty -- as seats they sit on
+   pieces, as channels they name a game -- and that is still what they are.
+   But four channels across thirteen games means the lobby has three or four
+   copies of every colour in it, and colour was doing no wayfinding at all: you
+   found Liar's Dice by reading thirteen names, because it looked exactly like
+   Yahtzee and Backgammon. On a shelf, colour is the first thing the eye sorts
+   by and the last thing it has to read. So identity comes off the channel and
+   gets its own dimension: one hue per game, used on that game's card and
+   nowhere else, so nothing about what a seat colour means has changed.
+
+   Palette-independent, and that is the point rather than an oversight: a
+   game's colour is what you recognise it by, and something you recognise a
+   game by cannot change when the person reading it prefers a light screen.
+   Which also means the contrast below was computed once instead of twice.
+
+   Both values in each pair are solved rather than picked, and the solution is
+   what makes one set of rules serve all thirteen:
+
+   --card      is that hue taken to the lightness where white lands on exactly
+               5.4:1 -- AA with margin, at every card size, on all thirteen. So
+               `--card-ink` is one value and not thirteen.
+   --card-well is the same hue taken to a relative luminance of 1.35%. All
+               thirteen wells are therefore the same brightness, which is what
+               lets `.art` rebind the motif tokens once in picker.css instead
+               of thirteen times -- and 1.35% is within a hair of the 1.46% of
+               the `--board` the motifs were originally drawn against, so every
+               one of them keeps the contrast it was measured at.
+
+   The thirteen are listed in the order they sit on the colour wheel rather
+   than in manifest order, at about 27 degrees apart, and reading down the list
+   is meant to walk the spectrum once. That ordering is the check: two hues
+   that have drifted together show up as a step that does not move.
+
+   Even spacing is doing real work rather than looking tidy. Every card is
+   solved to the same contrast against white, so all fourteen sit at nearly the
+   same luminance -- which leaves them arranged on a ring with nowhere to go in
+   the third dimension, and the only separation available is the angle. The
+   first draft grouped them by family instead (the two dice games adjacent in
+   gold, the four word games in green) and put Backgammon and Yahtzee 24 apart
+   in sRGB, which is two cards the eye cannot sort -- the precise failure the
+   whole exercise was meant to fix, reintroduced by arranging the fix tastefully.
+
+   `src/client/cardHues.test.ts` holds all of it: the two solved targets, the
+   3:1 the motif tokens need on every well, and the spacing. It is a test
+   rather than a note because none of these properties is visible in the value
+   -- `#43771c` does not look like 5.4:1, and a hue warmed up by two points
+   because it looked muddy is a blurb that has quietly dropped under AA. */
+:root {
+  /* One value, because every --card below is solved to the same 5.4:1
+     against it. A hue that cannot hold white ink is not in the family. */
+  --card-ink: #ffffff;
+  /* The blurb, a step down from the name without leaving the card's colour --
+     a second opaque grey would be a fourteenth hue on a screen that already
+     has thirteen. It is still a sentence being read, so it is held to 4.5 and
+     not to the 3:1 a shape gets: 0.82 alpha looked right and measured 4.11 on
+     the darkest card, which is a fail. 0.90 is the first step that clears it
+     on all fourteen, and it lands at 4.65-4.75 -- AA with margin, everywhere,
+     rather than on average. */
+  --card-ink-soft: rgb(255 255 255 / 0.90);
+  /* What a card is lifted off the shelf by: its own well, as a solid lip
+     under the bottom edge, plus one honest drop shadow. See `.game`. */
+  --card-radius: 16px;
+}
+
+.game[data-game="connect4"] { --card: #be3e24; --card-well: #36150e; }
+.game[data-game="backgammon"] { --card: #90610e; --card-well: #291d07; }
+.game[data-game="yahtzee"] { --card: #66700c; --card-well: #1e2106; }
+.game[data-game="vocab"] { --card: #43771c; --card-well: #15220b; }
+.game[data-game="wordle"] { --card: #227a25; --card-well: #0d240d; }
+.game[data-game="wordhunt"] { --card: #197949; --card-well: #0a2317; }
+.game[data-game="wheel"] { --card: #0c7773; --card-well: #062322; }
+.game[data-game="wordchain"] { --card: #156eae; --card-well: #0a2131; }
+.game[data-game="battleship"] { --card: #515fce; --card-well: #171b40; }
+.game[data-game="morris"] { --card: #7a55c0; --card-well: #241939; }
+.game[data-game="letterpress"] { --card: #a040b5; --card-well: #2d1533; }
+.game[data-game="liarsdice"] { --card: #b13b8f; --card-well: #32142a; }
+.game[data-game="ultimate"] { --card: #c13357; --card-well: #37131c; }
+
+/* A game the manifest knows and this file does not. Unstyled rather than
+   wrong, which is the same bargain `--accent: var(--ink)` makes above -- but
+   a *member*, not an escape hatch: neutral slate, solved to the same 5.4:1
+   and the same 1.35% as the thirteen. A fourteenth game with no hue of its
+   own should look like a card nobody has coloured in yet, and it cannot do
+   that if it is also the one card whose ink or whose well is off. */
+.game { --card: #696976; --card-well: #1e1e22; }
+
+/* The card, locked to the stage palette.
+
+   A card is palette-independent -- that is the decision above -- and a card is
+   not only its hue. The motif inside it is drawn from the game's own pieces in
+   the game's own tokens, and half of those tokens change with the palette: the
+   seats darken for a light ground, `--hull` inverts, `--mark-*` are remixed
+   for white letters. Put a daylight seat on a well whose luminance is 1.35%
+   and the piece disappears into it. So every token a motif reads is pinned to
+   its stage value, once, and the motifs inherit it.
+
+   That is what buys the guarantee the wells were solved for: the art on a card
+   is the same art in both palettes, so its contrast was computed once and
+   cannot be broken by a preference.
+
+   Two scopes, and the split is load-bearing. The seats go on `.game`, because
+   `--accent` is `var(--seat-N)` and the "Last played" chip on the card face
+   reads it -- pinning them here is what makes that chip legible in daylight,
+   where it measured 2.72:1 against the card before. Everything else goes on
+   `.art`, because everything else is only ever read inside the motif -- and
+   `--ink` in particular MUST NOT be pinned on `.game`, since the card's focus
+   ring is drawn in it on the ground *outside* the card. Cream on cream is an
+   invisible focus ring in the daylight palette, which is the kind of thing
+   that is only found by tabbing.
+
+   The register these are copied from is the `stage` block at the top of this
+   file. If a stage value changes there, it changes here -- a real cost, and
+   the alternative was thirteen wells measured twice against two sets of
+   pieces, or a lobby whose art is legible in one palette and not the other.
+
+   The six translucent ones are not copies. `--hole`, `--motif-off`, `--tray`,
+   `--rule`, `--rule-hi` and `--mark-miss` are the tokens that sit *on* the well, and the
+   well is a different hue on every card -- so they carry the stage
+   relationship rather than the stage value: black or white at the alpha whose
+   composite lands on the same contrast against the well that the stage value
+   has against `--board`. All thirteen wells are the same luminance by
+   construction, so one alpha serves them all, and each lands within 0.02 of
+   the ratio it is reproducing. `--motif-off` comes out at 3.92-4.02:1 against
+   stage's 3.91.
+
+   Every one of these five alphas was wrong when it was chosen by eye, and one
+   of them was wrong loudly: `--motif-off` is a thin edge on twelve of the
+   thirteen motifs, so 0.46 looked like nothing at all -- but Ultimate fills
+   its entire well with it, because that motif's board *is* line work, and a
+   guessed alpha turned that one card into a white slab. Derive these. The
+   arithmetic is four lines and the eye cannot see a token used twelve small
+   times and once at full bleed. */
+.game {
+  --seat-0: #ff5a47;
+  --seat-1: #21c7f0;
+  --seat-2: #8fde4c;
+  --seat-3: #ffc24b;
+}
+
+.art {
+  --board: var(--card-well);
+  --hole: rgb(0 0 0 / 0.72);
+  --motif-off: rgb(255 255 255 / 0.42);
+  --tray: rgb(0 0 0 / 0.72);
+  --rule: rgb(255 255 255 / 0.06);
+  --rule-hi: rgb(255 255 255 / 0.14);
+  --mark-miss: rgb(255 255 255 / 0.06);
+  --ring: rgb(0 0 0 / 0.4);
+
+  --ink: #f5f1e8;
+  --muted: #8e8e99;
+  --surface: #16161b;
+  --alert: #ff5a47;
+  --hull: #5d6b78;
+  --mark-hit: #8fde4c;
+  --mark-near: #ffc24b;
+  --mark-text: #0c0c0f;
+  --action-text: #0c0c0f;
+
+  /* Ultimate's card is the one motif drawn in another game's markup and
+     another game's stylesheet -- three real `.ut-small` boards, so the crosses
+     on the card are cut exactly as they are on the table. Which means its
+     token surface is the *board's*, not the card's, and none of these four
+     appear anywhere in `picker.css` to be found by reading it. They were
+     missed on the first pass for precisely that reason, and the symptom was
+     one card out of thirteen whose won boards turned pastel in daylight while
+     everything around them stayed pinned.
+
+     All four, though the motif reaches only the two `won` washes today: the
+     composition is data in `ULTIMATE_MOTIF`, and a board given a `.target` or
+     a `.drawn` there would silently start reading an unpinned token again. */
+  --ut-won-0: #592e2d;
+  --ut-won-1: #1f4a59;
+  --ut-drawn: #36363d;
+  --ut-target: #2d553f;
+}

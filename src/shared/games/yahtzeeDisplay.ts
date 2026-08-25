@@ -1,7 +1,7 @@
 /**
- * Yahtzee's constants, state shape and scoring table — see the boundary note
- * in `types.ts`. Nothing here is secret: every score is public and the dice are
- * on the table, so the split buys bundle size and nothing else. Still worth it,
+ * Yahtzee's constants, state shape and scoring table. See the boundary note in
+ * `types.ts`. Nothing here is secret: every score is public and the dice are on
+ * the table, so the split buys bundle size and nothing else. Still worth it,
  * since the scoring table is pure arithmetic over five numbers.
  */
 
@@ -10,14 +10,14 @@ import type { Tray } from './dice.js';
 import type { Toss } from './toss.js';
 
 /**
- * The tray, in its own units — not pixels. The throw is simulated against this
+ * The tray, in its own units, not pixels. The throw is simulated against this
  * tray and the faces read off it, so it must be the tray every device draws at
  * whatever size; the stylesheet holds the same shape as an `aspect-ratio`.
  *
- * The die was 7.5 and is now a quarter smaller, which is a bigger change than
- * it sounds: the dice travel further before meeting anything, and a cube's
- * resistance to spin falls with the square of its size, so the same knock
- * spins it half again as hard. Both cost a retune — see `STEP` and `SPIN_MAX`.
+ * The die was 7.5 and is now a quarter smaller, a bigger change than it sounds:
+ * the dice travel further before meeting anything, and a cube's resistance to
+ * spin falls with the square of its size, so the same knock spins it half again
+ * as hard. Both cost a retune, see `STEP` and `SPIN_MAX`.
  */
 export const YAHTZEE_TRAY: Tray = { w: 100, h: 44, die: 5.63 };
 
@@ -97,12 +97,12 @@ export interface Note {
 }
 
 export interface YState {
-  /** Five faces. 0 means "not rolled yet this turn" — see `hasRolled`. */
+  /** Five faces. 0 means "not rolled yet this turn", see `hasRolled`. */
   dice: number[];
   /**
    * The last throw, or null before anyone rolled. Not cleared at the turn
-   * boundary — `n` counts for the life of the game, and "nothing rolled yet"
-   * is told from the dice being zero instead.
+   * boundary: `n` counts for the life of the game, and "nothing rolled yet" is
+   * told from the dice being zero instead.
    */
   toss: Toss | null;
   /** Which dice the player to move is keeping. Cleared at the turn boundary. */
@@ -122,7 +122,7 @@ export interface YState {
 }
 
 export type YMove =
-  // What the client's simulation did, reported back — not a request to roll.
+  // What the client's simulation did, reported back, not a request to roll.
   // `readThrow` in `toss.ts` says how far it is believed; nothing usable means
   // the reducer rolls instead, which is what a keyboard roll takes.
   | { type: 'roll'; throw?: unknown }
@@ -138,7 +138,7 @@ export function hasRolled(state: YState): boolean {
   return state.rollsLeft < ROLLS;
 }
 
-/** How many of each face, indexed by face — `counts(dice)[6]` is the sixes. */
+/** How many of each face, indexed by face: `counts(dice)[6]` is the sixes. */
 export function counts(dice: readonly number[]): number[] {
   const tally = Array<number>(FACES + 1).fill(0);
   for (const die of dice) {
@@ -180,7 +180,7 @@ export function jokerApplies(sheet: Sheet, dice: readonly number[]): boolean {
  * `joker` is the one place the rules bend: a Yahtzee played as one fills full
  * house or either straight at face value, since the hand cannot form them and
  * a forced zero in a box the player was *told* to use is not the intent.
- * Everything else scores as it reads — a Yahtzee of threes is 15 either way.
+ * Everything else scores as it reads: a Yahtzee of threes is 15 either way.
  */
 export function scoreFor(category: Category, dice: readonly number[], joker = false): number {
   if (joker) {
@@ -218,8 +218,8 @@ export function scoreFor(category: Category, dice: readonly number[], joker = fa
 /**
  * Usually any open box. A joker is the exception and the order matters: the
  * matching upper box while it is open, then any open lower box, and only once
- * the lower section is full may an upper box be crossed off — which by then
- * can only score zero, the box for the rolled face being the one already taken.
+ * the lower section is full may an upper box be crossed off, which by then can
+ * only score zero, the box for the rolled face being the one already taken.
  */
 export function legalCategories(sheet: Sheet, dice: readonly number[]): Category[] {
   const open = CATEGORIES.filter((category) => sheet[category] === null);

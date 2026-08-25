@@ -6,8 +6,8 @@ import { FLAP_MAX, HUB_RADIUS, RADIUS, WEDGE_COUNT, flapAngle, restAngle, sector
  * The flapper, pinned rather than looked at.
  *
  * It is driven frame by frame off the wheel's live rotation, which is the one
- * kind of thing this project cannot verify in a browser — the preview pane is
- * a hidden document and never composites a frame. So the shape of the motion
+ * kind of thing this project cannot verify in a browser, the preview pane
+ * being a hidden document that never composites a frame. So the shape of the motion
  * is a pure function, and this is where it is checked.
  */
 describe('the flapper', () => {
@@ -54,7 +54,7 @@ describe('the flapper', () => {
  * A wedge is a slice, not a tile of a ring.
  *
  * The board used to clip the wheel to a band of rim, and what everybody saw
- * was a doughnut — nothing converged, so nothing read as a wheel and there was
+ * was a doughnut: nothing converged, so nothing read as a wheel and there was
  * no middle to throw it about. The geometry was always right; the crop was
  * hiding it. This pins the geometry so the next crop cannot quietly go back.
  */

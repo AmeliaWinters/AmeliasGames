@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-// Values from letterpressDisplay.js, which imports nothing — the board must
+// Values from letterpressDisplay.js, which imports nothing: the board must
 // never pull the reducer (and the word list with it) into the client bundle.
-// The types below are type-only, so they are erased and carry no import.
+// The types below are type-only, so they carry no import.
 import {
   GRID_SIZE,
   MIN_WORD,
@@ -23,11 +23,11 @@ type Props = BoardProps<LpState, LpMove>;
  * Letterpress. Tap tiles anywhere on the grid to spell a word; every tile you
  * used turns your colour, unless it is locked.
  *
- * Tap and nothing else — no drag, no keyboard. Word Hunt needs a drag because
- * its letters have to touch, and the gesture *is* the rule; here they do not,
- * so a drag would be a worse way of doing what a tap already does. That makes
- * this the friendliest board in the app on a phone: twenty-five targets, each
- * one bigger than a thumb, and a tap on a chosen tile takes it back out again.
+ * Tap and nothing else: no drag, no keyboard. Word Hunt needs a drag because
+ * its letters have to touch and the gesture *is* the rule; here they do not, so
+ * a drag would be a worse way of doing what a tap already does. That makes this
+ * the friendliest board in the app on a phone: twenty-five targets, each bigger
+ * than a thumb, and a tap on a chosen tile takes it back out again.
  *
  * The board says three things about every tile, and all three matter before
  * you commit to a word: whose it is, whether it is locked, and where it sits
@@ -46,7 +46,7 @@ export function LetterpressBoard({ state, seat, names, canAct, onMove }: Props) 
 
   /*
     A half-built word means nothing once the board has moved underneath it. It
-    is cleared on every move by anybody — not only on losing the turn — because
+    is cleared on every move by anybody, not only on losing the turn, because
     the tiles a word was going to take are exactly what the opponent's move
     changes.
   */
@@ -180,7 +180,7 @@ export function LetterpressBoard({ state, seat, names, canAct, onMove }: Props) 
               <span className="lp-spelt">{word}</span>
             ) : (
               <span className="lp-hint">
-                Tap any tiles, anywhere — {MIN_WORD} letters or more
+                Tap any tiles, anywhere. {MIN_WORD} letters or more
               </span>
             )}
             {spent !== null && (
@@ -213,10 +213,10 @@ export function LetterpressBoard({ state, seat, names, canAct, onMove }: Props) 
           >
             Clear
           </button>
-          {/* Never disabled — it is always a legal move on your turn, and the
+          {/* Never disabled: it is always a legal move on your turn, and the
               label carries the warning rather than the button being greyed. */}
           <button type="button" className="lp-pass" onClick={() => onMove({ type: "pass" })}>
-            {state.passes === 1 ? "Pass — ends it" : "Pass"}
+            {state.passes === 1 ? "Pass, and that ends it" : "Pass"}
           </button>
         </div>
       )}

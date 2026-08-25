@@ -1,15 +1,35 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   Rebellia Games — Playbill
+/*
+   Rebellia Games, the playbill.
 
-   One dark stage, four channels. Everything below the palette blocks — type,
-   layout, motion — is shared, so switching palette changes only colour.
+   One dark stage, four channels. Everything below the palette blocks (type,
+   layout, motion) is shared, so switching palette changes only colour.
 
    Stage is the default: near-black ground, cream type, condensed caps. Four
-   signal colours do double duty — as seats they sit on pieces, and as channels
-   they identify a game — so the whole palette is five neutrals and four hues.
-   No gradients, no glows, no glassmorphism.
+   signal colours do double duty, sitting on pieces as seats and identifying a
+   game as channels, so the palette of the app proper is five neutrals and four
+   hues. No gradients, no glows, no glassmorphism.
 
-   ── How this is laid out ──────────────────────────────────────────────
+   One thing sits outside that count, and deliberately. The lobby shelf gives
+   each game its own colour: thirteen hues that are identity and nothing else,
+   used on that game's card and nowhere the game is actually played. Four
+   channels across thirteen games meant three or four cards shared every hue,
+   so colour was doing no wayfinding at all and the shelf was found by reading
+   thirteen names. The seats keep meaning exactly what they meant, the card
+   hues never touching a piece, and the two sets are kept apart by scope rather
+   than by discipline: `--card` is only ever read inside `.game`.
+
+   Cards are also the one place with depth. A card carries a solid lip in its
+   own darker shade and presses into it, and the primary button carries the
+   same lip inset. A physical affordance rather than decoration: it says "push
+   this" on the two things in the app you push, and it is still not a gradient,
+   a glow or a pane of frosted glass. The stage stays flat.
+
+   The card palette is pinned to `stage` in both palettes, so a card looks the
+   same whichever one you are in. `src/client/cardHues.test.ts` holds that:
+   the hues to the contrast they were solved for, and the pinning to being
+   complete.
+
+   How this is laid out
    This file is the running order and nothing else. CSS is decided by source
    order, so the sequence below *is* the cascade -- it is the one thing here
    worth reading top to bottom, and the only place the whole stylesheet is
@@ -48,7 +68,7 @@
    in the app, because a bare `:hover` sticks after a tap on a touchscreen and
    left a tapped column lit for the rest of the turn -- keeping them in one
    place is what stops the next one being written outside the guard.
-   ═══════════════════════════════════════════════════════════════════════ */
+    */
 
 @import "./palette.css";
 @import "./base.css";

@@ -30,7 +30,7 @@ afterAll(async () => {
   await new Promise<void>((r) => wss.close(() => r()));
 });
 
-/** A raw protocol client — deliberately bypasses the UI, like a cheater would. */
+/** A raw protocol client, deliberately bypassing the UI like a cheater would. */
 class TestClient {
   private socket: WebSocket;
   private inbox: ServerMessage[] = [];
@@ -59,7 +59,7 @@ class TestClient {
     this.socket.send(JSON.stringify(msg));
   }
 
-  /** Bypasses the type system entirely — the point is what a hostile client sends. */
+  /** Bypasses the type system entirely: the point is what a hostile client sends. */
   sendRaw(text: string): void {
     this.socket.send(text);
   }
@@ -89,7 +89,7 @@ class TestClient {
     throw new Error(`never received a ${t} message`);
   }
 
-  /** Everything received so far, queued or not — for tests that inspect frames. */
+  /** Everything received so far, queued or not, for tests that inspect frames. */
   received(): ServerMessage[] {
     return this.inbox.slice();
   }
@@ -231,7 +231,7 @@ describe('hostile input', () => {
     client.sendRaw('null');
     expect((await client.nextOf('error')).message).toMatch(/malformed/i);
 
-    // The process — and everyone else's game — is still here.
+    // The process, and everyone else's game, is still here.
     const { host, guest } = await seatTwoPlayers();
     expect(host.open).toBe(true);
     client.close();
@@ -314,7 +314,7 @@ describe('hostile input', () => {
 describe('server authority', () => {
   it('rejects a move sent out of turn by a hand-rolled client', async () => {
     const { host, guest } = await seatTwoPlayers();
-    // Guest is seat 1; seat 0 is to play. The UI would disable this — the
+    // Guest is seat 1; seat 0 is to play. The UI would disable this, and the
     // server must refuse it anyway.
     guest.send({ t: 'move', move: { type: 'drop', col: 0 } });
     const msg = await guest.nextOf('error');
@@ -374,7 +374,7 @@ describe('server authority', () => {
     // Seat 0 takes column 0 four times over; seat 1 answers in column 1. One
     // move at a time: two sockets sending at once arrive in whichever order
     // the loopback feels like, and half of them would be rejected as out of
-    // turn. Every frame is read from the host, who is sent every broadcast —
+    // turn. Every frame is read from the host, who is sent every broadcast;
     // reading each mover's own copy would shift whichever stale frame was
     // still queued on that socket instead.
     let room = started; // the room as dealt
@@ -386,7 +386,7 @@ describe('server authority', () => {
 
     host.send({ t: 'switch', gameId: 'yahtzee' });
 
-    // Both sides are told, not just the one who asked — the other player's
+    // Both sides are told, not just the one who asked. The other player's
     // board has to change at the same moment, or they are left looking at a
     // game nobody is playing.
     for (const client of [host, guest]) {

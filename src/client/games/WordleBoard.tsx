@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-// Values from wordleDisplay.js, which imports nothing — the board must never
+// Values from wordleDisplay.js, which imports nothing: the board must never
 // pull the reducer (and the word list with it) into the client bundle. The
-// types below are type-only, so they are erased and carry no runtime import.
+// types below are type-only, so they carry no runtime import.
 import {
   HIDDEN,
   KEY_ROWS,
@@ -47,11 +47,57 @@ const MARK_LABEL: Record<Mark, string> = {
   miss: "not in the word",
 };
 
+/**
+ * The row that has just this moment arrived, or null.
+ *
+ * The turn-over is the point of a Wordle grid: the marks are the entire reply
+ * to a guess, and handing over all five at once is handing over the answer
+ * before any of the reading. But it must fire on a guess *landing*, not on the
+ * grid being drawn: a rejoin, a palette switch, or the opponent's panel
+ * re-rendering all mount rows that arrived minutes ago, and replaying them
+ * would be the board inventing news.
+ *
+ * So the count is compared against the count this grid last saw, from an
+ * effect rather than during render: only a grid that watched the row appear
+ * marks it fresh. The first render sets the baseline and marks nothing, which
+ * is the rejoin case answering itself.
+ *
+ * The index sticks until another row arrives, which is deliberate: a CSS
+ * animation runs when it is applied, not while it is there, so a finished row
+ * keeping the class costs nothing and clearing it would be a second timer to
+ * get wrong.
+ *
+ * It does have to be dropped when the grid *shrinks*, though, and that is not
+ * tidiness. A rematch empties the grid with the class still sitting on row 3;
+ * the player then guesses their way back down to row 3, React sees a className
+ * it has already written and leaves the attribute alone, so the one row in the
+ * game that most wanted the turn is the one that does not get it.
+ */
+function useArrival(count: number): number | null {
+  const seen = useRef(count);
+  const [fresh, setFresh] = useState<number | null>(null);
+
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = count;
+    if (count > was) setFresh(count - 1);
+    else if (count < was) setFresh(null);
+  }, [count]);
+
+  return fresh;
+}
+
 function GuessGrid({ rows, label }: { rows: Row[]; label: string }) {
+  const fresh = useArrival(rows.length);
+
   return (
     <div className="wd-grid" role="table" aria-label={label}>
       {padRows(rows).map((row, index) => (
-        <div className="wd-row" role="row" key={index}>
+        <div
+          className={index === fresh ? "wd-row turning" : "wd-row"}
+          role="row"
+          key={index}
+        >
           {Array.from({ length: WORD_LENGTH }, (_, i) => {
             const letter = row?.word[i] ?? "";
             const mark = row?.marks[i];
@@ -128,7 +174,7 @@ function WordInput({
           autoCorrect="off"
           spellCheck={false}
           inputMode="text"
-          placeholder={"·".repeat(WORD_LENGTH)}
+          placeholder={"-".repeat(WORD_LENGTH)}
           aria-label={label}
           onChange={(event) =>
             onChange(event.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase())
@@ -150,8 +196,8 @@ function WordInput({
 /**
  * The keyboard, doing the two jobs it does in Wordle: it is the record of what
  * you have learned, and on a phone it is how you type. Tapping beats the OS
- * keyboard here — that one covers half the screen, and this board's whole point
- * is watching two grids at once.
+ * keyboard here, which covers half the screen when this board's whole point is
+ * watching two grids at once.
  *
  * It shows only your own letters. Your opponent's marks are against a different
  * word and would be worse than useless on these keys.
@@ -262,9 +308,9 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
 
   // A spectator (no seat) watches; everything below reads as "not my move".
   const mine = seat !== null;
-  // The clock closes the input the moment it reads zero, rather than a
-  // round-trip later — the server has already stopped taking guesses by then,
-  // and a box that still accepts one is promising something it cannot deliver.
+  // The clock closes the input the moment it reads zero rather than a
+  // round-trip later. The server has already stopped taking guesses by then,
+  // and a box that still accepts one is promising what it cannot deliver.
   const myMove = mine && canAct && myLeft !== 0;
 
   function submit() {
@@ -284,8 +330,8 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
         <p className="wd-brief">
           Pick a five-letter word for {nameFor(setFor) || "the next player"} to
           guess. Slang and swearing are fair game. You will be hunting somebody
-          else's — nobody ever gets their own. The guessing is untimed until
-          somebody cracks their word — that puts everyone still hunting on a
+          else's, and nobody ever gets their own. The guessing is untimed until
+          somebody cracks their word, which puts everyone still hunting on a
           one-minute clock, and running it out finishes you.
         </p>
 
@@ -346,12 +392,12 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
                 </h3>
 
                 {/*
-                  Your own word reads out in full on the right — it is yours,
-                  you already know it. The one you are hunting stays masked
+                  Your own word reads out in full on the right, being yours and
+                  already known to you. The one you are hunting stays masked
                   until the game ends and the server finally sends it.
                 */}
                 <p className={target === HIDDEN ? "wd-target masked" : "wd-target"}>
-                  {target ?? "—"}
+                  {target ?? "?????"}
                 </p>
 
                 <GuessGrid
@@ -375,7 +421,7 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
             The shot clock, and only when one is running: until somebody
             solves nobody is on one, and a 1:00 sitting there frozen would
             read as broken rather than as not yet started.
-            Yours or theirs — whose it is changes the whole message, so the
+            Yours or theirs: whose it is changes the whole message, so the
             two are written out rather than shared.
           */}
           {myLeft !== null && (
@@ -402,7 +448,7 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
               {/* The announcement the clock above cannot make without reading
                   itself out four times a second. `clockCall` changes only on
                   crossing a mark, so this speaks at a minute, thirty, ten and
-                  time — and stays silent in between. */}
+                  time, and stays silent in between. */}
               <span className="sr-only" aria-live="polite">
                 {clockCall(myLeft, true)}
               </span>
@@ -440,7 +486,7 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
           )}
           {myMove && alone && (
             <p className="wd-waiting" aria-live="polite">
-              Everyone else is done — the table is yours, a minute a guess.
+              Everyone else is done. The table is yours, a minute a guess.
             </p>
           )}
           <Keyboard

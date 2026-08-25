@@ -38,29 +38,29 @@ export {
   shipCells,
   shipClass,
   shotAt,
+  shotLog,
   squareName,
   unplaced,
 } from './battleshipDisplay.js';
-export type { BsMove, BsState, Ship, ShipClass, ShipKind, Shot } from './battleshipDisplay.js';
+export type { BsMove, BsState, LoggedShot, Ship, ShipClass, ShipKind, Shot } from './battleshipDisplay.js';
 
 /**
  * Battleships, in two halves that behave quite differently.
  *
  * 1. **Placing is free-simultaneous.** Both admirals set out at once and
  *    neither waits on the other, so `turn` reports whoever is still working
- *    purely as a hint for the status line — `applyMove` never consults it
- *    while placing. Anything deciding whether a player may act must ask
- *    `canAct`.
+ *    purely as a hint for the status line; `applyMove` never consults it
+ *    while placing. Anything deciding whether a player may act asks `canAct`.
  *
  * 2. **A hit earns another shot.** The guns pass on a miss and only on a miss,
  *    which is how the game is played on paper: finding a ship and then walking
- *    along her is the whole hunt, and a turn that ended at the first hit would
- *    throw that away. It does mean a hot streak can finish things quickly —
- *    that is the game, not a bug in it.
+ *    along her is the whole hunt, and a turn ending at the first hit would
+ *    throw that away. A hot streak can finish things quickly, which is the
+ *    game and not a bug in it.
  *
  * The secret is the fleet: where it is, and which ship a hit landed on. A shot
  * report says hit, miss, or sunk and nothing more, exactly as it does across a
- * table. `view()` is the only thing keeping any of it — every other function
+ * table. `view()` is the only thing keeping any of it. Every other function
  * here is written as though positions were public, because on the server they
  * are.
  */
@@ -86,9 +86,9 @@ function makeShip(kind: ShipKind, row: number, col: number, horizontal: boolean)
 }
 
 /**
- * Both fleets down means the shooting starts. Seat 0 fires first, which is a
- * real advantage in this game — and the same advantage seat 0 has in every
- * other game here, so it stays where players expect to find it.
+ * Both fleets down means the shooting starts. Seat 0 fires first, a real
+ * advantage in this game, and the same advantage seat 0 has in every other
+ * game here, so it stays where players expect to find it.
  */
 function sail(state: BsState): BsState {
   if (state.phase !== 'placing') return state;
@@ -102,7 +102,7 @@ function place(
   seat: number,
 ): MoveResult<BsState> {
   if (state.phase !== 'placing') {
-    return { ok: false, error: 'The fleets have sailed — no moving them now.' };
+    return { ok: false, error: 'The fleets have sailed, so no moving them now.' };
   }
   const fleet = state.fleets[seat];
   const why = placementError(fleet, move.kind, move.row, move.col, Boolean(move.horizontal));
@@ -115,7 +115,7 @@ function place(
 
 function unplace(state: BsState, kind: ShipKind, seat: number): MoveResult<BsState> {
   if (state.phase !== 'placing') {
-    return { ok: false, error: 'The fleets have sailed — no moving them now.' };
+    return { ok: false, error: 'The fleets have sailed, so no moving them now.' };
   }
   const fleet = state.fleets[seat];
   if (!fleet.some((ship) => ship.kind === kind)) {
@@ -127,11 +127,11 @@ function unplace(state: BsState, kind: ShipKind, seat: number): MoveResult<BsSta
 }
 
 /**
- * Fill whatever is left of a fleet at random — the "just deal me a board"
+ * Fill whatever is left of a fleet at random: the "just deal me a board"
  * button, and the reason this game takes an rng at all.
  *
  * Rejection sampling with a bounded number of tries rather than a clever
- * search: five ships on a hundred squares is roomy enough that a legal spot
+ * search. Five ships on a hundred squares is roomy enough that a legal spot
  * turns up almost at once, and a reducer that could loop forever is a worse
  * trade than one that occasionally gives up. Giving up leaves the fleet
  * part-placed, which the player can see and finish by hand.
@@ -157,7 +157,7 @@ function scatterInto(fleet: Ship[], rng: Rng): Ship[] {
 
 function scatter(state: BsState, seat: number, rng: Rng): MoveResult<BsState> {
   if (state.phase !== 'placing') {
-    return { ok: false, error: 'The fleets have sailed — no moving them now.' };
+    return { ok: false, error: 'The fleets have sailed, so no moving them now.' };
   }
   const fleets = state.fleets.slice();
   fleets[seat] = scatterInto(state.fleets[seat], rng);
@@ -246,9 +246,9 @@ export const battleship: GameDefinition<BsState, BsMove> = {
 
   /*
    * There was an `allowsEarlyMove` here, letting a fleet be placed while the
-   * room was still short an admiral — placing is private, simultaneous, and
-   * most of the waiting, and the room used to refuse every move until the
-   * invite was answered.
+   * room was still short an admiral. Placing is private, simultaneous and most
+   * of the waiting, and the room used to refuse every move until the invite
+   * was answered.
    *
    * Open seating removed the need for it: a room is dealt only once the people
    * in it say they are all here, so there is no longer any such thing as a
@@ -257,7 +257,7 @@ export const battleship: GameDefinition<BsState, BsMove> = {
 
   /**
    * While firing this is the whole truth. While placing it is a hint for the
-   * status line only — see the note at the top of this file. Ties go to seat 0
+   * status line only, see the note at the top of this file. Ties go to seat 0
    * so this stays a pure function of the state.
    */
   turn(state) {
@@ -268,7 +268,7 @@ export const battleship: GameDefinition<BsState, BsMove> = {
     return null;
   },
 
-  // Straight through from the display module — see the note on Word Duel's.
+  // Straight through from the display module, see the note on Word Duel's.
   // Note which way round these two are: `turn` is derived from `canAct` above
   // and not the other way about, because during placing there is no turn to
   // derive anything from.
@@ -298,27 +298,27 @@ export const battleship: GameDefinition<BsState, BsMove> = {
     // miss that handed them the guns.
     const streak = state.shots[state.turn].at(-1);
     const last = streak?.hit ? streak : state.shots[opponentOf(state.turn)].at(-1);
-    // Hit, miss, or the name of a ship that has gone down — the three things
+    // Hit, miss, or the name of a ship that has gone down: the three things
     // called out across a table, and never which ship a mere hit landed on.
     const report = !last
       ? ''
       : last.sunk
-        ? ` — the ${shipClass(last.sunk)?.name} is sunk`
+        ? `, and the ${shipClass(last.sunk)?.name} is sunk`
         : last.hit
-          ? ' — a hit'
-          : ' — a miss';
+          ? ', a hit'
+          : ', a miss';
     return `${nameFor(state.turn)} to fire${streak?.hit ? ' again' : ''}${report}`;
   },
 
   /**
    * The secret: where the enemy ships are, and which of them a hit landed on.
    *
-   * The second half matters as much as the first. You know perfectly well
-   * which squares you have hit — you fired at them and watched — but on paper
-   * nobody tells you that two of those hits were the same cruiser. Working
-   * that out is the game. So an enemy ship that is still afloat is sent with
-   * her position blanked *and* her damage wiped: everything the board draws
-   * about your shots it draws from your own shot log.
+   * The second half matters as much as the first. You know which squares you
+   * have hit, since you fired at them and watched, but on paper nobody tells
+   * you that two of those hits were the same cruiser. Working that out is the
+   * game. So an enemy ship still afloat is sent with her position blanked
+   * *and* her damage wiped: everything the board draws about your shots it
+   * draws from your own shot log.
    *
    * A ship that has gone down is revealed outright, damage and all: her
    * position is exactly what the hits that sank her already spelled out, and
