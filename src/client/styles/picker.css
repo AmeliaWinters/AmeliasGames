@@ -44,6 +44,22 @@
   gap: 11px;
   min-width: 0;
 }
+/* The shelf's own name, and the answer to the question above the rule.
+
+   A step above `.shelf-head` and no more: those name kinds of game and this
+   names what the whole column is for, so it has to win, but the loud things on
+   this page are the cards and neither label is competing with them. Same face,
+   same tracking, one size up and a little more air over it. */
+.start-head {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
 .shelf {
   display: flex;
   flex-direction: column;

@@ -206,12 +206,23 @@ export const HOST = 0;
  * look at the clue, but it bought that by giving one player six seconds of
  * nothing to do every round, and it still ended the round the instant the
  * expert typed, so the learner half way through spelling it got the same
- * nothing as before, only later. What replaced it costs nobody a dead second:
- * the round stays open for everybody, so being beaten to a word no longer means
- * being shut out of it, and a level buys two things instead, how long your own
- * window is and what your answers are worth. The expert answers first, out of a
- * shorter window, for half the points. The learner answers slowly, out of the
- * full thirty, for all of them.
+ * nothing as before, only later. What replaced *that* was a shorter window and
+ * halved points for the fluent seat, and it worked on the scoreline while being
+ * a bad deal to be on either end of: the expert was told their answers were
+ * worth less for being right, the learner was told theirs counted double for
+ * being slow, and the two of them were answering the same question with
+ * different arithmetic behind it. A handicap you can read off a multiplier is
+ * one nobody believes they earned.
+ *
+ * **So a level no longer buys time or points. It buys the question.** Every
+ * seat gets the same thirty seconds and the same scoring; what a level decides
+ * is how often the word comes at you as four meanings to choose between
+ * (`pick`) and how often as a blank box (`say`). A beginner is mostly
+ * recognising and occasionally producing; somebody fluent is producing every
+ * round. The handicap is real, because a `pick` is half the points
+ * (`PICK_SCALE`) and much the easier question, but it arrives as a *thing on
+ * your screen* rather than as a discount applied to you, and it is the thing
+ * the game is teaching either way. See `LEVEL_ASKS`.
  *
  * Three bands rather than a slider: the honest answer is coarse, and a number
  * invites haggling over half-seconds in a room of eight people trying to
@@ -228,59 +239,84 @@ export const LEVEL_NAME: Record<VocabLevel, string> = {
 };
 
 /**
- * How long a seat's own window is open, counted from the clue going up.
+ * What mix of questions a seat gets, as a cycle read by round number.
  *
- * The first half of the handicap, and it is a deadline rather than a delay:
- * everybody may type from the first millisecond, the expert simply has less of
- * the round to do it in. Nobody ever sits watching a dead box.
+ * The whole of the handicap now, and the reason `LEVEL_WINDOW_MS` and
+ * `LEVEL_SCALE` are gone. Cycled rather than sampled because the
+ * round-to-round progression runs through `expire`, which is never handed an
+ * rng (see `DECK_DEPTH`), so which kind of question a seat gets has to be a
+ * function of how many rounds have been filed and nothing else.
  *
- * Calibrated against what the two players are actually doing. Somebody who
- * knows the word is typing it (read the clue, type four letters, about two
- * seconds) so fifteen is not a constraint they will often feel, and it is not
- * meant to be: it is the point past which they have plainly forgotten it and
- * the learner should have the table to themselves. Somebody learning has to
- * recall the word and then spell it in an orthography they are not fluent in,
- * eight to ten seconds *when they know it*, and that is the case worth
- * protecting. Thirty leaves them room to be slow and still arrive.
+ * The densities are the argument:
+ *
+ * - **new** is three `pick`s in four. Recognition is where somebody three
+ *   weeks in actually lives, and a blank box they cannot fill is not a
+ *   question, it is a wait. The one `say` in the cycle is the point: a beginner
+ *   who never types never learns to produce, and one round in four is often
+ *   enough to be worth reaching for and rare enough not to be a wall.
+ * - **some** is one `pick` in three, which is the rhythm the whole table used
+ *   to get and the reason this is the default. Production is the game, with a
+ *   breather in it.
+ * - **fluent** is no `pick` at all. Offering four English meanings to somebody
+ *   who grew up with the language is not a question, and paying them half for
+ *   answering it would be the old multiplier wearing a hat.
+ *
+ * They start on different feet on purpose. A beginner's first round is a
+ * `pick`, so the first thing they ever see is a question they can answer;
+ * everybody else opens on a `say`, which is the game the setup screen has just
+ * described.
  */
-export const LEVEL_WINDOW_MS: Record<VocabLevel, number> = {
-  new: ROUND_MS,
-  some: 22 * 1000,
-  fluent: 15 * 1000,
+export const LEVEL_ASKS: Record<VocabLevel, readonly VocabAsk[]> = {
+  new: ['pick', 'pick', 'say', 'pick'],
+  some: ['say', 'say', 'pick'],
+  fluent: ['say'],
 };
 
-/**
- * What a seat's right answers are worth, as a fraction.
- *
- * The second half of the handicap, and the half that does the real work. A
- * shorter window alone would not have been enough: fifteen seconds is still
- * more than a fluent speaker needs, so it costs them almost nothing and the
- * learner goes on losing every exchange. Halving the points is what makes a
- * slow right answer from somebody three weeks in worth more than a fast one
- * from somebody who grew up with the language, the entire thing this game was
- * failing to do.
- *
- * It reads harsher than it plays, because speed multiplies too: an expert
- * answering in two seconds of fifteen keeps most of the speed bonus and lands
- * around 0.9 of a word's rarity against the learner's 1.6. Roughly two rounds of
- * theirs to three of the learner's: a real gap, and one the expert closes every
- * time the learner does not know the word at all and scores nothing.
- */
-export const LEVEL_SCALE: Record<VocabLevel, number> = {
-  new: 1,
-  some: 0.75,
-  fluent: 0.5,
-};
+/** Which way round the round at `index` is asked of a seat at `level`. */
+export function askFor(level: VocabLevel, index: number): VocabAsk {
+  const cycle = LEVEL_ASKS[level];
+  return cycle[index % cycle.length];
+}
 
 /**
- * What a seat starts at before anybody says otherwise.
+ * How long after the clue goes up a beginner is shown the hint they did not
+ * buy.
  *
- * The middle, not the bottom. A room where nobody touches this is a room of
- * people roughly matched, and the middle treats them all identically, same
- * window and same scale, so the handicap only shows up once somebody says they
- * are different. A default of `new` would make the setting a thing you must
- * remember to claim, and the person who forgets is the one it was for.
+ * Five seconds, and only on a `say` round for a seat that said it was just
+ * starting. That seat gets one typed round in four (see `LEVEL_ASKS`), and it
+ * is the round most likely to be five seconds of staring followed by a pass --
+ * which teaches nothing and is the exact failure the `pick` rounds exist to
+ * prevent. First letter plus length is the cue that resolves a word on the tip
+ * of the tongue, so handing it over turns a dead round into a retrieval the
+ * player completes themselves.
+ *
+ * **Free means free**: it costs no allowance and it does not scale the points.
+ * A discount would make the beginner's one typed round in four worth half,
+ * which is the multiplier this design just finished removing. It is a floor
+ * under the round, not a purchase, so `hinted` stays false and
+ * `HINT_ALLOWANCE` is untouched.
+ *
+ * Five rather than ten because the round is thirty seconds long and the point
+ * is to leave time to *use* it. Somebody who knows the word has already typed
+ * it by five and never sees this.
  */
+export const FREE_HINT_MS = 5 * 1000;
+
+/**
+ * Whether `seat` is the kind of seat the free hint is for.
+ *
+ * Level and direction only, no clock: `view()` has no `now` (see the
+ * `GameDefinition` signature), so the server sends the hint down with an `at`
+ * on it and the board holds it until the clock reaches it. That does mean a
+ * seat's own board holds its own hint five seconds early. It is worth it: the
+ * alternative is a clock in `view` or a timer move in the reducer, and what
+ * leaks is one player's first letter to that one player, on a round the game
+ * has already decided to give it to them, worth the same points either way.
+ */
+export function autoHinted(state: VocabState, seat: number): boolean {
+  return levelOf(state, seat) === 'new';
+}
+
 export const DEFAULT_LEVEL: VocabLevel = 'some';
 
 /**
@@ -400,25 +436,16 @@ export const DECK_DEPTH = Math.max(MODE_CAP.hard, MODE_CAP.phrases);
  * where somebody three weeks in actually lives, and a round they can always
  * play even on a word they could not have produced.
  *
- * Both are the same shared clue, the same word asked of the whole table at
- * once, because that is the rule this game is built on and the one that killed
- * per-player languages and per-seat depth before it. Nothing here is per seat.
+ * Both are the same shared clue -- the same word, drawn once, asked of the
+ * whole table at once -- and that is the rule this game is built on, the one
+ * that killed per-player languages and per-seat depth before it. **Which way
+ * round it is asked is the one thing that is per seat**, and it is the
+ * exception that keeps the rule: the word does not change, only the shape of
+ * the box you answer it in, so a beginner picking and an expert typing are
+ * still racing on the same clue and their scores are still comparable. A
+ * per-seat *word* would not be a race at all.
  */
 export type VocabAsk = 'say' | 'pick';
-
-/**
- * How often the question turns around: every third round is a `pick`.
- *
- * Third rather than second, because production is what the game is for and
- * recognition is the breather. It has to be a rhythm rather than a coin toss:
- * the round-to-round progression runs through `expire`, which is never handed
- * an rng (see `DECK_DEPTH`), so which kind of round comes next has to be a
- * function of how many have already been asked and nothing else.
- *
- * Round one is therefore always a `say`, which is the game the setup screen
- * has just described.
- */
-export const PICK_EVERY = 3;
 
 /**
  * How many meanings a `pick` round offers.
@@ -433,11 +460,6 @@ export const PICK_EVERY = 3;
  * is what a phone has room for under a word held large enough to read.
  */
 export const PICK_OPTIONS = 4;
-
-/** Which way round the round at `index` is asked, counting from zero. */
-export function askAt(index: number): VocabAsk {
-  return (index + 1) % PICK_EVERY === 0 ? 'pick' : 'say';
-}
 
 export type VocabPhase = 'setup' | 'asking' | 'reveal' | 'over';
 
@@ -495,6 +517,18 @@ export type VocabHow = 'right' | 'wrong' | 'gave-up' | 'timeout';
 export interface VocabHint {
   seat: number;
   /**
+   * When it may be shown, as a server clock. `round.began` for one that was
+   * bought, later for the beginner's free one. See `FREE_HINT_MS` for why the
+   * board holds it rather than the server withholding it.
+   */
+  at: number;
+  /**
+   * Whether it was given rather than bought. A free one spent no allowance and
+   * scales no points, so the try it belongs to is not `hinted`. Read by the
+   * board, which must not offer to sell what it is about to give away.
+   */
+  free: boolean;
+  /**
    * The word with everything but its first letter held back.
    *
    * **Blanked for every seat but its own.** See `maskWord`, and `view()` in
@@ -515,6 +549,13 @@ export interface VocabHint {
 export interface VocabTry {
   seat: number;
   how: VocabHow;
+  /**
+   * Which way round this seat was asked. On the try because it is per seat and
+   * because it is what the points were priced against: the review, the stats
+   * and `record`'s grading all want to know whether a word was produced or
+   * recognised, and a settled round holds both kinds at once.
+   */
+  ask: VocabAsk;
   /**
    * What they typed, as they typed it: `zolty` for **żółty**. Empty for a seat
    * that gave up or ran out of window.
@@ -557,11 +598,21 @@ export interface VocabRound {
    * reducer is where both cases are handled.
    */
   clue: string;
-  /** Which direction this round is asked in. See `VocabAsk`. */
-  ask: VocabAsk;
   /**
-   * The four meanings offered on a `pick` round, in the order they are drawn.
-   * Empty on a `say` round.
+   * Which direction this round is asked in, per seat, in seat order. See
+   * `VocabAsk` and `LEVEL_ASKS`.
+   *
+   * Stored rather than recomputed from `levels` at every read. Levels cannot
+   * change once the game starts, so the two could not drift today, but this is
+   * the field a settled round in `history` is read back through months later
+   * and it should say what was actually asked rather than what a constant would
+   * say now. It is also what `view()` branches on, and a redaction that depends
+   * on a recomputation is one bad refactor from broadcasting the answer.
+   */
+  asks: VocabAsk[];
+  /**
+   * The four meanings offered to whoever is picking, in the order they are
+   * drawn. Empty on a round nobody picks.
    *
    * The correct one is `clue`, and it is in here somewhere, which is exactly
    * why `clue` cannot go out on the wire while the round is running: a board
@@ -573,8 +624,9 @@ export interface VocabRound {
   /** Null for the whole of `asking`, on every client. The server always has it. */
   answer: VocabAnswer | null;
   /**
-   * Who has bought a hint on this clue, and what they were shown. At most one
-   * per seat, and empty on a `pick` round, where there is nothing to hint at.
+   * Who has a hint on this clue, and what it says. At most one per seat, and
+   * never for a seat that is picking, where there is nothing to hint at. Most
+   * are bought; a beginner's is given. See `VocabHint`.
    */
   hints: VocabHint[];
   /**
@@ -609,12 +661,12 @@ export interface VocabState {
   scores: number[];
   /**
    * What each seat says it already knows, in seat order. Set by that seat and
-   * nobody else, during setup only. See `holdMs` for what it buys.
+   * nobody else, during setup only. See `LEVEL_ASKS` for what it buys.
    *
-   * Public, deliberately. It decides when a rival may start typing, so hiding
-   * it would make the pauses in a round unreadable: a player watching an
-   * opponent sit still for six seconds should know that is the handicap and
-   * not a slow connection.
+   * Public, deliberately. It decides what question a rival is looking at, so
+   * hiding it would make the round unreadable: a player who answered in two
+   * seconds was either quick or was choosing from four, and the table should
+   * be able to tell which.
    */
   levels: VocabLevel[];
   /**
@@ -734,16 +786,33 @@ export function levelOf(state: VocabState, seat: number): VocabLevel {
 /**
  * How long `seat` has to answer, counted from the clue going up.
  *
- * Absolute rather than relative to the table, which is the opposite of how the
- * old hold worked and is the simpler rule: your window is your window, and a
- * room of four fluent speakers is one where everybody gets fifteen seconds and
- * everything is worth half. Still a fair game between them, because a handicap
- * applied identically to everyone cancels out of the result. There is nothing
- * to normalise.
+ * The same thirty seconds for everybody, which is the point: a level buys the
+ * *question* now, not the clock (see `LEVEL_ASKS`). Kept as a function of the
+ * seat rather than flattened to `ROUND_MS` at every call site because the
+ * machinery around it -- `windowLeft`, `roundDeadline`, the speed term in
+ * `roundPoints` -- is per seat regardless, since seats finish at different
+ * times, and a per-seat window is the shape that survived being wrong once.
+ *
+ * Zero for a seat that is not in this game, which `roundDeadline` relies on.
  */
 export function windowMs(state: VocabState, seat: number): number {
   if (seat < 0 || seat >= state.scores.length) return 0;
-  return LEVEL_WINDOW_MS[levelOf(state, seat)];
+  return ROUND_MS;
+}
+
+/**
+ * Which way round `round` was asked of `seat`. `say` for a seat the round has
+ * never heard of, which is the safe way to be wrong: a seat wrongly given a
+ * blank box can still answer, where one wrongly given four meanings would be
+ * shown a clue that is supposed to be the secret.
+ */
+export function askIn(round: VocabRound | null, seat: number): VocabAsk {
+  return round?.asks[seat] ?? 'say';
+}
+
+/** Which way round the clue on the table is being asked of `seat`. */
+export function askOf(state: VocabState, seat: number): VocabAsk {
+  return askIn(state.round, seat);
 }
 
 /** The try `seat` has already had this round, or null if it is still in. */
@@ -772,11 +841,12 @@ export function windowLeft(state: VocabState, seat: number, now: number | undefi
 /**
  * When the round on the table should close.
  *
- * The last window still open and no later, so a round ends the moment the
- * slowest seat still typing runs out rather than always burning the full thirty
- * seconds because one beginner is in the room. Every seat that finishes pulls
- * this in, which is what makes "give up" worth pressing: it is the fastest way
- * to the next word.
+ * The last window still open and no later. With every window the same length
+ * that reduces to "when everybody's thirty seconds are up", but the shape is
+ * what matters: every seat that finishes pulls this in, and the round ends the
+ * moment the last one does. That is what makes "give up" worth pressing -- it
+ * is the fastest way to the next word -- and it is the only thing keeping a
+ * table of four off a dead clock.
  *
  * `now` when everybody is done, meaning settle immediately. A round with nothing
  * left to wait for should not sit on the screen at all.
@@ -869,11 +939,18 @@ export function hintsLeft(state: VocabState, seat: number): number {
  * Whether `seat` may buy a hint on the clue in front of it.
  *
  * Everything `canAct` wants, and three things more: there has to be an
- * allowance left, this seat must not already have hinted this round (a second
- * would only re-show the first), and the round has to be a `say`. That last one
- * is the rule worth naming -- the first letter of a word already printed on the
- * screen is not information, and selling it would be charging somebody half
- * their points for nothing.
+ * allowance left, this seat must not already have a hint this round (a second
+ * would only re-show the first), and this seat has to be *typing*. That last
+ * one is the rule worth naming -- the first letter of a word already printed
+ * on the screen is not information, and selling it would be charging somebody
+ * half their points for nothing. It is per seat now, because the round is: on
+ * a mixed table one seat is picking and the seat beside it is typing.
+ *
+ * A beginner is refused too, and not because they may not have one. They are
+ * about to be *given* one (`FREE_HINT_MS`), and a shop that sells at half
+ * price what it hands out free five seconds later is a trap rather than a
+ * choice. Their three stay unspent, which is the honest reading of an
+ * allowance they were never asked to draw on.
  *
  * Deliberately *not* folded into `canAct`. They answer different questions and
  * the board needs both at once: a seat that may hint is by definition still
@@ -882,7 +959,8 @@ export function hintsLeft(state: VocabState, seat: number): number {
 export function canHint(state: VocabState, seat: number, now?: number): boolean {
   if (!canAct(state, seat, now)) return false;
   if (state.phase !== 'asking' || state.round === null) return false;
-  if (state.round.ask !== 'say') return false;
+  if (askIn(state.round, seat) !== 'say') return false;
+  if (autoHinted(state, seat)) return false;
   if (hintsLeft(state, seat) <= 0) return false;
   return hintOf(state.round, seat) === null;
 }
@@ -897,28 +975,27 @@ export function canHint(state: VocabState, seat: number, now?: number): boolean 
  * - **rarity** is the point of playing. A game that paid the same for `and` as
  *   for a word you had to reach for would be a typing test;
  * - **speed** is what stops the round being a stroll for whoever is not being
- *   raced. It is measured against the player's *own* window, so it is not the
- *   handicap applied twice;
- * - **level** is the handicap, and it is applied last so it scales everything
- *   the round could have been worth rather than some fixed part of it.
- *
- * Two more terms multiply on the end of those three, and both are discounts
- * for a question that was easier than the full one:
- *
- * - **which way round it was asked** (`PICK_SCALE`), because choosing a meaning
- *   from four is not producing a word from nothing;
+ *   raced. It is measured against the player's own window, which is the same
+ *   thirty seconds for everybody;
+ * - **which way round it was asked** (`PICK_SCALE`), because choosing a
+ *   meaning from four is not producing a word from nothing. This is where the
+ *   handicap lives now: nothing scales a seat for *being* a beginner, and a
+ *   beginner scores half on the three rounds in four they are handed the
+ *   easier question. Same rule for everybody, applied to the question rather
+ *   than to the player -- an expert who somehow drew a `pick` would be paid
+ *   exactly the same half;
  * - **whether they bought a hint** (`HINT_SCALE`), which is the price of the
- *   decision the hint exists to create.
+ *   decision the hint exists to create. A hint that was *given* rather than
+ *   bought is not priced at all: see `FREE_HINT_MS`.
  *
- * All five are multiplied rather than added, so nothing here can be gamed by
+ * All four are multiplied rather than added, so nothing here can be gamed by
  * stacking: a hinted answer on a recognition round is a quarter of what the
  * same word would have paid typed cold, which is the honest ratio.
  *
  * Rounded to a whole number, and never below one: a right answer that scored
  * nothing would read as a bug, and the seat that answered a very common word
- * at the very edge of a halved window has still answered it. That floor is
- * doing more work now than it was -- a common word, hinted, picked, late, in a
- * fluent seat's window prices out below one and still pays it.
+ * at the very edge of its window has still answered it. A common word, hinted,
+ * picked and late prices out below one and still pays it.
  */
 export function roundPoints(
   state: VocabState,
@@ -935,7 +1012,6 @@ export function roundPoints(
   const scaled =
     rarity *
     (1 + SPEED_BONUS * left) *
-    LEVEL_SCALE[levelOf(state, seat)] *
     (ask === 'pick' ? PICK_SCALE : 1) *
     (hinted ? HINT_SCALE : 1);
   return Math.max(1, Math.round(scaled));
@@ -960,7 +1036,8 @@ export function roundPoints(
  * - **asking** is everybody who has not finished this round and still has
  *   window left. Crucially that includes seats somebody has *already beaten*,
  *   since a right answer no longer closes the round, and this predicate is
- *   where that promise is kept;
+ *   where that promise is kept. It does not care which way round the seat was
+ *   asked: a `pick` and a `say` are both answers to the same clue;
  * - **reveal** is nobody, which is the point of it. The answer is on the
  *   screen, so a guess taken during the reveal would be a guess at nothing.
  */
@@ -970,8 +1047,9 @@ export function canAct(state: VocabState, seat: number, now?: number): boolean {
   if (state.phase !== 'asking') return false;
   if (state.round === null) return false;
   if (outOfTime(state, now)) return false;
-  // A window that has run out is checked separately from the round's clock:
-  // on a mixed table the expert's closes first, and it closes for them alone.
+  // A window that has run out is still checked separately from the round's
+  // clock. They are the same length today, but the round's deadline moves in
+  // as seats finish (see `roundDeadline`) and this one does not.
   if (now !== undefined && windowLeft(state, seat, now) === 0) return false;
   return tryOf(state.round, seat) === null;
 }

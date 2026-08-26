@@ -5,10 +5,8 @@ import {
   HINT_ALLOWANCE,
   HINT_SCALE,
   HOST,
-  LEVEL_SCALE,
-  LEVEL_WINDOW_MS,
+  LEVEL_ASKS,
   MODE_CAP,
-  PICK_EVERY,
   PHRASE_COUNT,
   PHRASE_RARITY,
   PICK_OPTIONS,
@@ -21,7 +19,8 @@ import {
   TARGET,
   VOCAB_LANGS,
   VOCAB_LEVELS,
-  askAt,
+  askFor,
+  askIn,
   canAct,
   canHint,
   everyoneDone,
@@ -117,7 +116,7 @@ function wrongWord(state: VocabState, lang: VocabLang): string {
  * from zero, by letting every round before it time out unanswered.
  *
  * Needed because which way round a clue is asked is a function of how many have
- * been filed (see `askAt`), so a test about recognition rounds has to get to
+ * been filed (see `askFor`), so a test about recognition rounds has to get to
  * one, and the only way forward through this game is the clock.
  */
 function atRound(state: VocabState, n: number, from = 1_000): { state: VocabState; now: number } {
@@ -132,18 +131,26 @@ function atRound(state: VocabState, n: number, from = 1_000): { state: VocabStat
   return { state, now };
 }
 
+/**
+ * The first round a seat at `DEFAULT_LEVEL` is asked the other way round.
+ *
+ * Read off the cycle rather than written down, so a retuned `LEVEL_ASKS` moves
+ * the tests that need a recognition round with it instead of leaving them
+ * quietly asserting about a `say`.
+ */
+const SOME_PICK = LEVEL_ASKS.some.indexOf('pick');
+
 /** Drive the clock the way `RoomEngine.tick` does, once. */
 function tick(state: VocabState, now: number): VocabState {
   return vocab.expire?.(state, now) ?? state;
 }
 
 /**
- * The window every seat gets when nobody has touched the level setting.
- *
- * Twenty-two seconds rather than thirty, because `DEFAULT_LEVEL` is the middle
- * band -- so a round in an untouched room closes on this, not on `ROUND_MS`.
+ * The window every seat gets. `ROUND_MS` for everybody, at every level: what a
+ * level buys is the question, not the clock. Kept as a name rather than
+ * inlined so the tests that turn on "your own window" still say so.
  */
-const DEFAULT_WINDOW = LEVEL_WINDOW_MS[DEFAULT_LEVEL];
+const DEFAULT_WINDOW = ROUND_MS;
 
 /** What one seat did with the clue on the table. Throws rather than returning
  * null, so a test that meant to assert on a try fails where it went wrong. */
@@ -185,13 +192,15 @@ function paid(state: VocabState, seat: number, rank: number, ms: number): number
  *
  * Server-side knowledge either way: on a `say` round it reads the word off the
  * state, on a `pick` round it finds the correct option by matching the clue.
- * Every test that plays past round two needs this, because every third round is
- * a `pick` and a `guess` is refused on one.
+ * Every test that plays past round two needs this, because a seat at the
+ * default level gets a `pick` every third round and a `guess` is refused on
+ * one. Which seat is asked matters now: on a mixed table the same round is a
+ * `pick` for one seat and a `say` for the one beside it.
  */
-function rightMove(state: VocabState): VocabMove {
+function rightMove(state: VocabState, seat = 0): VocabMove {
   const round = state.round;
   if (round === null) throw new Error('no round on the state');
-  if (round.ask === 'say') return { type: 'guess', word: answerOf(state) };
+  if (askIn(round, seat) === 'say') return { type: 'guess', word: answerOf(state) };
   const option = round.options.indexOf(round.clue);
   if (option < 0) throw new Error('the right answer is not among the options');
   return { type: 'choose', option };
@@ -562,22 +571,19 @@ describe('the handicap', () => {
     );
   });
 
-  it('gives a shorter window and a smaller share to whoever knows more', () => {
+  it('gives every level the same clock and the same points', () => {
     const state = levelled(['new', 'some', 'fluent']);
-    VOCAB_LEVELS.forEach((level, seat) => {
-      expect(windowMs(state, seat)).toBe(LEVEL_WINDOW_MS[level]);
-    });
-
-    // The ordering is the meaning, and the board draws the buttons in it:
-    // further down the list is less time and less credit, both monotonic.
-    const windows = VOCAB_LEVELS.map((level) => LEVEL_WINDOW_MS[level]);
-    const scales = VOCAB_LEVELS.map((level) => LEVEL_SCALE[level]);
-    expect(windows).toEqual([...windows].sort((a, b) => b - a));
-    expect(scales).toEqual([...scales].sort((a, b) => b - a));
-    // The beginner is the unhandicapped case: the whole round, all the points.
-    expect(LEVEL_WINDOW_MS.new).toBe(ROUND_MS);
-    expect(LEVEL_SCALE.new).toBe(1);
+    // The handicap moved off the clock and the scoreline entirely: what a
+    // level buys is the mix of questions, and nothing else. This is the test
+    // that fails if somebody reintroduces a multiplier.
+    VOCAB_LEVELS.forEach((_, seat) => expect(windowMs(state, seat)).toBe(ROUND_MS));
     expect(windowMs(state, 9)).toBe(0);
+
+    const rank = state.round!.answer!.rank;
+    const paidAt = VOCAB_LEVELS.map((_, seat) =>
+      roundPoints(state, seat, rank, 4_000, 'say', false),
+    );
+    expect(new Set(paidAt).size).toBe(1);
   });
 
   /**
@@ -590,19 +596,17 @@ describe('the handicap', () => {
     for (let seat = 0; seat < 3; seat++) expect(canAct(state, seat, began)).toBe(true);
   });
 
-  it('closes the expert box early and leaves the learner typing', () => {
+  it('runs every box to the same edge and closes it there', () => {
     const state = levelled(['fluent', 'new']);
     const began = state.round!.began;
 
-    // A millisecond before the expert's fifteen seconds: both still in.
-    const edge = began + LEVEL_WINDOW_MS.fluent;
-    expect(windowLeft(state, 0, edge - 1)).toBe(1);
-    expect(canAct(state, 0, edge - 1)).toBe(true);
-    // And after: the expert is done, the learner has half the round left.
-    expect(windowLeft(state, 0, edge)).toBe(0);
-    expect(canAct(state, 0, edge)).toBe(false);
-    expect(canAct(state, 1, edge)).toBe(true);
-    expect(windowLeft(state, 1, edge)).toBe(LEVEL_WINDOW_MS.new - LEVEL_WINDOW_MS.fluent);
+    const edge = began + ROUND_MS;
+    for (const seat of [0, 1]) {
+      expect(windowLeft(state, seat, edge - 1)).toBe(1);
+      expect(canAct(state, seat, edge - 1)).toBe(true);
+      expect(windowLeft(state, seat, edge)).toBe(0);
+      expect(canAct(state, seat, edge)).toBe(false);
+    }
     expect(refuse(state, { type: 'guess', word: answerOf(state) }, 0, edge + 1_000)).toBe(
       'Not your move.',
     );
@@ -611,16 +615,19 @@ describe('the handicap', () => {
   it('ends the round on the last window still open, not on the longest one', () => {
     const state = levelled(['fluent', 'new']);
     const began = state.round!.began;
-    // The round opens on the beginner's thirty, because that is the last box
-    // that will still be open.
     expect(state.deadline).toBe(began + ROUND_MS);
 
-    // The learner answers early, leaving only the expert -- whose window shuts
-    // at fifteen. So the round does, rather than sitting out the remaining
-    // fifteen seconds with nobody at the table able to type.
-    const after = accept(state, { type: 'guess', word: answerOf(state) }, 1, began + 4_000);
+    // Equal windows, so the deadline only moves when a seat *finishes*. The
+    // learner answers early and the expert is the last one still typing, so
+    // the round runs to the expert's edge -- and would have run to the
+    // learner's had they swapped.
+    const after = accept(state, rightMove(state, 1), 1, began + 4_000);
     expect(after.phase).toBe('asking');
-    expect(after.deadline).toBe(began + LEVEL_WINDOW_MS.fluent);
+    expect(after.deadline).toBe(began + ROUND_MS);
+
+    // And the moment the expert is done too, with no clock left to wait on.
+    const done = accept(after, { type: 'pass' }, 0, began + 5_000);
+    expect(done.phase).toBe('reveal');
   });
 
   it('settles the moment the last seat is done, however each of them got there', () => {
@@ -649,6 +656,7 @@ describe('the handicap', () => {
       seat: 1,
       how: 'gave-up',
       said: '',
+      ask: 'say',
       ms: 1_000,
       points: 0,
       hinted: false,
@@ -667,12 +675,10 @@ describe('the handicap', () => {
 
     expect(settled.phase).toBe('reveal');
     expect(settled.round?.tries.map((a) => a.how)).toEqual(['timeout', 'timeout']);
-    // Filled in at each seat's own window rather than the round's, which is
-    // the honest number: the expert's box shut fifteen seconds before this.
-    expect(settled.round?.tries.map((a) => a.ms)).toEqual([
-      LEVEL_WINDOW_MS.fluent,
-      LEVEL_WINDOW_MS.new,
-    ]);
+    // Filled in at each seat's own window rather than the round's. The same
+    // number for both today; still read per seat, because the round's deadline
+    // and a seat's window are different clocks.
+    expect(settled.round?.tries.map((a) => a.ms)).toEqual([ROUND_MS, ROUND_MS]);
     expect(settled.scores).toEqual([0, 0]);
   });
 
@@ -712,49 +718,54 @@ describe('what a round pays', () => {
     expect(paid(state, 0, 50, window)).toBe(RARITY_STEP * 2);
   });
 
-  it('scales what a seat scores by what it said it knew', () => {
+  /**
+   * The headline, and the thing this whole design turns on now: the handicap
+   * is in the *question*, so the arithmetic is the same for everybody and it
+   * is the beginner's three-in-four `pick` rounds that cost them half. An
+   * expert handed a `pick` would pay exactly the same half.
+   */
+  it('scales by the question asked and never by who is asking', () => {
     const state = levelled(['new', 'some', 'fluent']);
-    // Every seat on the same word at its own buzzer, so speed is out of it and
-    // the only difference left is the declaration.
-    VOCAB_LEVELS.forEach((level, seat) => {
-      expect(paid(state, seat, 50, windowMs(state, seat))).toBe(
-        Math.round(RARITY_STEP * 2 * LEVEL_SCALE[level]),
-      );
-    });
+    const cold = VOCAB_LEVELS.map((_, seat) => roundPoints(state, seat, 50, 3_000, 'say', false));
+    const chosen = VOCAB_LEVELS.map((_, seat) =>
+      roundPoints(state, seat, 50, 3_000, 'pick', false),
+    );
+    expect(new Set(cold).size).toBe(1);
+    expect(new Set(chosen).size).toBe(1);
+    expect(chosen[0]).toBe(Math.round(cold[0] * PICK_SCALE));
   });
 
   /**
-   * The headline, and the thing every other test here exists to support: the
-   * expert is six times faster on the same clue and still scores less.
+   * What replaced "a slow learner outscores a fast expert": the expert is six
+   * times faster on the same clue and does outscore them, on a round they both
+   * typed -- and the learner takes it back on the three rounds in four they
+   * were asked the other way and the expert was not. The gap is earned per
+   * round rather than applied to a person.
    */
-  it('pays a slow learner more than a fast expert for the same word', () => {
+  it('pays the faster answer more when the question was the same one', () => {
     const state = levelled(['fluent', 'new']);
     const expert = paid(state, 0, 50, 2_000);
     const learner = paid(state, 1, 50, 12_000);
-    expect(expert).toBeGreaterThan(0);
-    expect(learner).toBeGreaterThan(expert);
+    expect(learner).toBeGreaterThan(0);
+    expect(expert).toBeGreaterThan(learner);
   });
 
-  it('measures speed against your own window, so the handicap is not applied twice', () => {
+  it('measures speed against your own window, the same one for everybody', () => {
     const state = levelled(['fluent', 'new']);
-    // Both seats exactly half way through their own window. The speed term is
-    // identical by construction, so what is left between them is the level
-    // scale and nothing else -- the expert's shorter window must not cost them
-    // a second time here.
+    // Both seats exactly half way through their own window, which is now the
+    // same window. Nothing at all is left between them.
     const expert = paid(state, 0, 5, windowMs(state, 0) / 2);
     const learner = paid(state, 1, 5, windowMs(state, 1) / 2);
     expect(learner).toBe(Math.round(RARITY_STEP * (1 + SPEED_BONUS / 2)));
-    expect(expert).toBe(
-      Math.round(RARITY_STEP * (1 + SPEED_BONUS / 2) * LEVEL_SCALE.fluent),
-    );
+    expect(expert).toBe(learner);
   });
 
   it('never scores a right answer at nothing', () => {
     const state = levelled(['fluent', 'new']);
-    // The cheapest this game can pay: the commonest word in the language, at
-    // the very edge of a halved window. A right answer worth zero would read
-    // as a bug, and a learner would believe it.
-    expect(paid(state, 0, 1, windowMs(state, 0))).toBeGreaterThanOrEqual(1);
+    // The cheapest this game can pay: the commonest word in the language,
+    // chosen from four, hinted, at the very edge of the window. A right answer
+    // worth zero would read as a bug, and a learner would believe it.
+    expect(roundPoints(state, 0, 1, windowMs(state, 0), 'pick', true)).toBeGreaterThanOrEqual(1);
     expect(paid(state, 0, 1, 999_999)).toBeGreaterThanOrEqual(1);
   });
 
@@ -770,7 +781,7 @@ describe('what a round pays', () => {
   });
 
   it('banks every seat that scored, not just the first one', () => {
-    const state = levelled(['new', 'new', 'new']);
+    const state = levelled(['fluent', 'fluent', 'fluent']);
     const word = answerOf(state);
     let after = accept(state, { type: 'guess', word }, 0, 3_000);
     after = accept(after, { type: 'guess', word }, 2, 9_000);
@@ -789,30 +800,77 @@ describe('what a round pays', () => {
 });
 
 describe('asking it the other way round', () => {
-  it('turns the question round every third time, and never on the first', () => {
-    expect(askAt(0)).toBe('say');
-    expect(askAt(PICK_EVERY - 1)).toBe('pick');
-    expect(askAt(PICK_EVERY)).toBe('say');
-    expect(askAt(PICK_EVERY * 2 - 1)).toBe('pick');
+  /**
+   * The densities are the handicap, so they are the thing to pin: a beginner
+   * mostly recognising, the middle mostly producing, somebody fluent producing
+   * every round. If a cycle is retuned this should be the test that says so.
+   */
+  it('mixes the two directions by level, and never picks for somebody fluent', () => {
+    const counted = VOCAB_LEVELS.map((level) => {
+      const cycle = LEVEL_ASKS[level];
+      const picks = cycle.filter((ask) => ask === 'pick').length;
+      return picks / cycle.length;
+    });
+    // Monotonic and in the order the buttons are drawn: further down the list
+    // is less choosing and more typing.
+    expect(counted).toEqual([...counted].sort((a, b) => b - a));
+    expect(LEVEL_ASKS.fluent).toEqual(['say']);
+    expect(counted[0]).toBeGreaterThan(0.5);
+
+    // And the cycle is what `askFor` reads, at every offset including the wrap.
+    for (const level of VOCAB_LEVELS) {
+      const cycle = LEVEL_ASKS[level];
+      for (let i = 0; i < cycle.length * 2 + 1; i++) {
+        expect(askFor(level, i)).toBe(cycle[i % cycle.length]);
+      }
+    }
+  });
+
+  it('opens on the question each level was promised', () => {
+    // A beginner's first round is one they can answer; everybody else opens on
+    // the game the setup screen has just described.
+    expect(askFor('new', 0)).toBe('pick');
+    expect(askFor('some', 0)).toBe('say');
+    expect(askFor('fluent', 0)).toBe('say');
   });
 
   it('deals the rhythm it promises, with no rng anywhere near it', () => {
     let { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), 0);
     const dealt: string[] = [];
     for (let i = 0; i < 6; i++) {
-      dealt.push(state.round?.ask ?? 'gone');
+      dealt.push(askIn(state.round, 0));
       state = atRound(state, i + 1).state;
     }
+    // `playing` leaves everybody at the default level, so this is `some`.
     expect(dealt).toEqual(['say', 'say', 'pick', 'say', 'say', 'pick']);
   });
 
-  it('offers four meanings on a pick round and none on a say round', () => {
-    const say = playing('pl', 'hard', 2, 1_000, inOrder);
-    expect(say.round?.ask).toBe('say');
-    expect(say.round?.options).toEqual([]);
+  /**
+   * One word, two questions, and this is the rule that keeps it a race: the
+   * clue is drawn once and the options are drawn once, so the beginner
+   * choosing and the expert typing are answering the same thing.
+   */
+  it('asks one round two ways on a mixed table', () => {
+    const state = levelled(['new', 'fluent'], 'pl', 'hard');
+    expect(state.round?.asks).toEqual(['pick', 'say']);
+    expect(state.round?.options).toHaveLength(PICK_OPTIONS);
+    expect(state.round?.options).toContain(state.round?.clue);
 
-    const { state } = atRound(say, PICK_EVERY - 1);
-    expect(state.round?.ask).toBe('pick');
+    // Each seat's own move, and neither may make the other's.
+    expect(refuse(state, { type: 'choose', option: 0 }, 1)).toBe('This one is typed, not chosen.');
+    expect(refuse(state, { type: 'guess', word: answerOf(state) }, 0)).toBe(
+      'Choose one of the meanings instead.',
+    );
+  });
+
+  it('offers four meanings when somebody is picking and none when nobody is', () => {
+    // A table of experts: nobody picks, so there is nothing to draw.
+    const none = levelled(['fluent', 'fluent'], 'pl', 'hard');
+    expect(none.round?.asks).toEqual(['say', 'say']);
+    expect(none.round?.options).toEqual([]);
+
+    const state = levelled(['new', 'new'], 'pl', 'hard');
+    expect(state.round?.asks).toEqual(['pick', 'pick']);
     expect(state.round?.options).toHaveLength(PICK_OPTIONS);
     expect(state.round?.options).toContain(state.round?.clue);
     expect(new Set(state.round?.options).size).toBe(PICK_OPTIONS);
@@ -878,7 +936,7 @@ describe('asking it the other way round', () => {
   });
 
   it('scores the meaning that matches and ends the round for one that does not', () => {
-    const { state, now } = atRound(levelled(['new', 'new'], 'pl', 'hard'), PICK_EVERY - 1);
+    const { state, now } = atRound(levelled(['new', 'new'], 'pl', 'hard'), 0);
     const round = state.round;
     if (!round) throw new Error('no round');
     const right = round.options.indexOf(round.clue);
@@ -898,7 +956,7 @@ describe('asking it the other way round', () => {
   });
 
   it('refuses an option that is not one of the four', () => {
-    const { state, now } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), PICK_EVERY - 1);
+    const { state, now } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), SOME_PICK);
     expect(refuse(state, { type: 'choose', option: PICK_OPTIONS }, 0, now + 1)).toBe(
       'That is not one of the meanings on offer.',
     );
@@ -916,7 +974,7 @@ describe('asking it the other way round', () => {
       'This one is typed, not chosen.',
     );
 
-    const { state, now } = atRound(say, PICK_EVERY - 1);
+    const { state, now } = atRound(say, SOME_PICK);
     expect(refuse(state, { type: 'guess', word: answerOf(state) }, 0, now + 1)).toBe(
       'Choose one of the meanings instead.',
     );
@@ -929,9 +987,9 @@ describe('asking it the other way round', () => {
    * either puts the answer on every screen or asks nothing at all.
    */
   it('sends the word and holds back the clue, which is the other way round', () => {
-    const { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), PICK_EVERY - 1);
+    const { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), SOME_PICK);
     const seen = vocab.view?.(state, 1);
-    expect(seen?.round?.ask).toBe('pick');
+    expect(askIn(seen?.round ?? null, 1)).toBe('pick');
     expect(seen?.round?.clue).toBe('');
     expect(seen?.round?.answer?.word).toBe(answerOf(state));
     expect(seen?.round?.options).toEqual(state.round?.options);
@@ -966,7 +1024,7 @@ describe('hints', () => {
   });
 
   it('starts every seat with three and spends them one at a time', () => {
-    let state = levelled(['new', 'new']);
+    let state = levelled(['fluent', 'fluent']);
     expect(state.hints).toEqual([HINT_ALLOWANCE, HINT_ALLOWANCE]);
     expect(canHint(state, 0, 2_000)).toBe(true);
 
@@ -1000,7 +1058,7 @@ describe('hints', () => {
    * last seat asked for one, which is the opposite of what it is for.
    */
   it('does not end the round, file a try, or move the deadline', () => {
-    const state = levelled(['new', 'new']);
+    const state = levelled(['fluent', 'fluent']);
     const after = accept(state, { type: 'hint' }, 0, 2_000);
 
     expect(after.phase).toBe('asking');
@@ -1011,21 +1069,22 @@ describe('hints', () => {
   });
 
   it('goes only to the seat that paid for it, though the fact of it is public', () => {
-    const state = accept(levelled(['new', 'new']), { type: 'hint' }, 0, 2_000);
+    const state = accept(levelled(['fluent', 'fluent']), { type: 'hint' }, 0, 2_000);
     const word = answerOf(state);
 
     const mine = vocab.view?.(state, 0);
-    expect(mine?.round?.hints).toEqual([{ seat: 0, shown: maskWord(word) }]);
+    const bought = { seat: 0, at: 2_000, free: false };
+    expect(mine?.round?.hints).toEqual([{ ...bought, shown: maskWord(word) }]);
 
     const theirs = vocab.view?.(state, 1);
-    expect(theirs?.round?.hints).toEqual([{ seat: 0, shown: '' }]);
+    expect(theirs?.round?.hints).toEqual([{ ...bought, shown: '' }]);
 
     // A spectator is nobody's seat, so a spectator is told nothing either.
-    expect(vocab.view?.(state, -1).round?.hints).toEqual([{ seat: 0, shown: '' }]);
+    expect(vocab.view?.(state, -1).round?.hints).toEqual([{ ...bought, shown: '' }]);
   });
 
   it('is one to a round', () => {
-    const state = accept(levelled(['new', 'new']), { type: 'hint' }, 0, 2_000);
+    const state = accept(levelled(['fluent', 'fluent']), { type: 'hint' }, 0, 2_000);
     expect(canHint(state, 0, 2_500)).toBe(false);
     expect(refuse(state, { type: 'hint' }, 0, 2_500)).toBe(
       'You have already had your hint on this one.',
@@ -1035,8 +1094,8 @@ describe('hints', () => {
   });
 
   it('is not for sale on a round where the word is already on the screen', () => {
-    const { state, now } = atRound(levelled(['new', 'new'], 'pl', 'hard'), PICK_EVERY - 1);
-    expect(state.round?.ask).toBe('pick');
+    const { state, now } = atRound(levelled(['new', 'new'], 'pl', 'hard'), 0);
+    expect(askIn(state.round, 0)).toBe('pick');
     expect(canHint(state, 0, now + 1_000)).toBe(false);
     expect(refuse(state, { type: 'hint' }, 0, now + 1_000)).toBe(
       'The word is already on the screen.',
@@ -1045,7 +1104,7 @@ describe('hints', () => {
   });
 
   it('halves what the answer then pays', () => {
-    const state = levelled(['new', 'new']);
+    const state = levelled(['fluent', 'fluent']);
     const buzzer = windowMs(state, 0);
     expect(roundPoints(state, 0, 50, buzzer, 'say', true)).toBe(
       Math.round(RARITY_STEP * 2 * HINT_SCALE),
@@ -1065,13 +1124,13 @@ describe('hints', () => {
   it('never prices a right answer down to nothing, however much is stacked on it', () => {
     const state = levelled(['fluent', 'new']);
     // The cheapest question this game can ask, answered the cheapest way: the
-    // commonest word, chosen not typed, hinted, at the buzzer, in a halved
-    // window. It prices out below one and still has to pay one.
+    // commonest word, chosen not typed, hinted, at the buzzer. It prices out
+    // below one and still has to pay one.
     expect(roundPoints(state, 0, 1, windowMs(state, 0), 'pick', true)).toBe(1);
   });
 
   it('remembers a hint the window then ran out on', () => {
-    const state = levelled(['new', 'new']);
+    const state = levelled(['fluent', 'fluent']);
     const hinted = accept(state, { type: 'hint' }, 0, 2_000);
     const settled = tick(hinted, hinted.deadline!);
 
@@ -1092,7 +1151,7 @@ describe('hints', () => {
   });
 
   it('leaves the hint on the round for a seat that reconnects to it', () => {
-    const state = accept(levelled(['new', 'new']), { type: 'hint' }, 0, 2_000);
+    const state = accept(levelled(['fluent', 'fluent']), { type: 'hint' }, 0, 2_000);
     // The same view built twice is the same view: nothing about a hint is
     // consumed by being looked at, which is what a reconnect depends on.
     expect(vocab.view?.(state, 0).round?.hints).toEqual(
@@ -1100,6 +1159,86 @@ describe('hints', () => {
     );
     expect(hintOf(state.round, 0)?.shown).toBe(maskWord(answerOf(state)));
     expect(hintOf(state.round, 1)).toBeNull();
+  });
+
+  /**
+   * The beginner's free one. It is not a move, not on the state, and not a
+   * discount: it is a floor under the one round in four they have to type.
+   */
+  describe('the free one', () => {
+    it('is not on the state, and turns up in the view with a time on it', () => {
+      const state = levelled(['new', 'fluent'], 'pl', 'hard');
+      // The reducer knows nothing about it, which is the whole design: it
+      // costs no allowance and prices no points, so nothing on the server has
+      // a reason to hold it.
+      expect(state.round?.hints).toEqual([]);
+
+      // The beginner is picking on round one, so there is nothing to hint at
+      // yet. Their typed round is where it appears.
+      let { state: typing, now } = atRound(state, LEVEL_ASKS.new.indexOf('say'));
+      expect(askIn(typing.round, 0)).toBe('say');
+
+      const seen = vocab.view?.(typing, 0);
+      expect(seen?.round?.hints).toEqual([
+        {
+          seat: 0,
+          at: typing.round!.began + FREE_HINT_MS,
+          free: true,
+          shown: maskWord(typing.round!.answer!.word),
+        },
+      ]);
+      expect(hintsLeft(typing, 0)).toBe(HINT_ALLOWANCE);
+      expect(now).toBeGreaterThan(0);
+    });
+
+    it('goes to nobody else, whatever their level or their question', () => {
+      const state = levelled(['new', 'fluent'], 'pl', 'hard');
+      const { state: typing } = atRound(state, LEVEL_ASKS.new.indexOf('say'));
+
+      // The expert is typing the same word and is not given anything.
+      expect(vocab.view?.(typing, 1).round?.hints).toEqual([]);
+      // Nor is the beginner, on the rounds they are choosing rather than
+      // typing: the word is already the largest thing on their screen.
+      expect(askIn(state.round, 0)).toBe('pick');
+      expect(vocab.view?.(state, 0).round?.hints).toEqual([]);
+      // Nor is a spectator, who has no level and no round of their own.
+      expect(vocab.view?.(typing, -1).round?.hints).toEqual([]);
+    });
+
+    it('costs the answer nothing, unlike one that was bought', () => {
+      const { state } = atRound(
+        levelled(['new', 'new'], 'pl', 'hard'),
+        LEVEL_ASKS.new.indexOf('say'),
+      );
+      const began = state.round!.began;
+      const after = accept(state, { type: 'guess', word: answerOf(state) }, 0, began + 9_000);
+
+      expect(attempt(after, 0).how).toBe('right');
+      // Not hinted, so nothing halved it, and the allowance is untouched.
+      expect(attempt(after, 0).hinted).toBe(false);
+      expect(hintsLeft(after, 0)).toBe(HINT_ALLOWANCE);
+      expect(attempt(after, 0).points).toBe(
+        roundPoints(state, 0, state.round!.answer!.rank, 9_000, 'say', false),
+      );
+    });
+
+    it('is not also for sale, so nobody pays for what they are about to be given', () => {
+      const { state } = atRound(
+        levelled(['new', 'new'], 'pl', 'hard'),
+        LEVEL_ASKS.new.indexOf('say'),
+      );
+      expect(canHint(state, 0, state.round!.began + 1_000)).toBe(false);
+      expect(refuse(state, { type: 'hint' }, 0, state.round!.began + 1_000)).toBe(
+        'Your hint is free on this one. It arrives in a moment.',
+      );
+      expect(hintsLeft(state, 0)).toBe(HINT_ALLOWANCE);
+    });
+
+    it('arrives well inside the round, with time left to use it', () => {
+      // The point of five rather than fifteen: the hint is only worth having
+      // if there is round left to spend it in.
+      expect(FREE_HINT_MS).toBeLessThan(ROUND_MS / 2);
+    });
   });
 });
 
@@ -1192,7 +1331,7 @@ describe('winning', () => {
   function race(state: VocabState, seat: number, n: number, from = 2_000): { state: VocabState; now: number } {
     let now = from;
     for (let i = 0; i < n && state.phase !== 'over'; i++) {
-      state = accept(state, rightMove(state), seat, now);
+      state = accept(state, rightMove(state, seat), seat, now);
       state = othersPass(state, seat, now);
       now += REVEAL_MS;
       state = tick(state, now);
@@ -1501,8 +1640,8 @@ describe('what it records', () => {
 
   it('grades a recognition round as recognition, not production', () => {
     const first = playing('pl', 'normal', 2, 1_000, inOrder);
-    const { state: at, now } = atRound(first, PICK_EVERY - 1);
-    expect(at.round?.ask).toBe('pick');
+    const { state: at, now } = atRound(first, SOME_PICK);
+    expect(askIn(at.round, 0)).toBe('pick');
 
     const right = at.round?.options.indexOf(at.round.clue) ?? -1;
     const state = accept(at, { type: 'choose', option: right }, 0, now + 1_000);

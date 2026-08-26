@@ -278,59 +278,116 @@ button.primary:focus-visible {
   color: var(--ink);
 }
 
-/* The join box: open on the page, above the shelf.
+/* Joining a room: type on the ground, not a card.
 
-   It borrows the panel's surface on purpose. It is the same object the code
-   used to open, and a second card style for the same content would be two
-   things to keep in step for no reader's benefit.
+   This was a panel, and then briefly a ticket stub, and both were wrong in the
+   same way. The lobby answers two questions -- start one, or get into somebody
+   else's -- and drawing the second one as a card made it the fifteenth card on
+   a page of fourteen, competing with the shelf on the shelf's own terms and
+   losing. The distinction now comes from material rather than from decoration:
+   the shelf is objects, raised, coloured, pressable; this is type standing on
+   the page ground with nothing behind it. The eye sorts those two before it
+   reads a word of either.
 
-   Quieter than the shelf below it, though: a dashed rule of code cells and a
-   muted heading, so a returning player's eye goes past it to the games. The
-   people it is for arrived knowing they had four letters to type. */
+   Which is also how a code actually arrives. Four letters read across a table
+   or written on the back of a hand are not a form somebody filled in, and the
+   container was the whole of what made this look like one. */
 .joinbox {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--panel-radius);
-  padding: 12px;
+  gap: 10px;
+  padding: 0 0 16px;
+  /* The one mark that separates the two halves of the lobby, and it is a rule
+     rather than a gap: gap alone puts the shelf's first heading close enough
+     to the code to read as one block on a phone, which is the confusion this
+     whole change is about. */
+  border-bottom: 1px solid var(--rule);
 }
-/* On a phone it is the column. On a wide lobby the page is 1120px of shelf and
-   a code box stretched across all of it would be the loudest thing on the
-   screen for the smallest job on it, so it keeps a phone's width and sits
-   where the eye already is. */
+/* Between a phone and the two-column lobby the page is one wide column, and
+   four letters stretched across 1100px of it would be the loudest thing on the
+   screen for the smallest job on it. It keeps a phone's measure and stays at
+   the left margin, where the heading above it starts. Inert past 1040px, where
+   the aside is a 320px column already. */
 @media (min-width: 760px) {
   .joinbox {
     max-width: 420px;
-    margin-inline: auto;
-    width: 100%;
   }
 }
+/* The question, and it is a question because the answer is usually no. It sits
+   in the same tracked caps every heading and label on this page is set in, at
+   the size of a label rather than a title: the code line under it is 2rem of
+   display face, and two loud things stacked would leave neither leading. */
 .joinbox h2 {
   margin: 0;
   font-family: var(--display);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
-  text-align: center;
+  text-align: left;
 }
-/* The status line, and it is only ever rendered once there is a status. It
-   sits *under* the Join button, so the card growing when the fourth letter
-   lands cannot move the control a thumb is already travelling to -- which is
-   what the 2.4em of reserved blank space that used to live here was paying
-   for, on every visit, for a card whose whole job is four letters. */
+/* The letters and the way in, on one line. Bottom-aligned, so the button's
+   baseline sits on the same rule the letters stand on. */
+.join-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.join-row .cells {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A word, not a slab. The primary button is what the shelf's cards resolve to
+   and this is deliberately not that -- but it is still a control a thumb has
+   to find, so it keeps the full 44px and pays for it in padding rather than in
+   background.
+
+   Set in ink on an accent rule rather than in accent type, and that is a
+   contrast decision rather than a taste one: this is 15px of bold display
+   face, which is under the 18.66px where AA would let it take the 3:1 a large
+   heading gets, and the ember channel measures 4.33:1 on the daylight ground
+   -- a fail on the one control this line exists to offer. Ink clears 16:1 in
+   both palettes and the accent moves to the rule under it, where it is a mark
+   and not a letter, and where it rhymes with the four rules beside it. */
+.join-go {
+  flex: none;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 0 2px;
+  /* The 44px it owes a thumb, taken above the rule so the rule itself lands on
+     the same baseline the letters stand on. */
+  height: 44px;
+  cursor: pointer;
+}
+/* Nothing has failed here, there is simply nothing to join yet: two of the
+   four letters are missing. So it goes quiet rather than greying out into a
+   disabled slab, and it is still announced as disabled to anything reading. */
+.join-go:disabled {
+  color: var(--muted);
+  border-bottom-color: var(--rule-hi);
+  cursor: default;
+}
+.join-go:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* The status line, and it is only ever rendered once there is a status. */
 .joinbox .hint {
   margin: 0;
-  text-align: center;
   font-size: 0.9rem;
 }
 .joinbox .join-as {
   margin: 0;
-  text-align: center;
   font-size: 0.9rem;
   color: var(--muted);
 }
@@ -340,7 +397,7 @@ button.primary:focus-visible {
   color: var(--ink);
 }
 /* Not an error state, and not drawn as one: nothing has failed and nothing was
-   refused, somebody has a letter wrong. The Join button stays live, because
+   refused, somebody has a letter wrong. The Join control stays live, because
    the socket is the thing that actually decides. */
 .join-missing {
   color: var(--muted);
@@ -412,17 +469,33 @@ button.primary:focus-visible {
    owner came to do. Four boxes instead, big enough to check a letter at a
    time against somebody reading them out.
 
+   Drawn as four slots cut into the stub rather than four dashed outlines. A
+   dashed box is the web's "nothing here yet" mark -- it is what a file drop
+   zone and an unfilled form field are drawn with -- and four of them in a row
+   read as an incomplete form, on the one card whose whole job is to be filled
+   in. A slot is a hole with a letter sitting in it: empty is a legitimate
+   state of a hole, and the row reads the same before and after typing.
+
    The boxes are drawn from the value and the input lies transparently over
    them; see `CodeCells` in `App.tsx` for why it is one field and not four. */
 .cells {
   position: relative;
   display: flex;
-  justify-content: center;
-  gap: 8px;
+  /* Left, with the heading above it, rather than centred in whatever width the
+     column happens to be: the two are one lockup and a centred row of letters
+     under a left-set label reads as two unrelated things. */
+  justify-content: flex-start;
+  gap: 10px;
 }
 .cells .cell {
-  width: 50px;
-  height: 54px;
+  position: relative;
+  /* Share the row rather than holding 50px each. At 320px the column leaves
+     272px for four letters and three gaps, which four fixed 50s fit only by
+     luck; a fraction each fits by construction, and the cap keeps them from
+     turning into letterboxes in a 420px measure. */
+  flex: 1 1 0;
+  max-width: 72px;
+  height: 46px;
   display: grid;
   place-items: center;
   font-family: var(--display);
@@ -431,15 +504,28 @@ button.primary:focus-visible {
   font-weight: 700;
   line-height: 1;
   color: var(--ink);
-  border: 2px dashed var(--rule-hi);
-  border-radius: var(--panel-radius);
+  background: none;
+  /* One rule per letter, and nothing else. A box -- dashed, solid or cut into
+     the surface -- is a field, and a field is what this stopped being: these
+     are four letters standing on the page the way they were written down.
+
+     2px on --rule-hi rather than a hairline on --rule, because that is the
+     entire drawing. The one place this design can fail is by being too quiet
+     to find, and it has no border, no fill and no shadow left to spend: the
+     rules measure 1.8:1 on the ground in both palettes, which is a mark and
+     not a legible thing, and what carries the row on arrival is the accent
+     under the first slot -- an empty field puts the caret at index 0, so there
+     is always exactly one lit rule leading the eye in. Take that away and this
+     needs a louder token. */
+  border: 0;
+  border-bottom: 2px solid var(--rule-hi);
+  border-radius: 0;
 }
-/* The box the next letter lands in, solid where the empty ones are dashed.
-   A blinking caret would be the only thing on this screen that moves, and the
-   position is a state rather than an event, so it is drawn as one. */
+/* Where the next letter lands. It is a state and not an event, so it is drawn
+   as one: the rule under it lights up, and nothing blinks. A caret would be
+   the only moving thing on this screen. */
 .cells .cell.caret {
-  border-style: solid;
-  border-color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 /* The real field, over the whole row: transparent text, so the boxes show what
    was typed, and a full-size box so a thumb landing anywhere on the row puts
@@ -478,19 +564,6 @@ button.primary:focus-visible {
 }
 .setup .wordmark .tail {
   color: var(--accent);
-}
-
-/* The tagline and the way into your words, on one line. See the note in
-   `App.tsx`: the due prompt on its own was a full-width dashed bar that read
-   as an unfilled form field. Wrapped on a phone, where two of them side by
-   side would be two columns of four words each. */
-.lobby-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin: 14px 0;
 }
 
 .tagline {
@@ -540,3 +613,100 @@ input:focus-visible {
   margin-top: 6px;
 }
 
+
+/* The account card at the far end of the bar: the name chip, and under it the
+   one way in to an account. Two lines rather than a third chip on the line,
+   because three chips at 375px take the wordmark down to an ellipsis; the
+   lockup beside it is two lines already, so the bar does not grow. */
+.account {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 40vw;
+}
+/* The chip's own cap is pinned in `css.test.ts`; inside the card it is the
+   card that does the capping, and the auto margin has moved up a level. */
+.account .whoami {
+  margin-left: 0;
+  max-width: 100%;
+}
+/* Underlined type, not a button shape. It is the quietest control on the bar
+   on purpose: somebody who wants an account will look here for it, and nobody
+   else should have their eye pulled off the shelf by it. */
+.acct-link {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0 8px;
+  /* Not 44px. It sits inside a card whose other half already clears the floor
+     and is the same target's neighbour, and giving this line 44px of its own
+     would make the bar taller than the lockup for a link. The row it is in is
+     28px, which is the smallest thing on this bar and is a deliberate one. */
+  min-height: 24px;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-hi);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.acct-link[aria-expanded="true"] {
+  color: var(--ink);
+  text-decoration-color: var(--accent);
+}
+
+/* Two columns on a wide lobby, one on a phone.
+
+   The aside is the width the join box already kept for itself, and the shelf
+   pays for it in cards a row: at 1280 it was five and is now three. That is
+   the trade, and it is worth taking, because it buys back the 1500px of page
+   the join box, the tagline and the reminder used to be stacked across above
+   the first card.
+
+   1040px, not the 900 the rest of the lobby switches at. Below it the shelf
+   left over is under the 642px three 206px cards and their gaps need, and
+   `auto-fill` answers that by stretching two cards to 298px each -- a card
+   twice its motif's width, which is the thing `base.css` sizes them to
+   avoid. At 1040 the shelf is 664px and takes three.
+
+   Guarded the same way `base.css` guards the lobby's width, and for the same
+   reason: `.app.setup` is worn by two recovery screens that have no shelf. */
+.lobby-cols {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lobby-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+@media (min-width: 1040px) {
+  .lobby-cols:has(.shelves) {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    align-items: start;
+    gap: 24px;
+  }
+}
+
+/* What an account is for, under the way in to one. Set in muted body type and
+   measured rather than full-bleed: it is a paragraph somebody reads once. */
+.acct-why {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-width: 42ch;
+}

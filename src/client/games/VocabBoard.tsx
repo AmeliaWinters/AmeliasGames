@@ -9,17 +9,19 @@ import {
   HINT_ALLOWANCE,
   HOST,
   LEVEL_NAME,
-  LEVEL_SCALE,
-  LEVEL_WINDOW_MS,
+  LEVEL_ASKS,
   MODE_LABEL,
   MODE_NAME,
   REVEAL_MS,
+  ROUND_MS,
   TARGET,
   VOCAB_LANGS,
   VOCAB_LANG_NAME,
   VOCAB_LEVELS,
   VOCAB_MODES,
   canAct as seatCanAct,
+  askIn,
+  autoHinted,
   canHint as seatCanHint,
   clockCall,
   firstRight,
@@ -96,10 +98,26 @@ const LEVEL_SHORT: Record<VocabLevel, string> = {
 };
 
 const LEVEL_BLURB: Record<VocabLevel, string> = {
-  new: "Weeks in. All the time, all the points.",
+  new: "Weeks in. Mostly multiple choice, and free hints.",
   some: "You know some of it. The middle.",
-  fluent: "You'd win every round. Less time, half the points.",
+  fluent: "You'd win every round. Type every one of them.",
 };
+
+/**
+ * What a level actually buys, in figures.
+ *
+ * Counted out of `LEVEL_ASKS` rather than written down beside it, because the
+ * cycle is the rule and a second copy of it in prose is a lie waiting to
+ * happen. Everyone gets the same clock and the same scoring now; the only
+ * thing that differs is the mix, so the mix is the thing to print.
+ */
+function levelTerms(level: VocabLevel): string {
+  const cycle = LEVEL_ASKS[level];
+  const picks = cycle.filter((ask) => ask === "pick").length;
+  if (picks === 0) return "Type every round";
+  if (picks === cycle.length) return "Choose every round";
+  return `${picks} in ${cycle.length} multiple choice`;
+}
 
 const count = new Intl.NumberFormat();
 
@@ -336,7 +354,7 @@ function Payout({
                   Nothing to show on a pick round: what they "said" there is the
                   clue, which is already the largest thing on the screen.
                 */}
-                {round.ask === "say" &&
+                {attempt.ask === "say" &&
                 attempt.said !== "" &&
                 attempt.said !== round.answer?.word ? (
                   <span lang={lang}>{attempt.said}</span>
@@ -362,7 +380,7 @@ function Payout({
                   <span className="vr-pay-said">
                     {" "}
                     (
-                    {round.ask === "say" ? (
+                    {attempt.ask === "say" ? (
                       <span lang={lang}>{attempt.said}</span>
                     ) : (
                       attempt.said
@@ -480,9 +498,9 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   // Whether the room is answering with sentences. It changes the question's
   // wording, how long the box is, and which characters it will take.
   const phrasing = isPhrases(state.mode);
-  // How long this seat's own box stays open, ticking. Not the same as the
-  // round clock on a mixed table: the fluent player's fifteen seconds run out
-  // with half the round still to go, and theirs is the number they need.
+  // How long this seat's own box stays open, ticking. The same thirty seconds
+  // for everybody now, but still read per seat: the round's own clock pulls in
+  // as people finish (see `roundDeadline`) and this one does not.
   const myWindow = seat === null ? 0 : windowLeft(state, seat, clock);
   const myTry = seat === null ? null : tryOf(state.round, seat);
   /*
@@ -506,9 +524,27 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const myHintMove = mine && seatCanHint(state, seat, clock) && left !== 0;
   const myHint = seat === null ? null : hintOf(state.round, seat);
   const myHintsLeft = seat === null ? 0 : hintsLeft(state, seat);
+  /*
+    A beginner's free hint is sent down the moment the clue goes up, with the
+    time it is due on it, because `view()` has no clock to withhold it by (see
+    `FREE_HINT_MS`). Holding it here is the other half of that bargain: until
+    `at`, this board has the shape and does not draw it.
+
+    Which does mean the honest thing to say is that a determined player could
+    read it out of devtools five seconds early. That is the trade the server
+    made deliberately, and it is worth reading the comment there before
+    "fixing" it here -- it is one player's own first letter, on a round the
+    game has already decided to hand it to them, worth the same either way.
+  */
+  const hintDue = myHint !== null && clock >= myHint.at;
+  // Whether this seat buys its hints or is given them. Read off the level
+  // rather than off the hint on the round, because the copy under the box has
+  // to promise the free one *before* it arrives.
+  const autoHint = seat !== null && autoHinted(state, seat);
+  const freeHint = myHint?.free === true;
   // The shape arrives already masked -- the board is never sent the word on a
   // say round -- so the letter count is read back out of the mask.
-  const hintShape = myHint === null || myHint.shown === "" ? "" : myHint.shown;
+  const hintShape = myHint === null || myHint.shown === "" || !hintDue ? "" : myHint.shown;
   // Counted off the mask rather than off the answer, which the board does not
   // have: every letter is either shown or an underscore, and everything else in
   // there is the spacing `maskWord` added. The old `split(" ").length` counted
@@ -564,14 +600,16 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           discover mid-clock.
         */}
         <p className="vr-brief">
-          Every third round comes the other way about: the word goes up and you
-          pick which of four meanings is right. Easier, so it pays half, and it
-          is the round you can still play on a word you could never have spelled.
-          You also get <strong>{HINT_ALLOWANCE} hints</strong> for the whole
-          game. One buys you the first letter and the length of the word you are
-          reaching for, and halves what that answer pays. Spending them is the
-          only real decision in a round, so spend them on the words you nearly
-          know.
+          Some rounds come the other way about: the word goes up and you pick
+          which of four meanings is right. Easier, so it pays half, and it is
+          the round you can still play on a word you could never have spelled.
+          How often that happens is the one thing you choose for yourself,
+          below. You also get <strong>{HINT_ALLOWANCE} hints</strong> for the
+          whole game. One buys you the first letter and the length of the word
+          you are reaching for, and halves what that answer pays. Spending them
+          is the only real decision in a round, so spend them on the words you
+          nearly know - unless you're just starting, in which case they turn up
+          free and you keep all three.
         </p>
 
         <ChoiceGroup label="Language">
@@ -648,13 +686,10 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
               {/*
                 The actual terms, in figures, under the sentence that describes
                 them. The handicap is the one thing in this game a player can
-                reasonably feel cheated by, and "half the points" is a claim
-                they are entitled to see as a number before they agree to it.
+                reasonably feel cheated by, and a mix is a claim they are
+                entitled to see as a number before they agree to it.
               */}
-              <span className="vr-choice-terms">
-                {Math.round(LEVEL_WINDOW_MS[level] / 1000)}s -{" "}
-                {LEVEL_SCALE[level] === 1 ? "full points" : `x${LEVEL_SCALE[level]} points`}
-              </span>
+              <span className="vr-choice-terms">{levelTerms(level)}</span>
             </Choice>
           ))}
         </ChoiceGroup>
@@ -666,10 +701,12 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           the game is broken.
         */}
         <p className="vr-note">
-          Everyone answers the same clue and nobody waits to start. Saying you
-          know the language buys you less time to answer in and scores you less
-          for it, which is what lets somebody three weeks in take a word off
-          you by being nine seconds slower.
+          Everyone gets the same clue, the same {Math.round(ROUND_MS / 1000)}{" "}
+          seconds and the same points. What changes is the question: say you're
+          new and most rounds come as four meanings to choose from, with the
+          first letter turning up free if you're stuck. Say you speak it and you
+          type every single one. Choosing is worth half, so the beginner catches
+          up on the rounds they type.
         </p>
 
         {/* Who has claimed what, so the table can argue about it before the
@@ -797,10 +834,14 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   // A round
   const round = state.round;
   const revealing = state.phase === "reveal";
-  // Which half of the round is the question. On a pick round the word is sent
-  // and the clue is not, which is the reverse of every other round, so this
-  // decides what goes in the big type as well as which controls are drawn.
-  const picking = !revealing && round?.ask === "pick";
+  // Which half of the round is the question, *for this seat*. On a pick round
+  // the word is sent and the clue is not, which is the reverse of every other
+  // round, so this decides what goes in the big type as well as which controls
+  // are drawn. Per seat because the round is: the player beside you may be
+  // typing the same word you are choosing the meaning of. A spectator with no
+  // seat is sent the say view, which is `askIn`'s default and the only one of
+  // the two that is safe to be wrong about.
+  const picking = !revealing && askIn(round, seat ?? -1) === "pick";
   // Everyone's result, in the order they finished, with the seats that never
   // answered on the end. `settle` writes those in, so this is the whole table.
   const payout = revealing && round ? round.tries : [];
@@ -1006,8 +1047,13 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                     {hintShape}
                   </span>
                   <span className="sr-only" aria-live="polite">
-                    Your hint: it starts with {[...hintShape][0]} and is{" "}
-                    {hintLetters} letters long
+                    {/*
+                      Live, and it has to be: the free one appears five seconds
+                      in with nobody having pressed anything, which is the one
+                      case on this board where a hint arrives unannounced.
+                    */}
+                    {freeHint ? "Free hint" : "Your hint"}: it starts with{" "}
+                    {[...hintShape][0]} and is {hintLetters} letters long
                     {/*
                       A phrase's hint is the first letter of every word in it,
                       so the shape a sighted player reads has a fact in it that
@@ -1026,19 +1072,32 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                 then give up. It says what it costs on its face, since a control
                 that halves your score without warning is one nobody presses
                 twice.
+
+                Not drawn at all for a seat that gets its hints free. There is
+                nothing to decide there and a disabled button explaining that
+                would be a control whose whole job is to say it is not a
+                control; the line under the box says it in words instead.
               */}
-              <button
-                type="button"
-                className="vr-hint-buy"
-                disabled={!myHintMove}
-                onClick={() => onMove({ type: "hint" })}
-              >
-                {myHint !== null
-                  ? "Hint taken, half points"
-                  : myHintsLeft === 0
-                    ? "No hints left"
-                    : `Hint (${myHintsLeft} left), half points`}
-              </button>
+              {autoHint ? (
+                <p className="vr-hint-free">
+                  {hintShape === ""
+                    ? "Stuck? The first letter turns up in a few seconds, free."
+                    : "That one was free - it costs you nothing."}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className="vr-hint-buy"
+                  disabled={!myHintMove}
+                  onClick={() => onMove({ type: "hint" })}
+                >
+                  {myHint !== null
+                    ? "Hint taken, half points"
+                    : myHintsLeft === 0
+                      ? "No hints left"
+                      : `Hint (${myHintsLeft} left), half points`}
+                </button>
+              )}
 
               {/*
                 Giving up, which is a real move rather than an escape hatch: the
@@ -1079,7 +1138,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           {mine && myTry === null && !myMove && (
             <p className="vr-waiting" aria-live="polite">
               Your {Math.round(windowMs(state, seat ?? 0) / 1000)} seconds are
-              up, and you said you knew the language. The answer is coming.
+              up. The answer is coming.
             </p>
           )}
           {!mine && <p className="vr-waiting">Watching. Take a seat to play.</p>}

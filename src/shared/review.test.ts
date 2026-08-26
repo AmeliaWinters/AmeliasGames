@@ -16,7 +16,7 @@ import {
   xpForLevel,
   type Grade,
 } from './review.js';
-import { LEVEL_WINDOW_MS } from './games/vocabDisplay.js';
+import { ROUND_MS } from './games/vocabDisplay.js';
 import { MIN_TURN_MS, TURN_MS } from './games/wordChainDisplay.js';
 
 const DAY = 86_400_000;
@@ -141,13 +141,15 @@ describe('speed, measured against your own window', () => {
   /**
    * The reason `wasFast` takes an allowance instead of a number of seconds.
    * The two games hand out wildly different ones, and a fixed threshold would
-   * report which game you were playing and how you had declared yourself
-   * rather than whether the word was there.
+   * report which game you were playing rather than whether the word was there.
+   *
+   * Vocab Race's windows are all one length again -- a level buys the question
+   * now, not the clock -- so it is Word Chain's shrinking one below that keeps
+   * this honest. Both are checked because either could change alone.
    */
-  it('reads the same for an expert and a beginner answering early', () => {
-    expect(wasFast(4_000, LEVEL_WINDOW_MS.fluent)).toBe(true); // 4s of 15
-    expect(wasFast(9_000, LEVEL_WINDOW_MS.new)).toBe(true); // 9s of 30
-    expect(wasFast(9_000, LEVEL_WINDOW_MS.fluent)).toBe(false);
+  it('reads a race window against the race window', () => {
+    expect(wasFast(9_000, ROUND_MS)).toBe(true); // 9s of 30
+    expect(wasFast(25_000, ROUND_MS)).toBe(false);
   });
 
   it('reads the same at both ends of a shrinking chain clock', () => {
