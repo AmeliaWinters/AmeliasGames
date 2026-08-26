@@ -20,9 +20,10 @@
  * playing Connect Four.
  */
 import { chainRanked, fold } from './chainDictionary.js';
+import type { ChainEntry } from './chainDictionary.js';
 import { phraseDeck } from './vocabPhrases.js';
-import { DECK_DEPTH, PICK_OPTIONS, isPhrases } from './vocabDisplay.js';
-import type { VocabLang, VocabMode } from './vocabDisplay.js';
+import { ALSO_SHOWN, DECK_DEPTH, PICK_OPTIONS, isPhrases } from './vocabDisplay.js';
+import type { VocabAlso, VocabLang, VocabMode } from './vocabDisplay.js';
 
 /**
  * How many senses a clue is allowed to carry.
@@ -101,6 +102,51 @@ function senses(gloss: string): Sense[] {
   return out;
 }
 
+/**
+ * The other words this clue would have taken, as the reveal should print them.
+ *
+ * Three filters, and the second is the one that took a while to see.
+ *
+ * **Not the answer itself**, which is in `accepts` by construction.
+ *
+ * **Not another form of the same word.** `accepts` is keyed on the word, and
+ * Polish files a lemma and its inflections separately: the clue for `być` would
+ * otherwise list `jest`, `jestem` and `są` as alternatives, which is not three
+ * other things to say, it is the same verb conjugated at a learner who is
+ * trying to work out what it means. Compared on `fold(lemma || word)`, the same
+ * identity the ledger files a row under, so the two agree about what counts as
+ * one word.
+ *
+ * **Not something rarer than the game would ever ask about.** Capped at
+ * `DECK_DEPTH`, because `accepts` reaches the whole sixty-four thousand and an
+ * alternative nobody will meet for two years is not a useful thing to be told
+ * you could have said.
+ *
+ * Sorted rather than taken in `accepts` order, which is per sense and so is
+ * only commonest-first *within* a sense: a word with three senses would offer
+ * the commonest synonym of the first one and then two rare ones, rather than
+ * the three commonest it has.
+ */
+function alternatives(
+  entry: ChainEntry,
+  accepts: ReadonlySet<string>,
+  byKey: ReadonlyMap<string, ChainEntry>,
+): VocabAlso[] {
+  const self = fold(entry.lemma || entry.word);
+  const found: ChainEntry[] = [];
+  for (const key of accepts) {
+    if (key === entry.key) continue;
+    const other = byKey.get(key);
+    if (other === undefined || other.rank > DECK_DEPTH) continue;
+    if (fold(other.lemma || other.word) === self) continue;
+    found.push(other);
+  }
+  found.sort((a, b) => a.rank - b.rank);
+  return found
+    .slice(0, ALSO_SHOWN)
+    .map((other) => ({ word: other.word, script: other.script }));
+}
+
 /** A clue and the word it points at, ready to be dealt. */
 export interface VocabQuestion {
   /** The English meaning, as the clue is printed. */
@@ -115,6 +161,15 @@ export interface VocabQuestion {
    * against.
    */
   accepts: ReadonlySet<string>;
+  /**
+   * The same generosity, made printable: up to `ALSO_SHOWN` of those words, as
+   * the reveal should draw them, commonest first.
+   *
+   * A separate field rather than something the board derives from `accepts`,
+   * because `accepts` is folded keys and holds hundreds of them, while this is
+   * three display forms with their scripts. See `VocabAnswer.also`.
+   */
+  also: readonly VocabAlso[];
 }
 
 interface Deck {
@@ -169,6 +224,15 @@ function build(lang: VocabLang): Deck {
     return found.length > 0 ? found : null;
   });
 
+  // Folded key -> the commonest entry filed under it, over the whole language.
+  // Transient: it exists only to turn the keys in `accepts` into words a reveal
+  // can print, and it is dropped when this function returns, because storing a
+  // sixty-four-thousand-entry index to serve three strings a round would be
+  // paying for the whole dictionary to answer a footnote. `ranked` is already
+  // commonest first, so the first writer of a key wins and nothing sorts.
+  const byKey = new Map<string, ChainEntry>();
+  for (const entry of ranked) if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
+
   const byRank = new Map<number, VocabQuestion>();
   for (let i = 0; i < ranked.length && i < DECK_DEPTH; i++) {
     const found = parsed[i];
@@ -190,6 +254,7 @@ function build(lang: VocabLang): Deck {
       lemma: entry.lemma,
       rank: entry.rank,
       accepts,
+      also: alternatives(entry, accepts, byKey),
     });
   }
 

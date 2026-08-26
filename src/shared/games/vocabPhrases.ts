@@ -496,6 +496,14 @@ function build(lang: VocabLang): Map<number, VocabQuestion> {
       lemma: '',
       rank: i + 1,
       accepts: acceptsOf(phrase, lang),
+      // No alternatives line on a phrase. `acceptsOf` holds the other ways of
+      // saying this one, both Polish genders and the casual Japanese, so there
+      // is something here in principle -- but they are spellings of the same
+      // sentence rather than different words for it, and a reveal listing
+      // *głodny jestem* under **jestem głodna** is telling a learner that word
+      // order is optional when what it actually varies with is who is speaking.
+      // The word decks have a synonym index to be honest with; this does not.
+      also: [],
     });
   });
   decks[lang] = byRank;

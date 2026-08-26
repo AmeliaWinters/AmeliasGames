@@ -40,6 +40,14 @@ export interface SeatRecord {
  * restored game draws dice that disagree with the score beside them. Same
  * failure as a misread field, same cure.
  *
+ * 23: Vocab Race hears words, and asks the ones nobody got again. `VocabAsk`
+ * gained `hear`, so a restored round's `asks` may hold a value the old code
+ * reads as neither `say` nor `pick`; `VocabRound` gained `retry` and `answer`
+ * gained `also`; and the state carries a `retry` queue. Meaning as well as
+ * shape, in the direction that matters most here: a stored `hear` restored
+ * under a build that does not know the word is a secret would print the answer
+ * above the four options.
+ *
  * 22: Word Chain prices an ending by how thin it is, not by how often you have
  * used it. `LetterCooldown` lost `used`, the ladder it counted being gone, and
  * a lock is now worth up to five of your turns depending on how many words are
@@ -140,7 +148,7 @@ export interface SeatRecord {
  * than a 2.5D solver on the server. Any one of those alone would need the
  * bump.
  */
-export const SNAPSHOT_VERSION = 22;
+export const SNAPSHOT_VERSION = 23;
 
 /** Everything needed to rebuild a room. This is what gets persisted. */
 export interface RoomSnapshot {

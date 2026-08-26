@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DECK_DEPTH,
   DEFAULT_LEVEL,
+  FREE_HINT_MS,
   HINT_ALLOWANCE,
   HINT_SCALE,
   HOST,
@@ -9,9 +10,12 @@ import {
   MODE_CAP,
   PHRASE_COUNT,
   PHRASE_RARITY,
+  ALSO_SHOWN,
   PICK_OPTIONS,
+  HEAR_SCALE,
   PICK_SCALE,
   RARITY_STEP,
+  RETRY_AFTER,
   REVEAL_MS,
   ROUND_MS,
   SETUP_MS,
@@ -23,6 +27,7 @@ import {
   askIn,
   canAct,
   canHint,
+  choosing,
   everyoneDone,
   firstRight,
   hintOf,
@@ -35,6 +40,7 @@ import {
   vocabStats,
   windowLeft,
   windowMs,
+  type VocabAsk,
   type VocabLang,
   type VocabLevel,
   type VocabMode,
@@ -136,9 +142,13 @@ function atRound(state: VocabState, n: number, from = 1_000): { state: VocabStat
  *
  * Read off the cycle rather than written down, so a retuned `LEVEL_ASKS` moves
  * the tests that need a recognition round with it instead of leaving them
- * quietly asserting about a `say`.
+ * quietly asserting about a `say`. It has already earned that once: the middle
+ * cycle's choosing round is a `hear` now, not a `pick`, and everything here
+ * that wanted "the round answered by index" kept working.
+ *
+ * `findIndex(choosing)`, not `indexOf('pick')`, for exactly that reason.
  */
-const SOME_PICK = LEVEL_ASKS.some.indexOf('pick');
+const SOME_PICK = LEVEL_ASKS.some.findIndex(choosing);
 
 /** Drive the clock the way `RoomEngine.tick` does, once. */
 function tick(state: VocabState, now: number): VocabState {
@@ -331,19 +341,44 @@ describe('the deck', () => {
     }
   });
 
-  it('never asks the same clue twice in a game', () => {
+  /**
+   * Once, or twice and the second one marked.
+   *
+   * This used to assert simple uniqueness, and a retry is the one exception
+   * the rule now has. Written as "at most twice, and any repeat is a retry"
+   * rather than relaxed to "at most twice", because the failure worth catching
+   * is `draw`'s already-asked filter breaking and dealing a clue again on its
+   * own: that repeat would come back unmarked, and this still fails on it.
+   *
+   * Every round here times out, so every clue is missed and every one is
+   * requeued, which makes this the densest possible test of the rule.
+   */
+  it('asks a clue once, or twice with the second marked as a retry', () => {
     let state = playing('pl', 'normal', 2, 1_000, inOrder);
     let now = 1_000;
     const seen: string[] = [];
+    const retried: string[] = [];
     while (state.phase !== 'over' && seen.length < 30) {
-      if (state.phase === 'asking' && state.round) seen.push(state.round.clue);
+      if (state.phase === 'asking' && state.round) {
+        seen.push(state.round.clue);
+        if (state.round.retry) retried.push(state.round.clue);
+      }
       now += ROUND_MS;
       state = tick(state, now);
       now += REVEAL_MS;
       state = tick(state, now);
     }
     expect(seen.length).toBeGreaterThan(10);
-    expect(new Set(seen).size).toBe(seen.length);
+
+    const times = new Map<string, number>();
+    for (const clue of seen) times.set(clue, (times.get(clue) ?? 0) + 1);
+    for (const [clue, count] of times) {
+      expect(count, `${clue} was asked ${count} times`).toBeLessThanOrEqual(2);
+      if (count === 2) expect(retried).toContain(clue);
+    }
+    // Nothing came back a third time, which is `requeue` refusing to queue a
+    // round that is already a retry.
+    expect(retried.length).toBe(new Set(retried).size);
   });
 
   /**
@@ -805,17 +840,27 @@ describe('asking it the other way round', () => {
    * mostly recognising, the middle mostly producing, somebody fluent producing
    * every round. If a cycle is retuned this should be the test that says so.
    */
-  it('mixes the two directions by level, and never picks for somebody fluent', () => {
+  it('mixes the three directions by level, and never prints the word for somebody fluent', () => {
     const counted = VOCAB_LEVELS.map((level) => {
       const cycle = LEVEL_ASKS[level];
-      const picks = cycle.filter((ask) => ask === 'pick').length;
-      return picks / cycle.length;
+      return cycle.filter(choosing).length / cycle.length;
     });
     // Monotonic and in the order the buttons are drawn: further down the list
     // is less choosing and more typing.
     expect(counted).toEqual([...counted].sort((a, b) => b - a));
-    expect(LEVEL_ASKS.fluent).toEqual(['say']);
-    expect(counted[0]).toBeGreaterThan(0.5);
+    // A printed word over four English meanings is not a question for somebody
+    // who grew up with the language. A spoken one still is, which is why
+    // `fluent` has a choosing round at all now.
+    expect(LEVEL_ASKS.fluent).not.toContain('pick');
+    expect(LEVEL_ASKS.fluent).toContain('hear');
+    expect(counted[0]).toBeGreaterThanOrEqual(0.5);
+
+    // Every level hears the language. This is the whole point of `hear` being
+    // in all three cycles rather than bolted onto the beginner's: before it, a
+    // player could win a game of this without the words having had a sound.
+    for (const level of VOCAB_LEVELS) {
+      expect(LEVEL_ASKS[level], level).toContain('hear');
+    }
 
     // And the cycle is what `askFor` reads, at every offset including the wrap.
     for (const level of VOCAB_LEVELS) {
@@ -842,7 +887,7 @@ describe('asking it the other way round', () => {
       state = atRound(state, i + 1).state;
     }
     // `playing` leaves everybody at the default level, so this is `some`.
-    expect(dealt).toEqual(['say', 'say', 'pick', 'say', 'say', 'pick']);
+    expect(dealt).toEqual(['say', 'say', 'hear', 'say', 'say', 'hear']);
   });
 
   /**
@@ -989,14 +1034,53 @@ describe('asking it the other way round', () => {
   it('sends the word and holds back the clue, which is the other way round', () => {
     const { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), SOME_PICK);
     const seen = vocab.view?.(state, 1);
-    expect(askIn(seen?.round ?? null, 1)).toBe('pick');
+    expect(choosing(askIn(seen?.round ?? null, 1))).toBe(true);
     expect(seen?.round?.clue).toBe('');
     expect(seen?.round?.answer?.word).toBe(answerOf(state));
     expect(seen?.round?.options).toEqual(state.round?.options);
-    // The lemma and the rank are the only things the reveal has left to say, so
-    // they wait for it even though the word itself has gone out.
+    // The lemma, the rank and the synonyms are what the reveal has left to say,
+    // so they wait for it even though the word itself has gone out. The
+    // synonyms are not merely early: they are other words meaning what the
+    // answer means, so on a choosing round they cut four options to one.
     expect(seen?.round?.answer?.rank).toBe(0);
     expect(seen?.round?.answer?.lemma).toBe('');
+    expect(seen?.round?.answer?.also).toEqual([]);
+  });
+
+  /**
+   * The word goes out on a `hear`, unredacted, and that is not the hole it
+   * looks like.
+   *
+   * The board is the only thing that knows whether this device has a voice for
+   * the language, so it is the only thing that can decide between speaking the
+   * word and printing it, and a server that withheld the word would leave a
+   * phone with no Polish voice unable to ask the question at all. What is
+   * secret on a `hear` is the *meaning*, exactly as on a `pick`, and that is
+   * what this holds.
+   */
+  it('sends a spoken round the same way it sends a printed one', () => {
+    const { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), SOME_PICK);
+    expect(askIn(state.round, 0)).toBe('hear');
+
+    const seen = vocab.view?.(state, 0);
+    expect(seen?.round?.clue).toBe('');
+    // The right meaning is among the four, as it must be, and the board is not
+    // told which: that is `clue`, and `clue` went out empty.
+    expect(seen?.round?.options).toHaveLength(PICK_OPTIONS);
+    expect(seen?.round?.options).toContain(state.round?.clue);
+    expect(seen?.round?.answer?.word).toBe(answerOf(state));
+    expect(seen?.round?.answer?.also).toEqual([]);
+  });
+
+  /** Between a pick and a say, because the question is between the two. */
+  it('pays more for a word heard than for one printed, and less than for one typed', () => {
+    const state = levelled(['some', 'some']);
+    const buzzer = windowMs(state, 0);
+    const at = (ask: VocabAsk): number => roundPoints(state, 0, 50, buzzer, ask, false);
+    expect(at('pick')).toBeLessThan(at('hear'));
+    expect(at('hear')).toBeLessThan(at('say'));
+    expect(PICK_SCALE).toBeLessThan(HEAR_SCALE);
+    expect(HEAR_SCALE).toBeLessThan(1);
   });
 
   it('pays half for a meaning chosen rather than a word produced', () => {
@@ -1008,6 +1092,209 @@ describe('asking it the other way round', () => {
     expect(roundPoints(state, 0, 50, buzzer, 'pick', false)).toBeLessThan(
       roundPoints(state, 0, 50, buzzer, 'say', false),
     );
+  });
+});
+
+/**
+ * The clue nobody got, coming round again.
+ *
+ * The deck used to be dealt once and read forwards, so the single most valuable
+ * question in a game -- the one the whole table drew a blank on -- was shown for
+ * six seconds and never mentioned again.
+ */
+/**
+ * The generosity, made visible.
+ *
+ * `accepts` is every word in the language filed under any of the clue's senses,
+ * which is the rule that stops a learner being marked wrong for knowing a
+ * synonym. Until `also` existed the only way anybody found that out was by
+ * accidentally typing one, and a player who answered "small" with a real Polish
+ * word for small and was told they were wrong was being told something false
+ * about the rules.
+ */
+describe('the words it would also have taken', () => {
+  const questions = (lang: VocabLang, cap: number): VocabQuestion[] => {
+    const out: VocabQuestion[] = [];
+    for (let rank = 1; rank <= cap; rank++) {
+      const q = vocabQuestion(lang, 'hard', rank);
+      if (q !== null) out.push(q);
+    }
+    return out;
+  };
+
+  it('offers alternatives, and only ones the reducer would really accept', () => {
+    const all = questions('pl', 300);
+    const withAlso = all.filter((q) => q.also.length > 0);
+    // Most common words have a synonym in a sixty-four-thousand word list. If
+    // this ever drops to nothing the index has come apart.
+    expect(withAlso.length).toBeGreaterThan(30);
+
+    for (const q of all) {
+      expect(q.also.length).toBeLessThanOrEqual(ALSO_SHOWN);
+      for (const other of q.also) {
+        // The promise the line makes: type this instead and you are right.
+        const entry = chainLookup('pl', other.word);
+        expect(entry, `${other.word} is not in the list`).toBeTruthy();
+        expect(q.accepts.has(entry!.key), `${other.word} would not be accepted`).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * The filter that took a while to see.
+   *
+   * `accepts` is keyed on the word and Polish files a lemma and its inflections
+   * separately, so the clue for `być` would otherwise list `jest`, `jestem` and
+   * `są` as alternatives. That is not three other things to say, it is the
+   * same verb conjugated at a learner who is trying to work out what it means.
+   */
+  it('never offers another form of the word it is already showing', () => {
+    for (const q of questions('pl', 400)) {
+      const self = fold(q.lemma || q.word);
+      for (const other of q.also) {
+        const entry = chainLookup('pl', other.word)!;
+        expect(fold(entry.lemma || entry.word), `${other.word} under ${q.word}`).not.toBe(self);
+        expect(other.word).not.toBe(q.word);
+      }
+    }
+  });
+
+  it('has nothing to say about a phrase', () => {
+    for (let rank = 1; rank <= PHRASE_COUNT; rank++) {
+      expect(vocabQuestion('pl', 'phrases', rank)?.also ?? []).toEqual([]);
+    }
+  });
+
+  /** On the round, so the reveal can draw it without a dictionary. */
+  it('reaches the board on the answer, once the round is settled', () => {
+    let state = playing('pl', 'hard', 2, 1_000, inOrder);
+    let guard = 0;
+    while ((state.round?.answer?.also.length ?? 0) === 0 && state.phase !== 'over' && guard++ < 40) {
+      state = atRound(state, state.history.length + 1).state;
+    }
+    const also = state.round?.answer?.also ?? [];
+    expect(also.length).toBeGreaterThan(0);
+
+    // Not while it is being raced on a choosing round: these are other words
+    // meaning what the answer means, so they cut four options to one.
+    const asking = vocab.view?.(state, 0);
+    if (choosing(askIn(state.round, 0))) expect(asking?.round?.answer?.also).toEqual([]);
+
+    const settled = tick(state, (state.deadline ?? 0) + 1);
+    expect(settled.phase).toBe('reveal');
+    expect(vocab.view?.(settled, 0)?.round?.answer?.also).toEqual(also);
+  });
+});
+
+describe('a second go at what nobody got', () => {
+  /** Walk to the round `n`, letting everything before it time out. */
+  const missed = (n: number) =>
+    atRound(playing('pl', 'hard', 2, 1_000, inOrder), n);
+
+  it('queues a clue the whole table missed, and asks it again later', () => {
+    const first = missed(1);
+    const rank = first.state.history[0].answer?.rank;
+    const clue = first.state.history[0].clue;
+    expect(rank).toBeGreaterThan(0);
+    expect(first.state.retry).toEqual([{ rank, at: 1 + RETRY_AFTER }]);
+
+    // Not before it is due: the gap is what makes the second showing a recall
+    // rather than an echo of a reveal still on the screen.
+    const early = atRound(first.state, RETRY_AFTER);
+    expect(early.state.round?.clue).not.toBe(clue);
+    expect(early.state.round?.retry).toBe(false);
+
+    const due = atRound(first.state, RETRY_AFTER + 1);
+    expect(due.state.round?.clue).toBe(clue);
+    expect(due.state.round?.answer?.rank).toBe(rank);
+    expect(due.state.round?.retry).toBe(true);
+    // Taken off the queue by being asked, and the deck did not move on: a retry
+    // is not a card off the deck.
+    expect(due.state.retry.some((item) => item.rank === rank)).toBe(false);
+    expect(due.state.drawn).toBe(early.state.drawn);
+  });
+
+  it('leaves a clue somebody got alone, however badly it went for everybody else', () => {
+    let state = playing('pl', 'hard', 2, 1_000, inOrder);
+    // One seat has it, the other gives up. One right answer is the whole test:
+    // the word got said, got revealed, and got beaten by somebody in the room.
+    state = accept(state, { type: 'guess', word: answerOf(state) }, 0, 2_000);
+    state = accept(state, { type: 'pass' }, 1, 3_000);
+    expect(state.phase).toBe('reveal');
+    expect(state.retry).toEqual([]);
+  });
+
+  /**
+   * A table stuck on one word should not be asked it forever, which is a game
+   * that gets worse the worse you are doing at it.
+   */
+  it('never asks a third time', () => {
+    let { state } = missed(1);
+    const rank = state.history[0].answer?.rank;
+    state = atRound(state, RETRY_AFTER + 1).state;
+    expect(state.round?.retry).toBe(true);
+
+    // Missed again, and this time nothing is queued.
+    state = tick(state, (state.deadline ?? 0) + 1);
+    expect(state.phase).toBe('reveal');
+    expect(state.retry.some((item) => item.rank === rank)).toBe(false);
+  });
+
+  /**
+   * Recognition before production. Asking a table to type a word they
+   * collectively could not reach five rounds ago is asking the same question
+   * again and expecting a different answer.
+   */
+  it('comes back as a listening round, except for whoever says they are fluent', () => {
+    let state = levelled(['some', 'fluent'], 'pl', 'hard');
+    state = atRound(state, 1).state;
+    expect(state.retry).toHaveLength(1);
+    state = atRound(state, RETRY_AFTER + 1).state;
+
+    expect(state.round?.retry).toBe(true);
+    expect(state.round?.asks).toEqual(['hear', 'say']);
+    expect(state.round?.options).toHaveLength(PICK_OPTIONS);
+  });
+
+  /** Redacted with the deck, and for a worse reason: the table has seen these. */
+  it('never tells a client what is queued', () => {
+    const { state } = missed(1);
+    expect(state.retry.length).toBeGreaterThan(0);
+    const asking = atRound(state, 2).state;
+    expect(vocab.view?.(asking, 0)?.retry).toEqual([]);
+    expect(vocab.view?.(asking, 1)?.retry).toEqual([]);
+  });
+
+  /**
+   * A retry is a round like any other once it is up: it scores, it files a row
+   * in the ledger, and getting it right the second time is the entire point of
+   * asking twice.
+   */
+  it('scores and records the second answer like any other', () => {
+    let { state } = missed(1);
+    const rank = state.history[0].answer?.rank;
+    const at = atRound(state, RETRY_AFTER + 1);
+    state = at.state;
+    expect(state.round?.retry).toBe(true);
+
+    const right = state.round?.options.indexOf(state.round.clue) ?? -1;
+    expect(right).toBeGreaterThanOrEqual(0);
+    const after = accept(state, { type: 'choose', option: right }, 0, at.now + 1_000);
+    expect(attempt(after, 0).how).toBe('right');
+    expect(attempt(after, 0).points).toBeGreaterThan(0);
+
+    // One row, not two, and the missing one is the interesting half: the first
+    // showing timed out, and `record` files nothing at all for a timeout (a
+    // locked phone is not a wrong answer). So the ledger sees this word once,
+    // answered. The requeue and the grading disagree about what a timeout means
+    // on purpose -- see `requeue` for why asking again is the cheap direction to
+    // be wrong in, and `record` for why grading it is not.
+    const rows =
+      vocab
+        .record?.(after, after.scores.length)
+        ?.seats.find((seat) => seat.seat === 0)
+        ?.learned.filter((row) => row.rank === rank) ?? [];
+    expect(rows.map((row) => row.grade)).toEqual(['recognised']);
   });
 });
 
@@ -1039,11 +1326,11 @@ describe('hints', () => {
     let now = 1_000;
     for (let spent = 0; spent < HINT_ALLOWANCE; spent++) {
       // Skip the recognition rounds, which have nothing to hint at.
-      while (state.round?.ask !== 'say') ({ state, now } = atRound(state, state.history.length + 1));
+      while (askIn(state.round!, 0) !== 'say') ({ state, now } = atRound(state, state.history.length + 1));
       state = accept(state, { type: 'hint' }, 0, now + 1_000);
       ({ state, now } = atRound(state, state.history.length + 1));
     }
-    while (state.round?.ask !== 'say') ({ state, now } = atRound(state, state.history.length + 1));
+    while (askIn(state.round!, 0) !== 'say') ({ state, now } = atRound(state, state.history.length + 1));
 
     expect(hintsLeft(state, 0)).toBe(0);
     expect(canHint(state, 0, now + 1_000)).toBe(false);
@@ -1477,7 +1764,7 @@ describe('what each client is told', () => {
       // stronger test as well as the only workable one: `mnie` is clued "me",
       // and "me" is a substring of the word "mean" in the line that is supposed
       // to be safe. Saying exactly what the line is leaves nothing to hide in.
-      if (state.round?.ask === 'pick') {
+      if (askIn(state.round!, 0) === 'pick') {
         saw.pick++;
         expect(line).toBe(`What does “${answerOf(state)}” mean?`);
       } else {
@@ -1496,7 +1783,34 @@ describe('what each client is told', () => {
 
   it('says the answer out loud once the round is settled', () => {
     const state = tick(playing('pl'), 1_000 + DEFAULT_WINDOW);
-    expect(vocab.status(state, ['Ala', 'Bo'])).toBe(`Nobody had it: ${answerOf(state)}.`);
+    // A missed clue is queued for another go, and the line says so, or the word
+    // simply reappears five rounds later and reads as the deck stuttering.
+    expect(vocab.status(state, ['Ala', 'Bo'])).toBe(
+      `Nobody had it: ${answerOf(state)}. It'll be back.`,
+    );
+  });
+
+  /**
+   * The same line on a clue that has already had its second go.
+   *
+   * The promise has to stop being made once it cannot be kept: a round already
+   * marked `retry` is never requeued (see `RETRY_AFTER`), so a line still
+   * saying "it'll be back" there would be the status bar lying about the rules
+   * on the one screen that explains them.
+   */
+  it('stops promising a return once the clue has already had one', () => {
+    let { state } = atRound(playing('pl', 'hard', 2, 1_000, inOrder), RETRY_AFTER + 1);
+    let guard = 0;
+    while (state.round?.retry !== true && state.phase !== 'over' && guard++ < 20) {
+      state = atRound(state, state.history.length + 1).state;
+    }
+    expect(state.round?.retry).toBe(true);
+
+    const settled = tick(state, (state.deadline ?? 0) + 1);
+    expect(settled.phase).toBe('reveal');
+    expect(vocab.status(settled, ['Ala', 'Bo'])).toBe(`Nobody had it: ${answerOf(settled)}.`);
+    // And nothing was added to the queue by that second miss.
+    expect(settled.retry.some((due) => due.rank === settled.round?.answer?.rank)).toBe(false);
   });
 
   it('names who is holding things up during setup, and what they have picked', () => {
@@ -1641,7 +1955,10 @@ describe('what it records', () => {
   it('grades a recognition round as recognition, not production', () => {
     const first = playing('pl', 'normal', 2, 1_000, inOrder);
     const { state: at, now } = atRound(first, SOME_PICK);
-    expect(askIn(at.round, 0)).toBe('pick');
+    // A `hear` in the middle cycle now, and it grades the same: both are
+    // answered by choosing one meaning of four, which is what `recognised`
+    // means. See `choosing`.
+    expect(choosing(askIn(at.round, 0))).toBe(true);
 
     const right = at.round?.options.indexOf(at.round.clue) ?? -1;
     const state = accept(at, { type: 'choose', option: right }, 0, now + 1_000);
@@ -1845,13 +2162,13 @@ describe('everyday phrases', () => {
   it('pays the same for every phrase, whatever its place in the list', () => {
     const state = playing('pl', 'phrases', 2, 1_000, inOrder);
     const flat = (rank: number): number =>
-      roundPoints(state, 0, rank, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false);
+      roundPoints(state, 0, rank, windowMs(state, 0), 'say', false);
     expect(flat(1)).toBe(flat(PHRASE_COUNT));
-    expect(flat(1)).toBe(Math.round(PHRASE_RARITY * LEVEL_SCALE[DEFAULT_LEVEL]));
+    expect(flat(1)).toBe(PHRASE_RARITY);
     // Word mode is untouched: there the decade is the whole point.
     const words = playing('pl', 'hard', 2, 1_000, inOrder);
-    expect(roundPoints(words, 0, 900, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false)).toBeGreaterThan(
-      roundPoints(words, 0, 5, LEVEL_WINDOW_MS[DEFAULT_LEVEL], 'say', false),
+    expect(roundPoints(words, 0, 900, windowMs(state, 0), 'say', false)).toBeGreaterThan(
+      roundPoints(words, 0, 5, windowMs(state, 0), 'say', false),
     );
   });
 

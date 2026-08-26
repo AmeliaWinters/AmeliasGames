@@ -166,6 +166,67 @@
   text-align: center;
 }
 
+/* Anything that says a word out loud.
+
+   Two of them, and they share only what makes a bare button behave: the colour
+   of the glyph and the fact that it is pressable. Everything about how big and
+   how loud each one is belongs to the two rules below, because the clue is the
+   question and the reveal's is a footnote. */
+.vr-speak {
+  font-family: inherit;
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The clue you listen to.
+
+   The same footprint as `.vr-clue`, deliberately: a `hear` round and a `pick`
+   round sit in the same place in the same layout, and a listening round that
+   reflowed the board would make the question's arrival about the layout rather
+   than about the word. So it is a block the width of the clue with a speaker in
+   the middle of it, and the options below do not move.
+
+   A real button, sized well past the 44px floor, because it is pressed under
+   time pressure by somebody who missed the word the first time. */
+.vr-speak-clue {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 96px;
+  padding: 18px 12px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 2.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vr-speak-clue:hover {
+  border-color: var(--accent);
+}
+
+/* The replay on the reveal. Small and quiet: the word is already on the screen
+   and this is a second way to take it in, not a second thing to read. */
+.vr-speak-small {
+  display: block;
+  margin: 2px auto 0;
+  padding: 6px 14px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.vr-speak-small:hover {
+  border-color: var(--accent);
+}
+
 /* Answering */
 
 /* The four meanings, on a recognition round.
@@ -434,6 +495,43 @@
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+/* The other words the clue would have taken.
+
+   Muted and small, under everything: it is a footnote to the answer and the
+   answer is what the six seconds are for. The words themselves are `strong`
+   rather than accented, so they read as words rather than as three more
+   answers competing with the one above them. */
+.vr-answer-also {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.vr-answer-also strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.vr-also-script {
+  color: var(--muted);
+}
+
+/* A clue coming round a second time.
+
+   Marked rather than merely repeated: without this the word simply turns up
+   again five rounds later and reads as the deck stuttering. Quiet, because it
+   is context for the question and not the question. */
+.vr-retry {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: center;
 }
 
 /* The wait for the next clue. `aria-hidden` in the markup and quiet here: it
