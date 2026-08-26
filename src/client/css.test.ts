@@ -528,6 +528,29 @@ describe('the lobby bar', () => {
   });
 
   /*
+    The chip is inside a card now, and the card is what the bar sees. Both
+    carry the cap: the chip's is the one measured in a browser and pinned
+    above, and the card's is what actually holds the bar together, because a
+    17-character "Create an account" under an unclipped chip would otherwise
+    set the width. Measured at 320 with a 19-character name: the lockup stays
+    whole and the name is the thing that ellipsises, which is the contract.
+  */
+  it('caps the account card the chip now sits in', () => {
+    expect(rule('.account')).toContain('max-width: 40vw');
+  });
+
+  /*
+    The way in to an account is the quietest thing on the bar and is set at
+    11.5px, which is well under the 18.66px where 3:1 would do. Measured in
+    the browser against both grounds -- 6.03 dark, 5.32 light -- but the
+    colour is the thing a change would move, so it is the colour that is
+    pinned: `--muted` is the token those two numbers belong to.
+  */
+  it('leaves the account link on the muted token', () => {
+    expect(rule('.acct-link')).toContain('color: var(--muted)');
+  });
+
+  /*
     The second word is set in the channel colour, which clears 3:1 against the
     ground but not 4.5:1. Bold at 20px it is large text, where 3:1 is the bar
     it has to clear; below 18.66px it is not, and the same colour quietly

@@ -268,6 +268,23 @@
   color: var(--muted);
 }
 
+/* What sits where the button would be for a seat whose hints are free. Takes
+   the same vertical space as `.vr-hint-buy` so the "I don't know it" button
+   below it does not move between a beginner's board and everybody else's, and
+   `--muted` rather than `--ink` because it is a standing note rather than a
+   thing to act on. 5.1:1 against the board. */
+.vr-hint-free {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin: 10px 0 0;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
 
 .vr-entry {
   margin: 0;

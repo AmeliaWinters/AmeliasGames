@@ -11,6 +11,7 @@ import {
 // already make.
 import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
 import { Die } from "./games/Die.js";
+import { RG_H, RG_RUNS, RG_W } from "./rgMark.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 
 /*
@@ -53,32 +54,38 @@ function Wordmark({ name }: { name: string }) {
 /**
  * The mark.
  *
- * A die that is also a flag: a rounded square on its corner, three pips up the
- * rising diagonal. It is drawn rather than photographed so it inherits the
- * palette -- the body takes the ink of whatever it sits on and the pips take
- * the channel colour, which is the same rule the wordmark's second word obeys,
- * so the two halves of the lockup are coloured by one decision.
+ * The RG monogram: pixel arcade caps on a rounded tile, the same letterforms
+ * the favicon and the launcher icons are drawn from. The runs come from
+ * `rgMark.ts`, which `scripts/make-icons.mjs` generates from the one grid, so
+ * the glyph in the header cannot drift from the glyph on the home screen.
  *
- * `currentColor` and no fixed size: it is set in `em`, so it scales with the
- * type beside it and the header has one number to tune rather than two.
+ * It replaced a die-on-its-corner drawn in `currentColor` with pips in the
+ * channel colour. Two things went with it and both were deliberate. The mark
+ * no longer takes the accent, because the accent moves per game and a logo
+ * that changes colour with the room is not a logo; the wordmark's second word
+ * still carries it, so the lockup has lost none of that. And it no longer
+ * takes the ink, because it is a tile rather than a line drawing -- the tile
+ * is `--board` and the letters are `--seat-0`, which is exactly the daylight
+ * pair in daylight and the stage pair in stage, from the palette's own tokens
+ * rather than from two hexes written down here.
+ *
+ * No fixed size: set in `em` off the lockup beside it, so the header still has
+ * one number to tune rather than two.
  */
 function Logo() {
   return (
-    <svg className="logo" viewBox="0 0 32 32" role="img" aria-hidden="true" focusable="false">
-      <g transform="rotate(45 16 16)">
-        <rect
-          x="6.5"
-          y="6.5"
-          width="19"
-          height="19"
-          rx="5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.6"
-        />
-        <circle cx="11.5" cy="20.5" r="2.1" className="pip" />
-        <circle cx="16" cy="16" r="2.1" className="pip" />
-        <circle cx="20.5" cy="11.5" r="2.1" className="pip" />
+    <svg
+      className="logo"
+      viewBox={`0 0 ${RG_W + 8} ${RG_W + 8}`}
+      role="img"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect className="tile" width={RG_W + 8} height={RG_W + 8} rx={(RG_W + 8) * 0.22} />
+      <g className="mono" transform={`translate(4 ${(RG_W + 8 - RG_H) / 2})`}>
+        {RG_RUNS.map(([x, y, len]) => (
+          <rect key={`${x},${y}`} x={x} y={y} width={len} height={1} />
+        ))}
       </g>
     </svg>
   );

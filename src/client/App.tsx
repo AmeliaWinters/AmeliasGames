@@ -40,6 +40,7 @@ import {
 import { applySound, loadSound } from "./feel.js";
 import { play, primeSfx, useTableSounds } from "./sfx.js";
 import { Toaster, useToasts, type Toasts } from "./toast.js";
+import { hasAccount } from "./account.js";
 import { Profile } from "./Profile.js";
 import { earnedBetween, loadProfileCache, saveProfileCache, type Earned } from "./profileCache.js";
 import type { ProfileView } from "../shared/profile.js";
@@ -1040,37 +1041,56 @@ function JoinBox({
         onJoin();
       }}
     >
-      <h2>Join a room</h2>
-      <CodeCells value={code} field={field} onChange={onCode} />
-      {/* Only for somebody this browser has never been told the name of.
-          Everybody else is named in the bar above, and asking a returning
-          player to type it again in front of a code is the form this screen
-          got rid of. */}
+      <h2>Got a code?</h2>
+      {/*
+        Two shapes, and the fork is `askName`, which is decided once on arrival
+        and never flips while somebody is typing.
+
+        Known name: the button sits on the end of the code line, because there
+        is nothing between the last letter and pressing it. Unknown name: the
+        name field comes between them, and the button has to follow the last
+        thing it depends on -- a Join sitting above the field it is waiting for
+        is a control that looks broken to everyone who has not yet scrolled
+        past it.
+      */}
       {askName ? (
-        <label>
-          Your name
-          <input
-            value={name}
-            onChange={(e) => onName(e.target.value)}
-            placeholder="Amelia"
-            maxLength={20}
-          />
-        </label>
-      ) : (
-        <p className="join-as">
-          Joining as {trimmed}.{" "}
-          <button type="button" className="linky" onClick={onEditName}>
-            Not you?
+        <>
+          <CodeCells value={code} field={field} onChange={onCode} />
+          <label>
+            Your name
+            <input
+              value={name}
+              onChange={(e) => onName(e.target.value)}
+              placeholder="Amelia"
+              maxLength={20}
+            />
+          </label>
+          <button className="primary" disabled={!trimmed || !complete}>
+            Join
           </button>
-        </p>
+        </>
+      ) : (
+        <>
+          <div className="join-row">
+            <CodeCells value={code} field={field} onChange={onCode} />
+            <button className="join-go" disabled={!trimmed || !complete}>
+              Join <span aria-hidden="true">&rarr;</span>
+            </button>
+          </div>
+          {/* Everybody here is named in the bar above, and asking a returning
+              player to type it again in front of a code is the form this
+              screen got rid of. */}
+          <p className="join-as">
+            Joining as {trimmed}.{" "}
+            <button type="button" className="linky" onClick={onEditName}>
+              Not you?
+            </button>
+          </p>
+        </>
       )}
-      <button className="primary" disabled={!trimmed || !complete}>
-        Join
-      </button>
-      {/* Under the button rather than over it, and absent until there is
+      {/* Under the control rather than over it, and absent until there is
           something to say. It used to sit above with 2.4em reserved under a
-          line of instructions nobody needed twice, which was a third of the
-          card's height spent on a hint. Below the button, appearing costs
+          line of instructions nobody needed twice. Below, appearing costs
           nobody a mis-press: the only control it can move is not there. */}
       {status && (
         <p className="hint" id="code-hint">
@@ -1123,6 +1143,21 @@ function Setup({
     pasting a key repaints the badge without a reload.
   */
   const [profile, setProfile] = useState(loadProfileCache);
+  /*
+    Whether there is a key, held as state rather than read at render.
+
+    The account and the profile are not the same fact and the difference is
+    visible for as long as it takes to play one game: the key exists the moment
+    you press the button, the profile is written by the first word you find. So
+    the panel's `onChanged` refreshing the cache alone left `null` where there
+    was already `null`, React re-rendered nothing, and the bar went on offering
+    to create the account somebody had just created.
+  */
+  const [signed, setSigned] = useState(hasAccount);
+  const refreshAccount = () => {
+    setProfile(loadProfileCache());
+    setSigned(hasAccount());
+  };
   /*
     The table somebody pressed before this app knew what to call them.
 
@@ -1244,17 +1279,40 @@ function Setup({
         <h1 className="wordmark">
           <BrandMark />
         </h1>
-        <button
-          type="button"
-          className="whoami"
-          aria-expanded={panel === "name"}
-          onClick={() => togglePanel("name")}
-        >
-          <span className="av" aria-hidden="true">
-            {(trimmed || "?").slice(0, 1).toUpperCase()}
-          </span>
-          <span className="who">{trimmed || "Add your name"}</span>
-        </button>
+        {/* Who you are and what is keeping it, stacked as one card at the far
+            end of the bar. The way in to an account used to be a line of lobby
+            furniture down beside the tagline, which is the wrong place for it:
+            it is the account control, and the account control belongs on the
+            thing that already says your name. Stacked rather than a third chip
+            on the line, because three chips at 375px take the wordmark down to
+            an ellipsis -- see `css.test.ts`, "the lobby bar". */}
+        <div className="account">
+          <button
+            type="button"
+            className="whoami"
+            aria-expanded={panel === "name"}
+            onClick={() => togglePanel("name")}
+          >
+            <span className="av" aria-hidden="true">
+              {(trimmed || "?").slice(0, 1).toUpperCase()}
+            </span>
+            <span className="who">{trimmed || "Add your name"}</span>
+          </button>
+
+          {/* The quiet half. It is a label for a state, not a pitch: the pitch
+              is the reminder down in the lobby, and the panel behind this
+              button says the rest. The one loud state -- words actually due --
+              stays down there too, where a 1.7rem number has room to be the
+              reason to come back. */}
+          <button
+            type="button"
+            className="acct-link"
+            aria-expanded={panel === "profile"}
+            onClick={() => togglePanel("profile")}
+          >
+            {signed ? "Your account" : "Create an account"}
+          </button>
+        </div>
 
         {/* Anchored under the chip that opened it rather than laid across the
             page. As a block in the flow it was a full-width card that shoved
@@ -1289,74 +1347,90 @@ function Setup({
         )}
       </header>
 
-      {/* The one thing on this screen with a deadline: somebody is holding
-          four letters somebody else read out. It sits above the tagline and
-          the shelf, and it is never behind a press. */}
-      <JoinBox
-        code={code}
-        onCode={setCode}
-        field={codeField}
-        name={name}
-        onName={setName}
-        askName={askName}
-        onEditName={() => togglePanel("name")}
-        onJoin={join}
-      />
+      {/* Two columns on a wide lobby: the code and the copy on the left, the
+          shelf on the right. As one column the join box, the tagline and the
+          reminder were three full-width bands stacked above the games, and on
+          a laptop that is most of the first screen spent on the thing almost
+          nobody came for. On a phone `.lobby-cols` is still one column and the
+          order is unchanged. */}
+      <div className="lobby-cols">
+        <div className="lobby-aside">
+          {/* The one thing on this screen with a deadline: somebody is holding
+              four letters somebody else read out. It is never behind a press. */}
+          <JoinBox
+            code={code}
+            onCode={setCode}
+            field={codeField}
+            name={name}
+            onName={setName}
+            askName={askName}
+            onEditName={() => togglePanel("name")}
+            onJoin={join}
+          />
 
-      {/* The tagline and the way into your words, on one line.
+          {/* Six words for the whole product, in the order it happens.
 
-          The due prompt used to be a full-width dashed bar of its own between
-          the two, which read as an empty form field somebody had forgotten to
-          fill in -- the loudest shape on the screen for the quietest state it
-          has. Paired with the tagline it is a line of lobby furniture instead,
-          and it still gets to be loud on the one state that earns it.
+              It used to list three things this is not -- no ads, no account,
+              no catch -- which is a defence, and nobody had accused it of
+              anything yet. The accounts line in particular was arguing with a
+              feature the page now offers two controls for. */}
+          <p className="tagline">Pick a game, send the link, play.</p>
 
-          Not in the bar above: three chips do not fit at 375px, and the bar's
-          wordmark is the thing that would have lost the characters. That is
-          pinned in `css.test.ts`.
+          {/* The due prompt, and it is the only thing left in this column that
+              is allowed to be loud, because it is the only one anybody came
+              back for. The idle states it used to also carry -- "Your words",
+              "Keep track of what you learn" -- are the account control, and
+              that now lives on the account card in the bar.
 
-          Cached rather than live, because the lobby has no socket. See
-          `profileCache.ts` for why a count that can only understate is the
-          right trade. */}
-      <div className="lobby-meta">
-        {/* The tagline's third clause used to be "no accounts", and it was
-            true. Accounts exist now and are optional, so it says the thing
-            that is still true and is the actual selling point: nobody needs
-            one, and a room where nobody has one plays exactly as it always
-            has. */}
-        <p className="tagline">
-          Two to eight players, one link. No ads, no account needed, no catch.
-        </p>
-
-        <button
-          type="button"
-          className={profile && profile.due > 0 ? "myword myword-due" : "myword"}
-          aria-expanded={panel === "profile"}
-          onClick={() => togglePanel("profile")}
-        >
-          {profile && profile.due > 0 ? (
-            <>
+              Cached rather than live, because the lobby has no socket. See
+              `profileCache.ts` for why a count that can only understate is the
+              right trade. */}
+          {profile && profile.due > 0 && (
+            <button
+              type="button"
+              className="myword myword-due"
+              aria-expanded={panel === "profile"}
+              onClick={() => togglePanel("profile")}
+            >
               <span className="myword-n">{profile.due}</span>
               <span className="myword-of">
                 {profile.due === 1 ? "word due for review" : "words due for review"}
               </span>
-            </>
-          ) : (
-            <span className="myword-of">
-              {profile ? "Your words" : "Keep track of what you learn"}
-            </span>
+            </button>
           )}
-        </button>
-      </div>
 
-      {panel === "profile" && (
-        <Profile profile={profile} onChanged={() => setProfile(loadProfileCache())} />
-      )}
+          {/* The reminder, and it deliberately does not repeat the button that
+              opens it. "Create an account" up in the bar says what pressing it
+              does; this says what the account is for, and the words are only
+              half of that -- the streaks and the tallies are the half the old
+              copy never mentioned. Absent once there is an account, because
+              then it is describing something you already have. */}
+          {!signed && (
+            <p className="acct-why">
+              An account remembers the words you have found and the ones you
+              owe a review on, and keeps your stats and streaks across every
+              game. No email, nothing to fill in.
+            </p>
+          )}
+
+          {panel === "profile" && (
+            <Profile profile={profile} onChanged={refreshAccount} />
+          )}
+        </div>
 
       {/* One element around the shelf, which `base.css` reads: the two recovery
           screens wear `.app.setup` too, and the desktop layout is for the lobby
           rather than for a wordmark and a button. */}
       <div className="shelves">
+        {/* The other half of the fork, and it had never been named.
+
+            The code above it is a question with a rule under it; this is the
+            answer for everybody who has not got one. Two named halves is the
+            whole of what makes the lobby read as a choice rather than as a
+            form with a shop underneath it -- and it is set a step above the
+            shelf labels below, which name kinds of game rather than the thing
+            you are doing. */}
+        <h2 className="start-head">Start a new room</h2>
         <HeroCard table={featured} onStart={start} />
 
         {shelves.map((shelf) => (
@@ -1378,6 +1452,7 @@ function Setup({
             </div>
           </section>
         ))}
+      </div>
       </div>
 
       <div className="preferences">

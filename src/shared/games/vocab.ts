@@ -12,6 +12,7 @@ import { phraseKeys } from './vocabPhrases.js';
 import {
   DECK_DEPTH,
   DEFAULT_LEVEL,
+  FREE_HINT_MS,
   HINT_ALLOWANCE,
   HOST,
   MODE_CAP,
@@ -23,7 +24,9 @@ import {
   VOCAB_LANG_NAME,
   VOCAB_LEVELS,
   VOCAB_MODES,
-  askAt,
+  askFor,
+  askIn,
+  autoHinted,
   canAct,
   canHint,
   everyoneDone,
@@ -33,6 +36,7 @@ import {
   isFinished,
   isPhrases,
   leaders,
+  levelOf,
   maskWord,
   roundDeadline,
   roundPoints,
@@ -42,6 +46,7 @@ import {
 
 import type {
   VocabAsk,
+  VocabHint,
   VocabHow,
   VocabLang,
   VocabLevel,
@@ -57,18 +62,17 @@ import type {
 export {
   DECK_DEPTH,
   DEFAULT_LEVEL,
+  FREE_HINT_MS,
   HINT_ALLOWANCE,
   HINT_SCALE,
   HOST,
+  LEVEL_ASKS,
   LEVEL_NAME,
-  LEVEL_SCALE,
-  LEVEL_WINDOW_MS,
   MODE_CAP,
   MODE_LABEL,
   MODE_NAME,
   PHRASE_COUNT,
   PHRASE_RARITY,
-  PICK_EVERY,
   PICK_OPTIONS,
   PICK_SCALE,
   RARITY_STEP,
@@ -81,7 +85,10 @@ export {
   VOCAB_LANG_NAME,
   VOCAB_LEVELS,
   VOCAB_MODES,
-  askAt,
+  askFor,
+  askIn,
+  askOf,
+  autoHinted,
   canAct,
   canHint,
   clockCall,
@@ -280,12 +287,12 @@ function deal(rng: Rng): number[] {
 function roundFrom(
   question: VocabQuestion,
   now: number,
-  ask: VocabAsk,
+  asks: VocabAsk[],
   options: string[],
 ): VocabRound {
   return {
     clue: question.clue,
-    ask,
+    asks,
     options,
     hints: [],
     answer: {
@@ -313,13 +320,20 @@ function roundFrom(
  *
  * Null means the deck is spent, which ends the game. See `advance`.
  *
- * Which way round the clue is asked is decided here too, and it is a function
- * of how many rounds have already been filed and nothing else, because there is
- * no rng at this point in the game and there must not be, see point 6 above. A
- * `pick` round that cannot be built falls back to a `say`: `vocabOptions`
- * returns nothing when it cannot find three meanings that are not synonyms of
- * the answer, and asking the word the other way round is a better answer to
- * that than a question with two options in it.
+ * Which way round the clue is asked is decided here too, once per seat, and it
+ * is a function of that seat's level and how many rounds have already been
+ * filed and nothing else, because there is no rng at this point in the game and
+ * there must not be, see point 6 above.
+ *
+ * The options are drawn once and shared by everybody who is picking, because
+ * the clue is shared: four meanings drawn twice would be two different
+ * questions about one word, and the redaction in `view()` would have to keep
+ * both straight. A seat assigned a `pick` on a round where none could be built
+ * falls back to a `say` -- `vocabOptions` returns nothing when it cannot find
+ * three meanings that are not synonyms of the answer, and asking the word the
+ * other way round is a better answer to that than a question with two options
+ * in it. That fallback is all-or-nothing by construction: with no options,
+ * nobody picks.
  */
 function draw(
   state: VocabState,
@@ -335,10 +349,14 @@ function draw(
     if (rank > cap) continue;
     const question = vocabQuestion(lang, mode, rank);
     if (question === null || asked.has(question.clue)) continue;
-    const wanted = askAt(state.history.length);
-    const options = wanted === 'pick' ? vocabOptions(lang, mode, rank, cap, state.deck) : [];
-    const ask = wanted === 'pick' && options.length === 0 ? 'say' : wanted;
-    return { round: roundFrom(question, now, ask, options), drawn: i + 1 };
+    const index = state.history.length;
+    const wanted = state.scores.map((_, seat) => askFor(levelOf(state, seat), index));
+    const options = wanted.includes('pick')
+      ? vocabOptions(lang, mode, rank, cap, state.deck)
+      : [];
+    const asks: VocabAsk[] =
+      options.length === 0 ? wanted.map(() => 'say') : wanted;
+    return { round: roundFrom(question, now, asks, options), drawn: i + 1 };
   }
   return null;
 }
@@ -413,13 +431,14 @@ function settle(state: VocabState, round: VocabRound, now: number): VocabState {
       seat,
       how: 'timeout',
       said: '',
+      ask: askIn(round, seat),
       ms: windowMs(state, seat),
       points: 0,
       // A seat that bought a hint and then let its window close still spent
       // the hint, and the review should say so. It scaled nothing, a timeout
       // scoring zero either way, but "hinted and still did not get it" is the
       // most useful line this screen can print about a word.
-      hinted: hintOf(round, seat) !== null,
+      hinted: boughtHint(round, seat),
     });
   }
 
@@ -473,15 +492,32 @@ function attemptOf(
 ): VocabTry {
   const ms = tookUntil(round, state, seat, now);
   const rank = round.answer?.rank ?? 0;
-  const hinted = hintOf(round, seat) !== null;
+  const ask = askIn(round, seat);
+  const hinted = boughtHint(round, seat);
   return {
     seat,
     how,
     said,
+    ask,
     ms,
     hinted,
-    points: how === 'right' ? roundPoints(state, seat, rank, ms, round.ask, hinted) : 0,
+    points: how === 'right' ? roundPoints(state, seat, rank, ms, ask, hinted) : 0,
   };
+}
+
+/**
+ * Whether `seat` has a hint it *paid* for on this round.
+ *
+ * The distinction the whole free hint turns on, and the reason this is a
+ * function rather than `hintOf(...) !== null` written out five times. A
+ * beginner's hint arrives on the round like any other so the board can draw it
+ * and a reconnecting seat gets it back, but it spent no allowance and it must
+ * not halve the points (see `FREE_HINT_MS`). Everything that prices or reports
+ * a hint asks this; only the board, which is drawing it, asks `hintOf`.
+ */
+function boughtHint(round: VocabRound, seat: number): boolean {
+  const hint = hintOf(round, seat);
+  return hint !== null && !hint.free;
 }
 
 /** Deal the first clue, with the settings the host chose. */
@@ -656,13 +692,16 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     // length more than they had, and half the points if it lands.
     if (move.type === 'hint') {
       if (!canHint(state, seat, now)) {
-        // Three different refusals, because they are three different situations
+        // Four different refusals, because they are four different situations
         // and "no" on its own would read as the button being broken.
-        if (round.ask !== 'say') {
+        if (askIn(round, seat) !== 'say') {
           return { ok: false, error: 'The word is already on the screen.' };
         }
         if (hintOf(round, seat) !== null) {
           return { ok: false, error: 'You have already had your hint on this one.' };
+        }
+        if (autoHinted(state, seat)) {
+          return { ok: false, error: 'Your hint is free on this one. It arrives in a moment.' };
         }
         return { ok: false, error: 'You have no hints left.' };
       }
@@ -675,14 +714,17 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
           hints,
           round: {
             ...round,
-            hints: [...round.hints, { seat, shown: maskWord(round.answer?.word ?? '') }],
+            hints: [
+              ...round.hints,
+              { seat, at: at, free: false, shown: maskWord(round.answer?.word ?? '') },
+            ],
           },
         },
       };
     }
 
     if (move.type === 'choose') {
-      if (round.ask !== 'pick') {
+      if (askIn(round, seat) !== 'pick') {
         return { ok: false, error: 'This one is typed, not chosen.' };
       }
       // An index, so the board never held the answer to send back. Validated
@@ -706,7 +748,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       };
     }
 
-    if (round.ask !== 'say') {
+    if (askIn(round, seat) !== 'say') {
       return { ok: false, error: 'Choose one of the meanings instead.' };
     }
 
@@ -884,17 +926,15 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
         : `${who(first.seat)} had it first, and so did ${also} more: ${word}.`;
     }
 
-    // The word goes in the line here and nowhere else. On a recognition round
-    // it *is* the question and is already printed on every board; it is the
-    // clue that is the secret on this kind of round, which is why the branch
-    // below cannot be reused for it.
-    if (state.round?.ask === 'pick') {
-      return `What does “${state.round.answer?.word ?? ''}” mean?`;
-    }
-
+    // Neither half of the clue can go in this line any more, and that is the
+    // price of asking one word two ways at once. `status` is rendered above
+    // every board with no seat to aim it at, so on a mixed table the word would
+    // reach the seats picking (whose question is the word) *and* the seats
+    // typing (for whom it is the answer), and the clue would leak the other
+    // way round. The board draws the question itself, per seat, out of `view`.
     return isPhrases(state.mode)
-      ? `Say “${state.round?.clue ?? ''}” in ${language}.`
-      : `Say the ${language} for “${state.round?.clue ?? ''}”.`;
+      ? `Say the phrase in ${language}, or pick what it means.`
+      : `Say the ${language} word, or pick what it means.`;
   },
 
   /**
@@ -925,6 +965,14 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
    * the whole table's. This is the only reason this `view` reads its `seat`
    * argument at all.
    *
+   * The beginner's free hint is the one thing this method *adds* rather than
+   * takes away, and it is added here for the reason everything else is removed
+   * here: it is per seat. It is not on the state at all -- it costs no
+   * allowance, prices no points and nothing on the server needs to know about
+   * it -- so the round only ever grows one where somebody is looking at it. It
+   * carries an `at` and the board holds it until the clock gets there, since
+   * this method has no `now` to withhold it by. See `FREE_HINT_MS`.
+   *
    * Not redacted at all: everyone's score, and everyone's remaining allowance.
    * The first only moves when a round settles, by which time all of this is
    * public anyway; the second is a thing opponents are meant to be able to read.
@@ -940,7 +988,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       return { ...state, deck: [], study: {} };
     }
     const round = state.round;
-    const pick = round.ask === 'pick';
+    const pick = askIn(round, seat) === 'pick';
     return {
       ...state,
       deck: [],
@@ -953,14 +1001,27 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       round: {
         ...round,
         clue: pick ? '' : round.clue,
+        // A seat that is typing must not hold the four meanings either. They
+        // are English glosses and one of them is the clue this seat is already
+        // looking at, so on its own that leaks nothing -- but a board that
+        // holds them will draw them, and the fastest way to a bug where one
+        // seat is offered the easy question is to hand it the pieces.
+        options: pick ? round.options : [],
         // On a recognition round the word and its script are the question. The
         // lemma and the rank are not, and they are the two things the reveal
         // has left to tell anybody, so they wait for it.
         answer: pick && round.answer !== null ? { ...round.answer, lemma: '', rank: 0 } : null,
         tries: round.tries.map((attempt) => ({ ...attempt, said: '', points: 0 })),
-        hints: round.hints.map((hint) =>
-          hint.seat === seat ? hint : { ...hint, shown: '' },
-        ),
+        hints: [
+          ...round.hints.map((hint) =>
+            hint.seat === seat ? hint : { ...hint, shown: '' },
+          ),
+          ...freeHint(state, round, seat),
+        ],
+        // Every seat's own question, and nobody else's answer. `asks` is
+        // public on purpose: `levels` already is, and a table that can see who
+        // is picking can read the round.
+        asks: round.asks.slice(),
       },
     };
   },
@@ -1037,7 +1098,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
           // concern and the server is never looking at a redacted state.
           gloss: round.clue,
           rank: answer.rank,
-          grade: gradeOf(attempt, round.ask, windowMs(state, seat)),
+          grade: gradeOf(attempt, attempt.ask, windowMs(state, seat)),
           ms: attempt.ms,
         });
       }
@@ -1053,6 +1114,25 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     return { gameId: vocab.id, seats: outcomes };
   },
 };
+
+/**
+ * The hint a beginner is owed on a round they have to type, as a list of none
+ * or one so it can be spread into `hints`.
+ *
+ * None for anybody who is picking (there is nothing to hint at), anybody who
+ * already has a hint, and any seat that did not say it was just starting.
+ * None either for a seat with no round to look at, which is a client asking
+ * about somebody else's view. See `FREE_HINT_MS` for why it goes out with a
+ * time on it rather than being held back until that time.
+ */
+function freeHint(state: VocabState, round: VocabRound, seat: number): VocabHint[] {
+  if (!autoHinted(state, seat)) return [];
+  if (askIn(round, seat) !== 'say') return [];
+  if (hintOf(round, seat) !== null) return [];
+  const word = round.answer?.word ?? '';
+  if (word === '') return [];
+  return [{ seat, at: round.began + FREE_HINT_MS, free: true, shown: maskWord(word) }];
+}
 
 /**
  * One try, as a grade. See `record` for the argument behind each row.

@@ -12,6 +12,7 @@ import {
   cheerLength,
   cheerPose,
   landedBetween,
+  PLAYBACK,
   windUp,
   WINDUP_MS,
   type CheerKind,
@@ -476,19 +477,21 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         if (latest.current.mine) buzz(16);
       }
       /*
-        Real time, and only real time.
+        One rate, and the same one all the way through.
 
-        The clock used to be remapped here (a third of life through the throw's
-        decisive contact, four times life through the tail) and it is now handed
-        out exactly as it arrives. `beats.ts` keeps the note on why that went;
-        the short version is that dice are a thing everyone has watched land,
-        and a throw that changes speed partway through reads as broken rather
-        than as emphasis.
+        The clock used to be remapped *within* a throw (a third of life through
+        the decisive contact, four times life through the tail) and that is
+        gone: `beats.ts` keeps the note on why, and the short version is that
+        dice are a thing everyone has watched land, so a throw that changes
+        speed partway through reads as broken rather than as emphasis. What is
+        applied here is a single constant across every frame of every throw,
+        which is a statement about how big the dice are on screen rather than
+        about which moment matters. See `PLAYBACK`.
 
         Capped, so a tab that was hidden for a minute does not try to simulate a
         minute of dice the moment it comes back.
       */
-      carried += Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000;
+      carried += (Math.min(now - last, mods.engine.PHYS.MAX_FRAME * 1000) / 1000) * PLAYBACK;
       last = now;
 
       let moving = 1;
@@ -609,38 +612,31 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
   const throwable = Boolean(onThrow);
 
   /*
-    Whether any die is hard to read where it lies.
+    Whether the row of flat dice along the top edge is showing.
 
-    Real cubes may finish on top of one another, wedged against a wall, or
-    simply nose to nose from where this camera is standing, and a die under
-    another one is a number the player cannot read and a target they cannot hit.
-    The physics is left alone about it, deliberately: shoving the dice apart
-    afterwards would mean the tray showing something the throw did not do. What
-    changes is the *reading*, and only when there is something to fix.
+    It used to be shown only when a die was *hard to read where it lies*: sat
+    on top of another one, or overlapping one on screen from where this camera
+    stands. Real cubes do that, the physics is deliberately left alone about it
+    (shoving them apart afterwards would mean the tray showing something the
+    throw did not do), and the row was the reading being fixed rather than the
+    pile.
 
-    Two ways to be buried, and both are asked at rest rather than in flight,
-    where every die is briefly on top of every other one:
+    That was the right fix for the wrong scope. A row that appears on some
+    throws and not others is a control that moves under the thumb: the way to
+    keep a die is in a different place depending on how the last throw happened
+    to land, and a player has to find it again each time. It is also the only
+    place a die's number is stated flat-on rather than in perspective, which is
+    worth having on the throws that are merely awkward to read as well as the
+    ones that are impossible.
 
-      - standing above the floor at all, which means on top of something;
-      - overlapping another die on screen, which is the same problem arriving
-        through the camera rather than through the pile.
+    So it is up from the moment there is something to show: once the dice are
+    down and carrying faces, and never in flight, where every die is briefly on
+    top of every other one and the numbers are not the player's yet.
   */
-  const buried = useMemo(() => {
-    if (flying) return false;
-    if (resting.some((r) => r.up > tray.die * 0.35)) return true;
-    for (let i = 0; i < spots.length; i++) {
-      for (let j = i + 1; j < spots.length; j++) {
-        const a = spots[i];
-        const b = spots[j];
-        if (!a || !b) continue;
-        // Their drawn sizes, not the 44px floor the buttons are given: the
-        // question is whether one cube hides another, not whether two touch
-        // targets overlap.
-        if (Math.hypot(a.x - b.x, a.y - b.y) < Math.max(a.size, b.size) * 0.72) return true;
-      }
-    }
-    return false;
-  }, [flying, resting, spots, tray]);
+  const readout = useMemo(
+    () => !flying && faces.some((f) => f >= 1 && f <= 6),
+    [flying, faces],
+  );
 
   return (
     <div
@@ -698,7 +694,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
               The pointer still lands on the cube itself, because a tap is the
               flick gesture's business and `data-die` is what it looks for.
             */
-            {...(buried
+            {...(readout
               ? { tabIndex: -1, "aria-hidden": true as const }
               : { "aria-pressed": Boolean(held?.[i]), "aria-label": dieLabel(i, faces[i] ?? 0, Boolean(held?.[i]), flying) })}
             style={style}
@@ -719,8 +715,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         );
       })}
       {/*
-        The dice as numbers, along the top edge, when the tray alone will not
-        say what they are.
+        The dice as numbers, along the top edge, from the moment they are down.
 
         Along the *far* edge on purpose: that end of the tray is where a die is
         drawn smallest and read worst, and a bar over it covers less than one
@@ -729,7 +724,7 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
         on a child of it either never fires or fires twice, the same reason
         the cubes' own buttons are keyboard-only.
       */}
-      {buried && (
+      {readout && (
         <div className="dice-readout">
           {Array.from({ length: count }, (_, i) => {
             const face = faces[i] ?? 0;

@@ -301,3 +301,39 @@ export function slerp(a: Quat, b: Quat, t: number): Quat {
     a[3] * wa + end[3] * wb,
   ];
 }
+
+/* The playback rate */
+
+/**
+ * How fast the simulated clock runs against the wall clock, and why it is not
+ * one.
+ *
+ * Read the note above about the slow moment first, because this looks like the
+ * same mistake and is not. What went wrong there was that the throw *changed
+ * speed partway through*: a viewer who has watched dice land in real life spots
+ * that instantly and reads it as a dropped frame. This is a single constant
+ * applied to every step of every throw, so nothing inside the throw accelerates
+ * or decelerates relative to anything else. The throw stays one continuous
+ * piece of motion; it is only the size of the thing being watched that changes.
+ *
+ * Which is the whole argument. `DIE_HALF` fixed the scale by making it real:
+ * a 16 mm die under 981 cm/s^2, and it landed like a die instead of like a toy.
+ * But a 16 mm die on screen is not being watched from where you watch a real
+ * one. The tray fills a phone held a foot away, so the dice come to the eye
+ * several times larger in angle than dice on a table do, and magnified real
+ * motion looks fast: it is exactly why a filmed miniature has to be slowed to
+ * read as full size, and the correction there is the square root of the
+ * magnification. That puts this somewhere between 0.6 and 0.7 on a phone and
+ * lower on a laptop, where the tray is bigger still.
+ *
+ * Half, then, which is a little slower than the arithmetic asks for and lands
+ * a typical throw at about two seconds rather than one. It buys the second
+ * thing a real throw has and a blink does not: time to watch a die come off a
+ * wall and roll itself out.
+ *
+ * **It changes nothing about what the dice do.** The steps are the same steps
+ * in the same order, `PHYS.STEP` is untouched, and the faces and resting places
+ * are the ones the throw was reported with. It costs no version bump for the
+ * same reason the wind-up does not: see the top of this file.
+ */
+export const PLAYBACK = 0.5;

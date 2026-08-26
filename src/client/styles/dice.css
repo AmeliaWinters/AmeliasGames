@@ -214,10 +214,11 @@
 }
 
 /* The dice as numbers
-   Shown only when the tray cannot say it on its own: a die resting on another
-   one, or hidden behind one from where the camera stands. Real cubes do that,
-   the physics is left alone about it, and this is what stops it costing the
-   player a number they cannot read or a die they cannot tap.
+   Up whenever the dice are down, rather than only on the throws the tray
+   cannot speak for (a die resting on another one, or hidden behind one from
+   where the camera stands, both of which real cubes do and the physics is
+   deliberately left alone about). Always, because a row that comes and goes is
+   a control that moves under the thumb; see `Dice3DTray.tsx`.
 
    Along the far edge, which is where a die is drawn smallest and read worst,
    so the bar covers the least. The scrim is what keeps the faces legible over

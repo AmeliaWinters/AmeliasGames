@@ -9,19 +9,21 @@
    app lets it onto -- the due count, the level bar, the primary button -- and
    nothing else, because an accent on every border stops meaning anything.
 
-   Measured at 320, 375 and 390 first. The due prompt is a full-width button
-   rather than a chip in the lobby bar for that reason: three chips on one line
-   pushed the wordmark to an ellipsis at 375. */
+   Measured at 320, 375 and 390 first. The due prompt sits in the lobby aside
+   rather than as a third chip in the bar for that reason: three chips on one
+   line pushed the wordmark to an ellipsis at 375. */
 
-/* The due prompt, on the tagline's line.
+/* The due prompt, under the tagline in the lobby aside.
 
    A sentence, not a pill, which is the whole reason it is not in the bar: it
    has room to say what to do about the number instead of only reporting it.
 
-   Idle it is borderless -- underlined type, the shape of a way in rather than
-   of an empty field. Full width and dashed, which is what it was, it read on
-   an empty lobby as a form control somebody had failed to fill in, and it was
-   the largest thing between the join box and the shelf. */
+   It is now the *only* state this control has. The idle wordings it used to
+   carry -- "Your words", "Keep track of what you learn" -- were the account
+   control wearing a review counter's clothes, and they live on the account
+   card in the bar instead. What is left is the one state somebody came back
+   for, so the borderless idle styling below is kept only because
+   `.myword-due` is written as an override of it. */
 .myword {
   display: inline-flex;
   align-items: baseline;
@@ -472,4 +474,12 @@
   object-fit: cover;
   border-radius: 8px;
   background: var(--board);
+}
+
+/* The aside stretches what it holds, and this one is a chip: it was drawn as
+   inline-flex sized by its own two lines, and stretched to the column it is a
+   bordered bar across the sidebar -- the shape this control was taken out of
+   in the first place. */
+.lobby-aside .myword {
+  align-self: start;
 }

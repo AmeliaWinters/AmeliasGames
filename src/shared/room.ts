@@ -139,8 +139,15 @@ export interface SeatRecord {
  * gone, and the simulation that re-runs it is Rapier in the browser rather
  * than a 2.5D solver on the server. Any one of those alone would need the
  * bump.
+ *
+ * 23: Vocab Race's handicap moved off the clock and the scoreline and onto the
+ * question. A round's `ask` became a per-seat `asks`, a try records the
+ * direction it answered, and a hint carries when it may be shown and whether
+ * it was bought. A stored round holds neither the new fields nor a level that
+ * means what it used to, so a restored game would deal one seat a question it
+ * cannot answer.
  */
-export const SNAPSHOT_VERSION = 22;
+export const SNAPSHOT_VERSION = 23;
 
 /** Everything needed to rebuild a room. This is what gets persisted. */
 export interface RoomSnapshot {

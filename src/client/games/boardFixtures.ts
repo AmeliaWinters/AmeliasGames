@@ -239,9 +239,17 @@ const PROPOSERS: Record<string, Propose> = {
   // the round is running, by design, and a fixture is not the place to reach
   // around that. `pass` and `hint` reach every phase a guess would, and
   // `choose` answers a `pick` round for real.
+  //
+  // Every level is declared, because a level now decides which *question* a
+  // seat is asked (see `LEVEL_ASKS`) and a table all on one of them would
+  // never draw the mixed board: one seat choosing from four while the seat
+  // beside it types. Seats take these in order, so a room of three gets one of
+  // each. `new` is the seat that is given its hint rather than sold one.
   vocab: () => [
     { type: 'settings', lang: 'pl', mode: 'normal' },
+    { type: 'level', level: 'new' },
     { type: 'level', level: 'some' },
+    { type: 'level', level: 'fluent' },
     { type: 'begin' },
     ...[0, 1, 2, 3].map((option) => ({ type: 'choose', option })),
     { type: 'hint' },
