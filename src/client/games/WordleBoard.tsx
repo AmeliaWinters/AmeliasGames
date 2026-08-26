@@ -25,6 +25,7 @@ import type {
 import { useServerNow } from "../clock.js";
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<WordleState, WordleMove>;
 
@@ -303,8 +304,7 @@ export function WordleBoard({ state, seat, names, canAct, now, onMove }: Props) 
     setDraft("");
   }, [state.phase, seat === null ? 0 : state.guesses[seat].length]);
 
-  const nameFor = (index: number | null) =>
-    index === null ? "" : index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   // A spectator (no seat) watches; everything below reads as "not my move".
   const mine = seat !== null;

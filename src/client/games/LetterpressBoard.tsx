@@ -16,6 +16,7 @@ import {
 import type { LpMove, LpState } from "../../shared/games/letterpressDisplay.js";
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<LpState, LpMove>;
 
@@ -54,8 +55,7 @@ export function LetterpressBoard({ state, seat, names, canAct, onMove }: Props) 
     setPath([]);
   }, [state.moveCount, myMove]);
 
-  const nameFor = (index: number) =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   const word = spell(state.grid, path);
   const longEnough = word.length >= MIN_WORD;

@@ -33,8 +33,12 @@
  * missing.
  *
  * 1: the first shape.
+ * 2: `GameTally` grew `lost` and `last`, so the games panel can show a record
+ *    rather than two numbers. Neither is recoverable from a version 1 profile
+ *    -- a loss was never written down and the individual games are gone -- so
+ *    the rung fills them empty and the counts carry on from where they were.
  */
-export const PROFILE_VERSION = 1;
+export const PROFILE_VERSION = 2;
 
 /**
  * The languages the ledger can hold a word in.
@@ -106,15 +110,55 @@ export interface Known {
   fastestMs: number;
 }
 
-/** What one game did, kept per game rather than as one running total. */
+/**
+ * How many of a game's results one tally remembers individually.
+ *
+ * Ten is a strip of pips somebody can read at a glance without counting, and
+ * it is the number that answers the question a total cannot: whether the last
+ * few went the way the lifetime record says they should. Longer would be a
+ * chart, and a chart of Connect Four is not what anybody opened this panel
+ * for. Thirteen games at ten results is under a kilobyte on the profile.
+ */
+export const FORM = 10;
+
+/**
+ * What one game did, kept per game rather than as one running total.
+ *
+ * `played` counts every finished game; `won`, `lost` and `drew` count only the
+ * ones the game could say something about. **They do not have to add up**, and
+ * nothing here should be written as if they did: eleven of the thirteen games
+ * implement no `record` and the room declines to guess, so a hundred games of
+ * Connect Four is `played: 100` and three zeroes. See `Outcome` in
+ * `harvest.ts` for why guessing was rejected.
+ */
 export interface GameTally {
   gameId: string;
   played: number;
   won: number;
+  /** Games lost outright. Only the games that name a winner produce these. */
+  lost: number;
   /** Games that ended with no single winner. Not every game can produce one. */
   drew: number;
+  /**
+   * The last few decided results, oldest first, capped at `FORM`.
+   *
+   * The history the totals cannot hold. Results the game did not decide are
+   * left out rather than stored as a gap: a run of Connect Four would
+   * otherwise be ten blanks pretending to be a form guide.
+   */
+  last: TallyResult[];
   lastAt: number;
 }
+
+/**
+ * How a game finished, from one seat.
+ *
+ * Spelled out here rather than imported from `harvest.ts` for the reason
+ * `LearnLang` is: this is a persisted shape, and it must not move because a
+ * module about folding results into profiles changed its mind. `harvest.ts`
+ * holds the two against each other.
+ */
+export type TallyResult = 'won' | 'lost' | 'drew';
 
 /**
  * Days in a row with at least one word reviewed.
@@ -344,10 +388,47 @@ export function tallyFor(profile: Profile, gameId: string): GameTally {
       gameId,
       played: 0,
       won: 0,
+      lost: 0,
       drew: 0,
+      last: [],
       lastAt: 0,
     }
   );
+}
+
+/**
+ * One stored tally, brought up to the current shape. See `PROFILE_VERSION`.
+ *
+ * A version 1 tally has no `lost` and no `last`, and neither can be recovered:
+ * losses were never counted and the individual games are not kept anywhere.
+ * So they start empty and the totals that *were* written down carry on, which
+ * is the only honest option -- deriving `lost` from `played - won - drew`
+ * would credit every undecided game of Connect Four as a loss.
+ */
+function tallyShape(raw: Partial<GameTally> | null | undefined): GameTally {
+  return {
+    gameId: String(raw?.gameId ?? ''),
+    played: Number(raw?.played) || 0,
+    won: Number(raw?.won) || 0,
+    lost: Number(raw?.lost) || 0,
+    drew: Number(raw?.drew) || 0,
+    last: Array.isArray(raw?.last)
+      ? raw.last.filter((r): r is TallyResult => r === 'won' || r === 'lost' || r === 'drew').slice(-FORM)
+      : [],
+    lastAt: Number(raw?.lastAt) || 0,
+  };
+}
+
+/**
+ * How many of a game's plays were decided one way or the other.
+ *
+ * The denominator for anything expressed as a rate, and never `played`: a game
+ * that does not name a winner still counts as played, so dividing by `played`
+ * would give somebody who plays Connect Four a win rate that falls the more
+ * they win. See `GameTally`.
+ */
+export function decided(tally: GameTally): number {
+  return tally.won + tally.lost + tally.drew;
 }
 
 /**
@@ -384,16 +465,16 @@ export function migrate(stored: unknown, now: number): Profile {
       lastDay: Number(raw.streak?.lastDay) || 0,
       rests: Number(raw.streak?.rests) || 0,
     },
-    games: Array.isArray(raw.games) ? raw.games : [],
+    games: Array.isArray(raw.games) ? raw.games.map(tallyShape) : [],
     words: Array.isArray(raw.words) ? raw.words : [],
     applied: Array.isArray(raw.applied) ? raw.applied : [],
     version: PROFILE_VERSION,
   };
 
-  // Rungs go here as the shape changes, keyed off `raw.version`. There are
-  // none yet, and the ladder is written out anyway so the first one has an
-  // obvious place to go and does not arrive alongside an argument about where
-  // migrations should live.
+  // Rungs go here as the shape changes, keyed off `raw.version`. Version 2's
+  // is `tallyShape` above, applied unconditionally rather than under a version
+  // check: it is idempotent, and a tally missing `lost` is exactly as broken
+  // whether the profile claims to be version 1 or has simply been hand-edited.
   return profile;
 }
 

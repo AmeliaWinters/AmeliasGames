@@ -241,3 +241,40 @@ export function applyAction(engine: RoomEngine, seat: number, msg: ActionMessage
     return { ok: false, error: "That move didn't land." };
   }
 }
+
+/**
+ * What a lobby is told about a code before anybody commits to it.
+ *
+ * Deliberately not a `RoomView`: nobody has said hello yet, so there is no
+ * seat to build one for, and a view carries the state of a game in progress to
+ * a browser that has not been admitted to it. This is the three facts the
+ * question "is this the right code?" actually needs, and nothing that could
+ * not be read off the door.
+ *
+ * `full` rather than "you may join": whether a *particular* person may sit
+ * down is `admit` plus `join`, both of which want a hello, and both of which
+ * run again on the socket anyway. This is a warning, not a verdict.
+ */
+export interface RoomPeek {
+  code: string;
+  exists: boolean;
+  gameId?: string;
+  gameName?: string;
+  players?: number;
+  capacity?: number;
+  full?: boolean;
+}
+
+/** Both adapters answer the lookup with this, so the two cannot drift. */
+export function peek(code: string, engine: RoomEngine | null): RoomPeek {
+  if (!engine) return { code, exists: false };
+  return {
+    code,
+    exists: true,
+    gameId: engine.def.id,
+    gameName: engine.def.name,
+    players: engine.size,
+    capacity: engine.capacity,
+    full: engine.size >= engine.capacity,
+  };
+}

@@ -13,9 +13,17 @@ describe('the manifest', () => {
     expect(new Set(gameList().map((g) => g.id))).toEqual(new Set(Object.keys(GAMES)));
   });
 
+  /**
+   * One, not two. The floor was two for as long as every game needed somebody
+   * else, and Drill is the case that was always allowed by the engine and
+   * never taken: `canStart` is `short() === 0`, and `canSeat` and `clampSeats`
+   * both handle a minimum of one. A solo review is a real thing to want on a
+   * Tuesday, and the alternative to letting a game say so is a second way to
+   * run one.
+   */
   it('offers a seat range that makes sense', () => {
     for (const game of gameList()) {
-      expect(game.minPlayers, game.id).toBeGreaterThanOrEqual(2);
+      expect(game.minPlayers, game.id).toBeGreaterThanOrEqual(1);
       expect(game.maxPlayers, game.id).toBeGreaterThanOrEqual(game.minPlayers);
       expect(game.name.length, game.id).toBeGreaterThan(0);
     }

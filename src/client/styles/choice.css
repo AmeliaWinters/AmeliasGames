@@ -1,0 +1,81 @@
+/* The one "pick one of these" control. See `games/Choice.tsx` for what it
+   replaced and which of the three old looks won. */
+
+/* Two side by side on any phone wide enough, stacked below that. */
+.choice-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+/* A tighter floor, for a set that reads as a scale: reading a scale in one row
+   is how a scale reads. Still `auto-fit`, so it stacks at 320 rather than
+   squeezing "Just starting" onto three lines. */
+.choice-group.narrow {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+/* A fixed track count, for a set that has to stay on one row at every width:
+   three languages laid out two-then-one read as a group of two with a stray.
+   Separate from `.narrow` because these two wants pull opposite ways -- one
+   would rather wrap than crowd, the other would rather crowd than wrap -- and
+   the first cut of this control tried to serve both with one class and gave
+   Word Chain a widowed Japanese at 375. */
+.choice-group.even {
+  grid-template-columns: repeat(var(--choice-cols, 3), 1fr);
+}
+
+/* Crowding is the deal `.even` makes, so the tiles have to survive it: a track
+   can go under 100px at 320, and a grid item's default `min-width: auto` would
+   rather overflow the row than let its text wrap. */
+.choice-group.even .choice {
+  min-width: 0;
+  padding-inline: 8px;
+  overflow-wrap: anywhere;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  /* A thumb target, matching every other action in the app. */
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  text-align: left;
+}
+
+/* The chosen one, marked by its border rather than by its fill: these sit two
+   across, and a filled tile beside an empty one reads as one button and one
+   label. */
+.choice.chosen {
+  border-color: var(--accent);
+  background: var(--rule);
+}
+
+.choice-name {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.choice-note {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+/* `--muted` is set against `--surface`, and the chosen tile is not on
+   `--surface`: the fill lifts the ground under the note and drops it to 4.3
+   against it in the dark palette, 4.1 in daylight, on the smallest type in the
+   control. Neither palette had ever been measured here -- Vocab set this pair
+   and Word Chain avoided it by filling the whole tile instead -- and collecting
+   the two into one control is what made it one thing to fix rather than two. */
+.choice.chosen .choice-note {
+  color: var(--ink);
+  opacity: 0.72;
+}

@@ -16,6 +16,7 @@ import type { UtState, UtMove } from "../../shared/games/ultimateDisplay.js";
 import type { LpState, LpMove } from "../../shared/games/letterpressDisplay.js";
 import type { WcState, WcMove } from "../../shared/games/wordChainDisplay.js";
 import type { VocabState, VocabMove } from "../../shared/games/vocabDisplay.js";
+import type { DrillState, DrillMove } from "../../shared/games/drillDisplay.js";
 import { Connect4Board } from "./Connect4Board.js";
 import { BackgammonGame } from "./BackgammonBoard.js";
 import { WheelBoard } from "./WheelBoard.js";
@@ -29,6 +30,7 @@ import { UltimateBoard } from "./UltimateBoard.js";
 import { LetterpressBoard } from "./LetterpressBoard.js";
 import { WordChainBoard } from "./WordChainBoard.js";
 import { VocabBoard } from "./VocabBoard.js";
+import { DrillBoard } from "./DrillBoard.js";
 
 /** Every id the manifest offers. */
 export type GameId = keyof typeof GAME_MANIFEST;
@@ -72,6 +74,7 @@ export interface GameStates {
   letterpress: LpState;
   wordchain: WcState;
   vocab: VocabState;
+  drill: DrillState;
 }
 
 /** The other half of the pair. See `GameStates`. */
@@ -89,6 +92,7 @@ export interface GameMoves {
   letterpress: LpMove;
   wordchain: WcMove;
   vocab: VocabMove;
+  drill: DrillMove;
 }
 
 /**
@@ -174,6 +178,7 @@ const BOARDS: { [K in GameId]: Board<K> } = {
   letterpress: LetterpressBoard,
   wordchain: WordChainBoard,
   vocab: VocabBoard,
+  drill: DrillBoard,
 };
 
 /**

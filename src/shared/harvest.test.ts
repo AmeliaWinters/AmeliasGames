@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyRecord, harvestKey, type GameRecord, type Learned } from './harvest.js';
-import { APPLIED_MEMORY, dayOf, findWord, newProfile, type Profile } from './profile.js';
+import { APPLIED_MEMORY, FORM, dayOf, findWord, newProfile, type Profile } from './profile.js';
 import { BOXES, TOP_BOX, XP_PER_GAME, XP_PER_WIN, xpFor } from './review.js';
 
 const DAY = 86_400_000;
@@ -231,7 +231,35 @@ describe('what a seat gets out of it', () => {
     profile = apply(profile, record([], 'lost'), 'run#2');
     profile = apply(profile, record([], 'drew'), 'run#3');
     expect(profile.games).toHaveLength(1);
-    expect(profile.games[0]).toMatchObject({ gameId: 'wordchain', played: 3, won: 1, drew: 1 });
+    expect(profile.games[0]).toMatchObject({ gameId: 'wordchain', played: 3, won: 1, lost: 1, drew: 1 });
+  });
+
+  /** The history the totals cannot hold. Oldest first, so it reads as a run. */
+  it('keeps the last few results in the order they happened', () => {
+    let profile = apply(blank(), record([], 'lost'), 'run#1');
+    profile = apply(profile, record([], 'drew'), 'run#2');
+    profile = apply(profile, record([], 'won'), 'run#3');
+    expect(profile.games[0].last).toEqual(['lost', 'drew', 'won']);
+  });
+
+  it('caps the form guide and drops the oldest result off it', () => {
+    let profile = blank();
+    for (let n = 0; n <= FORM; n++) {
+      profile = apply(profile, record([], n === 0 ? 'lost' : 'won'), `run#${n}`);
+    }
+    expect(profile.games[0].played).toBe(FORM + 1);
+    expect(profile.games[0].last).toEqual(Array(FORM).fill('won'));
+  });
+
+  /**
+   * Eleven of the thirteen games cannot say who won, so the room reports them
+   * as played and declines to guess. That must reach the tally as nothing at
+   * all: a loss it never saw, and a blank in the form guide, are both claims.
+   */
+  it('counts an undecided game as played and nothing else', () => {
+    const undecided = { gameId: 'connect4', seats: [{ seat: 0, result: null, learned: [] }] };
+    const after = apply(blank(), undecided, 'run#1');
+    expect(after.games[0]).toMatchObject({ played: 1, won: 0, lost: 0, drew: 0, last: [] });
   });
 
   it('keeps a separate tally per game', () => {

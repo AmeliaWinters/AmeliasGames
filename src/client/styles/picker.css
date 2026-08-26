@@ -173,6 +173,7 @@
 .game[data-game="letterpress"] { --accent: var(--seat-2); }
 .game[data-game="wordchain"] { --accent: var(--seat-2); }
 .game[data-game="vocab"] { --accent: var(--seat-2); }
+.game[data-game="drill"] { --accent: var(--seat-2); }
 
 /* The card is a real button now, so `:focus-visible` reaches it directly.
    The `:has(input:focus-visible)` pair this replaced -- and the `@supports not
@@ -1303,6 +1304,65 @@
    panel is cut, the word is not, because a clipped answer is a card that
    cannot be read. */
 .art-vocab strong {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: calc(28 * var(--m));
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* Drill
+   The same card Vocab Race reveals, seen from the other side of the table:
+   one clue, one answer, and the two cards still queued behind it. Its
+   neighbour's motif is a *round* -- three seats racing -- and this one is
+   deliberately the same object with nobody else in it, because that is
+   precisely what the game is. */
+.art-drill {
+  grid-template-rows: calc(8 * var(--m)) 1fr;
+  gap: calc(3 * var(--m));
+  justify-items: center;
+}
+/* The cards still to come, stacked behind and cut by the top edge. Two, not
+   three: a queue reads as a queue at two, and a third pushes the answer down
+   past the well's floor at 320px. */
+.art-drill > i {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: start;
+  width: calc(80 * var(--m));
+  height: calc(20 * var(--m));
+  margin-top: calc(-10 * var(--m));
+  border-radius: calc(3 * var(--m));
+  background: var(--board);
+  box-shadow: inset 0 0 0 calc(1 * var(--m)) var(--motif-off);
+}
+/* Offset rather than fanned: a review queue is in order, and a stack that
+   leans says shuffled. */
+.art-drill > i:nth-child(2) {
+  margin-top: calc(-4 * var(--m));
+  width: calc(90 * var(--m));
+}
+/* The card on the table, framed the way `.vr-answer` frames a reveal. */
+.art-drill > span {
+  grid-row: 2;
+  align-self: start;
+  justify-self: stretch;
+  margin: 0 calc(-12 * var(--m));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(2 * var(--m));
+  padding: calc(4 * var(--m)) calc(8 * var(--m)) calc(15 * var(--m));
+  background: var(--surface);
+  border: calc(2 * var(--m)) solid var(--accent);
+}
+.art-drill b {
+  font-weight: 400;
+  font-size: calc(10 * var(--m));
+  line-height: 1;
+  color: var(--muted);
+}
+.art-drill strong {
   font-family: var(--display);
   font-weight: 700;
   font-size: calc(28 * var(--m));

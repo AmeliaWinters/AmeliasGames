@@ -18,9 +18,9 @@
  * **already folded**, from the reducer, which is the last place in the system
  * holding both the dictionary and the play.
  */
-import type { LearnLang, Profile, Known, GameTally } from './profile.js';
+import type { LearnLang, Profile, Known, GameTally, TallyResult } from './profile.js';
 import type { Grade } from './review.js';
-import { APPLIED_MEMORY, bumpStreak } from './profile.js';
+import { APPLIED_MEMORY, FORM, bumpStreak } from './profile.js';
 import { XP_PER_GAME, XP_PER_WIN, isMiss, isProduction, schedule, xpFor } from './review.js';
 
 /**
@@ -31,7 +31,13 @@ import { XP_PER_GAME, XP_PER_WIN, isMiss, isProduction, schedule, xpFor } from '
  * a tie-break to stop having them. A record that could only say won or lost
  * would have to call one of those a loss for everybody.
  */
-export type Result = 'won' | 'lost' | 'drew';
+/**
+ * The profile owns the spelling, and this is the name the rest of the system
+ * knows it by. A tally stores results, so they are one type rather than two
+ * lists that agree today: the arrow points this way because a profile outlives
+ * the games that filled it and must not import one to describe itself.
+ */
+export type Result = TallyResult;
 
 /**
  * What a seat got out of a game, where `null` means **the game does not say**.
@@ -196,14 +202,25 @@ function applyGrade(row: Known, event: Learned, now: number): { row: Known; xp: 
   return { row: next, xp: xpFor(event.grade, next.box) };
 }
 
+/**
+ * One more game on a tally.
+ *
+ * `played` counts every finished game and the three result counters only count
+ * the ones the game decided, so they do not add up and are not meant to -- see
+ * `GameTally`. A result of null adds nothing to `last` either: a form guide
+ * made of blanks is worse than no form guide, and eleven of the thirteen games
+ * would produce nothing else.
+ */
 function bumpTally(games: GameTally[], gameId: string, result: Outcome, now: number): GameTally[] {
   const found = games.find((game) => game.gameId === gameId);
-  const base: GameTally = found ?? { gameId, played: 0, won: 0, drew: 0, lastAt: 0 };
+  const base: GameTally = found ?? { gameId, played: 0, won: 0, lost: 0, drew: 0, last: [], lastAt: 0 };
   const next: GameTally = {
     ...base,
     played: base.played + 1,
     won: base.won + (result === 'won' ? 1 : 0),
+    lost: base.lost + (result === 'lost' ? 1 : 0),
     drew: base.drew + (result === 'drew' ? 1 : 0),
+    last: result === null ? base.last : [...base.last, result].slice(-FORM),
     lastAt: now,
   };
   return found ? games.map((game) => (game === found ? next : game)) : [...games, next];

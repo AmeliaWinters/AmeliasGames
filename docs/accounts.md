@@ -106,6 +106,28 @@ the actual risk rather than the reflex.
   this somewhere private", not "message it to yourself". Multi-key accounts are
   the thing to build if pairing is wanted later; nothing here forecloses it.
 
+  **The key is also drawn as a QR**, which is the same import path with a
+  shorter road to it and no change to any of the above. It exists because the
+  direction people actually go is desktop to phone, and the two ways of moving
+  text that way are a clipboard and an inbox -- so the advice above was being
+  ignored by the shape of the thing rather than by anybody's carelessness. A
+  screen a foot from a camera carries the key through *less* than a paste
+  does: no clipboard, no inbox, no chat app keeping a copy of the account.
+
+  Two costs, both paid on the screen. The code is the account, so the panel
+  says in those words that anybody who photographs it has your words. And
+  reading one needs `BarcodeDetector` and a camera, which iOS Safari, older
+  desktop browsers and any plain-http LAN address do not have -- so the paste
+  box stays, `canScan()` decides whether the button appears at all, and
+  offering nothing is a legitimate outcome rather than a bug.
+
+  The encoder is the one bought dependency in the client. A QR is
+  Reed-Solomon, eight masks and a placement order, and getting any of it subtly
+  wrong yields a code that round-trips against your own reader and is refused
+  by every phone in the house -- which is exactly what the Browser pane cannot
+  show us. `qr.test.ts` pins the properties the screen depends on, including
+  the module count the CSS is drawn for, instead of re-deriving the spec.
+
 **Rejected: username and password.** Password storage on Workers means PBKDF2
 (no argon2, no scrypt), reset means email, and email means an address, a sending
 service, and a category of personal data this app does not currently hold at
@@ -378,7 +400,12 @@ the game asks you next.**
 deliberately, so rounds advancing through `expire` need no randomness. The deck
 is already redacted by `view()`, so anything put into it stays secret.
 
-The hook is a new optional method, in the same family as `start?` and `expire?`:
+**What shipped is not `prime`.** `setup` was widened instead, to
+`setup(playerCount, rng, now, study)`, and the room fills the fourth argument
+from the profile store before it deals. That is simpler than a second hook and
+it puts the study list where a game already builds its state. The argument the
+optional method below was making still holds and is what the widening
+preserves: the room does the fetching, and the reducer is handed the answer.
 
 ```ts
 /**
@@ -398,14 +425,22 @@ weighted by the *union* of what the table has due, never per seat. A room of a
 learner and a native speaker draws the learner's due words, which is the right
 answer anyway, since those are the words that room exists to practise.
 
-### Word Chain is fed, and does not feed back
+### Word Chain is fed, and does feed back after all
 
-Leave the reveal alone. `commonestStarting` returns the commonest word that
-would have worked, and that honesty is the reveal's entire value; bending it
-toward your review queue would make it *sometimes* the commonest, with no way
-for the player to know which. **The chain writes to the ledger and never reads
-from it.** One direction, written down here so nobody adds the obvious
-improvement later.
+This section used to say the opposite, and the reasoning is kept because it was
+not wrong so much as outvoted. `commonestStarting` returns the commonest word
+that would have worked, and bending it toward a review queue makes it
+*sometimes* the commonest, with no way for the player to know which.
+
+It reads from the ledger anyway now: `revealFor` prefers a word the player
+already owes a review on, and falls back to the commonest when there is none.
+What tipped it is that the reveal is the single most valuable event in the app
+— a word you failed to produce, shown at the moment you are most likely to
+remember it — and spending that on a word the player has never met, while one
+they are actually studying was available, is spending it badly. The honesty
+cost is real and is paid in the one place it can be: the word shown is always a
+word that would have been legal, so the reveal never lies about the rules, only
+about which of several legal answers it picked.
 
 ### Drill: practice without a second person
 
@@ -420,8 +455,22 @@ draws its clues from your own due list through `prime`.
 It inherits the room, the socket, the reconnection, the timed-game machinery,
 the Android build and the whole test harness. It is a little odd that a solo
 review session opens a Durable Object and mints a room code, and that oddity is
-worth the exchange. *Verify before committing to it: the lobby copy and
-`pieces()` assume two or more in a couple of places.*
+worth the exchange.
+
+The "verify the lobby copy first" note was right and understated the bill.
+Three things assumed two or more, and only one of them was copy:
+
+- `manifest.test.ts` asserted `minPlayers >= 2` outright. Relaxed to one, with
+  the reasoning written where the assertion is.
+- `seatLabel` produced **"1 players"** for the accessible name of a card whose
+  visible figure is only a numeral. Now "on your own".
+- **The card hue ring was solved for exactly thirteen**, evenly spaced at
+  360/13. A fourteenth cannot join that without re-solving all fourteen, which
+  moves every card on the shelf. Drill halves the vocab-to-wordle gap instead
+  and pays for the closeness on saturation, 0.34 against its neighbours' 0.62
+  and 0.56, which is also the right colour for the quiet solo one. **The ring
+  is no longer even, and a fifteenth game should re-space it rather than
+  halving another gap.**
 
 ### The hook that brings someone back
 
@@ -446,8 +495,10 @@ the words.
 | `src/worker/player.ts` | The `Player` Durable Object, plus a new `[[migrations]]` tag in `wrangler.toml`. |
 | `src/worker/index.ts` | `GameRoom` takes `env`; harvest on the over-transition; the `PLAYERS` binding. |
 | `src/server/index.ts` | The same, against a `Map`. |
-| `src/client/profile/*` | The profile screen, the due badge on the lobby, the end-of-game panel. |
-| `src/client/styles/profile.css` | Imported by `styles/index.css`, since the stylesheet is a directory. |
+| `src/client/Profile.tsx` | The profile screen, and the account controls that are the only way to make one. |
+| `src/client/profileCache.ts` | The last summary this browser was sent, so the lobby can draw one without a socket, and the two-summary subtraction behind the takings panel. |
+| `src/client/styles/profile.css`, `styles/games/drill.css` | Imported by `styles/index.css`, appended rather than inserted, since the stylesheet is a directory and its order is its cascade. |
+| `src/shared/games/drill*.ts`, `client/games/DrillBoard.tsx` | The fourteenth game. Reducer, display leaf, board, and entries in `manifest.ts`, `GAMES`, `boards.ts` (three), `palette.css`, `picker.css` and `App.tsx`'s motif. |
 | `wordChain.ts`, `vocab.ts` | `record()`, and `prime()` for Vocab Race. |
 
 **Do not send the whole ledger over the socket.** Five thousand words is about
@@ -478,6 +529,13 @@ silently delete a year of somebody's Polish on the deploy that adds a field.
   step, run on read.
 - A test walks a fixture from every historical version to the current one, and a
   new version without a new fixture fails it.
+- Version 2 is the first rung actually walked: `GameTally` grew `lost` and
+  `last`, so the games panel could show a record and the last few results
+  rather than two numbers. Neither is recoverable from a version 1 profile --
+  losses were never counted and the individual games are not kept -- so the
+  rung fills them empty and the counts carry on. Deriving `lost` from
+  `played - won - drew` was the tempting shortcut and it is a lie about every
+  game that names no winner.
 - **Export ships before anything else does.** A JSON download from the profile
   screen, on day one, is the cheapest insurance available against every mistake
   in this document, including the one where Cloudflare's free tier changes its
@@ -510,7 +568,7 @@ for a reason, and this branch of work touches files that move often.
 
 Each phase is shippable and leaves the tree green.
 
-Phases 1 to 3 are built. What follows is the plan as it stands.
+Phases 1 to 5 are built. What follows is the plan as it stands, amended where building it changed the design.
 
 1. **The core, with no I/O.** `profile.ts`, `review.ts`, `harvest.ts`,
    `record()` on the two language games, and the tests. Nothing stored, nothing
@@ -521,7 +579,15 @@ Phases 1 to 3 are built. What follows is the plan as it stands.
    throwaway that dumps the profile as JSON.
 3. **Identity.** Keypair, signed hello, recovery key, import on a second device, export.
 4. **The screen.** Profile, per-game stats, the "what this game taught you"
-   panel on Word Chain and Vocab Race, the due badge on the lobby.
+   panel, the due prompt on the lobby.
+
+   Two things moved. The due count is **not** in the lobby bar: three chips do
+   not fit at 375px and the wordmark is what would have lost the characters, so
+   it sits between the tagline and the shelf, where it is also allowed to be a
+   sentence rather than a pill. And the takings panel is not per-game — it is
+   the difference between two profile summaries, which needs no protocol
+   message, cannot disagree with the profile it describes, and shows nothing at
+   all to somebody who was away when the game was filed. See `earnedBetween`.
 5. **The loop.** `prime()` on Vocab Race, then Drill as the fourteenth game.
 6. **Leagues.** A shared code, a small leaderboard, opt-in.
 

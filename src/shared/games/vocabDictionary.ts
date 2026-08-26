@@ -19,7 +19,7 @@
  * Built lazily, for the same reason the chain dictionary is: most rooms are
  * playing Connect Four.
  */
-import { chainRanked } from './chainDictionary.js';
+import { chainRanked, fold } from './chainDictionary.js';
 import { phraseDeck } from './vocabPhrases.js';
 import { DECK_DEPTH, PICK_OPTIONS, isPhrases } from './vocabDisplay.js';
 import type { VocabLang, VocabMode } from './vocabDisplay.js';
@@ -120,6 +120,19 @@ export interface VocabQuestion {
 interface Deck {
   /** By rank, so `byRank[n]` is the question for the nth commonest word. */
   byRank: Map<number, VocabQuestion>;
+  /**
+   * Folded lemma -> every rank that lemma is asked at.
+   *
+   * The index the ledger needs, and it points the opposite way to everything
+   * else in here: a profile holds folded lemmas and knows nothing about ranks,
+   * while a deck is ranks and knows nothing about anybody's vocabulary. This
+   * is the one place the two meet.
+   *
+   * A list rather than a single rank, because Polish files a lemma and its
+   * inflections separately and several of them can be cluable. All of them are
+   * that lemma coming round again, which is exactly what a review wants.
+   */
+  byStudyKey: Map<string, number[]>;
 }
 
 const decks: Partial<Record<VocabLang, Deck>> = {};
@@ -180,7 +193,19 @@ function build(lang: VocabLang): Deck {
     });
   }
 
-  const deck = { byRank };
+  // Keyed the same way the ledger keys a row: `fold(lemma || word)`, and by
+  // the same `fold`. Two different foldings would file the same word under two
+  // names and the whole index would silently match nothing.
+  const byStudyKey = new Map<string, number[]>();
+  for (const question of byRank.values()) {
+    const key = fold(question.lemma || question.word);
+    if (!key) continue;
+    const ranks = byStudyKey.get(key);
+    if (ranks) ranks.push(question.rank);
+    else byStudyKey.set(key, [question.rank]);
+  }
+
+  const deck = { byRank, byStudyKey };
   decks[lang] = deck;
   return deck;
 }
@@ -307,4 +332,25 @@ export function vocabPoolSize(lang: VocabLang, mode: VocabMode, cap: number): nu
 /** Here for the test that holds the laziness. See `chainDictionaryIsBuilt`. */
 export function vocabDeckIsBuilt(lang: VocabLang): boolean {
   return decks[lang] !== undefined;
+}
+
+/**
+ * Which ranks in `lang` are the words behind these folded lemmas.
+ *
+ * The join between a profile and a deck: the ledger hands over what somebody
+ * is due to review, and this says where in the frequency list those words
+ * actually live so a deck can be dealt around them. Keys the language does not
+ * have are simply absent from the answer, which is the ordinary case — a
+ * learner's Polish list says nothing about a Japanese deck.
+ *
+ * A `Set`, because the caller is partitioning a thousand ranks against it and
+ * the only question ever asked is membership.
+ */
+export function vocabRanksFor(lang: VocabLang, keys: readonly string[]): Set<number> {
+  const { byStudyKey } = decks[lang] ?? build(lang);
+  const out = new Set<number>();
+  for (const key of keys) {
+    for (const rank of byStudyKey.get(key) ?? []) out.add(rank);
+  }
+  return out;
 }

@@ -61,8 +61,43 @@ and wall contacts doubled, while the dice were using a fifth of the tray and
 dying in the corner they started beside. One sheet made it obvious.
 
 Where a visual property turns out to be measurable, **pin it in a test** rather
-than relying on someone re-rendering. `dice.test.ts` -> "a throw uses the tray it
-is thrown into" is the worked example, thresholds and all.
+than relying on someone re-rendering. `engine.test.ts` -> "uses the tray it is
+thrown into" is the worked example, thresholds and all.
+
+`render-wheel.test.ts` is the same bargain for a picture: it draws the wheel's
+sheet and holds it to a digest, so a change to the silhouette fails a test
+instead of waiting for somebody to think of running `render:wheel`. When it
+fails it writes what it drew to `preview/wheel-actual.png`; look at that beside
+the sheet `npm run render:wheel` draws, then update the digest. The looking is
+still the point, and it is the one step the test cannot do for you.
+
+## Pinning the client
+
+Three passes cover the parts of the client that used to be covered by somebody
+noticing.
+
+`boards.test.tsx` renders **every board in every state its game can reach**, at
+both ends of its seat range, from every seat and from none, and then presses
+everything on it. The states come from `boardFixtures.ts`, which walks each game
+with its own reducer rather than holding hand-written objects that drift. Three
+things are asserted by clicking rather than by reading class names, because a
+control that looks greyed and is still wired up is the bug: nothing moves for a
+seat that `canAct` says cannot, nothing moves for a socket with no seat, and
+nothing moves once the game is over. A fourth asserts the opposite, so none of
+the first three can pass by drawing nothing.
+
+Adding a game means adding a move proposer to `boardFixtures.ts`, and the test
+says so by name if you forget. A proposer may propose illegal moves freely --
+the reducer refuses them -- so it is a list of shapes, not a rulebook.
+
+`css.test.ts` -> "a board at a phone width" resolves the stylesheet at **320,
+375 and 390** and does the arithmetic the browser would. It is aimed at the trap
+this file opens with: `button` carries `min-height: 44px`, a minimum beats
+`aspect-ratio`, and on a track narrower than 44px the floor wins and takes the
+width with it -- which is Battleships as one solid bar and Ultimate with both
+hashes buried, both shipped, both found by eye. The model is checked against the
+one number here somebody measured in a real browser, so if it drifts it fails
+loudly rather than quietly agreeing with itself.
 
 ## Traps
 

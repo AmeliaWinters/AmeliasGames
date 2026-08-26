@@ -12,6 +12,23 @@ export default defineConfig({
     proxy: {
       // One origin for both HTTP and WebSocket keeps LAN + tunnel testing simple.
       '/ws': { target: `ws://localhost:${GAME_PORT}`, ws: true },
+      // The lobby's room lookup. Deployed it is a route on the worker beside
+      // /ws, so it has to arrive on the same origin here too.
+      '/peek': { target: `http://localhost:${GAME_PORT}` },
     },
+  },
+  test: {
+    /*
+      Vitest's default net is `**\/*.test.ts` from the repo root, and a git
+      worktree under `.claude/` is a second entire copy of this project sitting
+      inside it. Both copies were being collected: `npm test` ran every suite
+      twice, reported thirty-six failures nobody had caused, and the loudest of
+      them was `server.test.ts` in both copies racing for port 8899 --
+      EADDRINUSE, from a file the person reading it had not touched.
+
+      Only the default `node_modules` exclusion is being restated here, because
+      naming one replaces the list rather than adding to it.
+    */
+    exclude: ['**/node_modules/**', '**/dist/**', '**/dist-android/**', '**/.claude/**'],
   },
 });

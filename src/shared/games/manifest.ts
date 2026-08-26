@@ -133,6 +133,11 @@ export const GAME_MANIFEST = {
     shelf: 'words', minutes: 5,
     blurb: 'Every word starts where the last ended.',
   },
+  drill: {
+    id: 'drill', name: 'Drill', minPlayers: 1, maxPlayers: 1,
+    shelf: 'words', minutes: 3,
+    blurb: 'Alone, against the words you owe.',
+  },
   vocab: {
     id: 'vocab', name: 'Vocab Race', minPlayers: 2, maxPlayers: 8,
     shelf: 'words', minutes: 5,

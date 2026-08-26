@@ -44,6 +44,7 @@ import {
   type VocabTry,
 } from './vocab.js';
 import { vocabOptions, vocabPoolSize, vocabQuestion } from './vocabDictionary.js';
+import type { StudyLists } from '../profile.js';
 import { phraseCount, phraseKeys } from './vocabPhrases.js';
 import type { VocabQuestion } from './vocabDictionary.js';
 import { chainLookup, fold } from './chainDictionary.js';
@@ -1727,5 +1728,106 @@ describe('everyday phrases', () => {
       expect(state.history).toHaveLength(before + 1);
       expect(state.round?.answer?.rank).toBeLessThanOrEqual(PHRASE_COUNT);
     }
+  });
+});
+
+/**
+ * The loop closing: the ledger decides what the game asks next.
+ *
+ * The rule that constrains the whole feature is that this is a *race*, so the
+ * clue has to be identical for every seat. That is why the bias is a union
+ * across the table and never a per-seat deck, and it is the first thing to
+ * check if any of this is ever changed.
+ */
+describe('dealing around what the table is due', () => {
+  /** The folded study key for the word at `rank`, the way the ledger files it. */
+  function studyKeyAt(lang: VocabLang, mode: VocabMode, rank: number): string {
+    const question = vocabQuestion(lang, mode, rank);
+    if (question === null) throw new Error(`no question at rank ${rank}`);
+    return fold(question.lemma || question.word);
+  }
+
+  /** A game begun with `study` handed to `setup`, the way the room hands it. */
+  function begunWith(study: StudyLists[], lang: VocabLang = 'pl', mode: VocabMode = 'normal') {
+    let state = vocab.setup(2, inOrder, 1_000, study);
+    state = vocab.start?.(state, 1_000) ?? state;
+    state = accept(state, { type: 'settings', lang, mode }, HOST, 1_000);
+    return accept(state, { type: 'begin' }, HOST, 1_000);
+  }
+
+  it('asks a due word first, rather than wherever the shuffle put it', () => {
+    // A word well down the deck, which an unbiased deal would reach late.
+    const wanted = 60;
+    const key = studyKeyAt('pl', 'normal', wanted);
+    const state = begunWith([{ pl: [key] }, {}]);
+    expect(state.round?.answer?.rank).toBe(wanted);
+  });
+
+  it('changes nothing at all for a table that is due nothing', () => {
+    const plain = begunWith([{}, {}]);
+    const guests = begunWith([]);
+    expect(plain.round?.answer?.rank).toBe(guests.round?.answer?.rank);
+    expect(plain.deck).toEqual(guests.deck);
+  });
+
+  /**
+   * The fairness constraint, stated as a test. Two seats due different words
+   * still get one deck, so neither is being asked a different question.
+   */
+  it('merges the seats rather than dealing anybody their own deck', () => {
+    const mine = studyKeyAt('pl', 'normal', 40);
+    const theirs = studyKeyAt('pl', 'normal', 70);
+    const state = begunWith([{ pl: [mine] }, { pl: [theirs] }]);
+
+    // Both are somewhere in the front of the one shared deck.
+    const front = state.deck.slice(0, 2);
+    expect(front).toContain(40);
+    expect(front).toContain(70);
+  });
+
+  it('ignores a study list for a language nobody chose', () => {
+    const key = studyKeyAt('pl', 'normal', 60);
+    // A Polish list, a Japanese game: rank 60 means a different word in each,
+    // so a deck front-loaded for one is meaningless for the other.
+    const state = begunWith([{ pl: [key] }], 'ja');
+    const plain = begunWith([], 'ja');
+    expect(state.deck).toEqual(plain.deck);
+  });
+
+  it('keeps the whole deck, reordered rather than filtered', () => {
+    const key = studyKeyAt('pl', 'normal', 60);
+    const biased = begunWith([{ pl: [key] }]);
+    const plain = begunWith([]);
+    // A game must not run short of clues because somebody had a short list.
+    expect(biased.deck).toHaveLength(plain.deck.length);
+    expect([...biased.deck].sort((a, b) => a - b)).toEqual([...plain.deck].sort((a, b) => a - b));
+  });
+
+  it('survives a study key the language has never heard of', () => {
+    const state = begunWith([{ pl: ['notarealpolishword', ''] }]);
+    expect(state.phase).toBe('asking');
+    expect(state.round?.answer?.rank).toBeGreaterThan(0);
+  });
+
+  /**
+   * The deck is the rest of the game in order and this is what ordered it, so
+   * a client holding it beside a downloadable word list would know much of
+   * what is coming. It is also several people's vocabulary.
+   */
+  it('never sends the study list to a client', () => {
+    const key = studyKeyAt('pl', 'normal', 60);
+    const state = begunWith([{ pl: [key] }]);
+    for (const seat of [0, 1]) {
+      expect(vocab.view?.(state, seat).study).toEqual({});
+      expect(vocab.view?.(state, seat).deck).toEqual([]);
+    }
+  });
+
+  it('plays a game dealt before the ledger existed', () => {
+    // A restored snapshot has no `study` at all, which is the game exactly as
+    // it was: no bump was taken for this field, so it has to be survivable.
+    const state = begunWith([]);
+    const old = { ...state, study: undefined as unknown as StudyLists };
+    expect(() => vocab.applyMove(old, { type: 'pass' }, 0, rng, 2_000)).not.toThrow();
   });
 });

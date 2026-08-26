@@ -7,6 +7,7 @@ import {
   admit,
   applyAction,
   isAction,
+  peek,
   readFrame,
   readHello,
   type Hello,
@@ -354,10 +355,31 @@ export class GameRoom implements DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const code = (new URL(request.url).searchParams.get('code') ?? '').toUpperCase();
+
+    /*
+      The lobby asking what is behind a code, before anybody types a name.
+
+      It reads the room and never opens one: a mistyped code that created a
+      room would leave an empty Durable Object behind for every slip of the
+      thumb, and the next person to type that code correctly would be told
+      their game exists when it does not. `loadEngine` returns null for "no
+      room here", which is exactly the answer.
+
+      No socket, so no hibernation and no alarm: this is a GET against storage
+      and the object goes straight back to sleep.
+    */
+    if (new URL(request.url).pathname.endsWith('/peek')) {
+      if (!isRoomCode(code)) return new Response('Invalid room code.', { status: 400 });
+      const answer = peek(code, await this.loadEngine());
+      return new Response(JSON.stringify(answer), {
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+      });
+    }
+
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket upgrade.', { status: 426 });
     }
-    const code = (new URL(request.url).searchParams.get('code') ?? '').toUpperCase();
     if (!isRoomCode(code)) return new Response('Invalid room code.', { status: 400 });
 
     // The code that routed us here is the room's real identity. Remembering it
@@ -585,6 +607,21 @@ export { Player } from './player.js';
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    /*
+      "Does this code exist, and what is it playing?", asked by the lobby as
+      the fourth letter lands. Routed by code exactly as `/ws` is, because the
+      only thing that knows is the object that code names.
+
+      A code that is not a code is refused here rather than routed: idFromName
+      on arbitrary text would spin up an object per typo.
+    */
+    if (url.pathname === '/peek') {
+      const code = (url.searchParams.get('code') ?? '').toUpperCase();
+      if (!isRoomCode(code)) return new Response('Invalid room code.', { status: 400 });
+      const id = env.ROOMS.idFromName(code);
+      return env.ROOMS.get(id).fetch(new Request(`https://rooms/peek?code=${code}`));
+    }
 
     if (url.pathname === '/ws') {
       const code = (url.searchParams.get('code') ?? '').toUpperCase();

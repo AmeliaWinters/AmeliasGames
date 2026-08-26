@@ -1,0 +1,475 @@
+/* Profile
+   What you have learned, the key that owns it, and the one number on the lobby
+   that brings anybody back.
+
+   Two rules run through the whole file. The figures lead with *words*, never
+   with the level: a level is a number that means something only next to
+   somebody else's, and this screen is a record of a language rather than a
+   scoreboard. And the accent is let onto exactly the things the rest of the
+   app lets it onto -- the due count, the level bar, the primary button -- and
+   nothing else, because an accent on every border stops meaning anything.
+
+   Measured at 320, 375 and 390 first. The due prompt is a full-width button
+   rather than a chip in the lobby bar for that reason: three chips on one line
+   pushed the wordmark to an ellipsis at 375. */
+
+/* The due prompt, on the tagline's line.
+
+   A sentence, not a pill, which is the whole reason it is not in the bar: it
+   has room to say what to do about the number instead of only reporting it.
+
+   Idle it is borderless -- underlined type, the shape of a way in rather than
+   of an empty field. Full width and dashed, which is what it was, it read on
+   an empty lobby as a form control somebody had failed to fill in, and it was
+   the largest thing between the join box and the shelf. */
+.myword {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0;
+  padding: 10px 0;
+  min-height: 44px;
+  text-align: start;
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: var(--panel-radius);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-hi);
+  text-underline-offset: 4px;
+}
+
+/* With something due it stops being a link and becomes the reason to be here:
+   solid edge, ink type, and the number in the accent. Without, it stays quiet
+   -- a person with nothing to review should be looking at the shelf. */
+.myword-due {
+  color: var(--ink);
+  padding: 8px 14px;
+  border: 1px solid var(--rule-hi);
+  text-decoration: none;
+}
+
+.myword-n {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.myword-of {
+  font-size: 0.95rem;
+}
+
+.myword[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+/* The panel itself. `.panel` in `controls.css` already carries the ruled box;
+   everything here is what goes inside one. */
+.prof > h2 {
+  font-size: 1.5rem;
+  margin: 0 0 4px;
+}
+
+.prof > h2:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.prof p {
+  margin: 0 0 12px;
+  max-width: 46ch;
+}
+
+.prof-quiet {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* The figures. Words first and biggest, level below and smaller. */
+.prof-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin: 14px 0 18px;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figure-n {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.figure-lead .figure-n {
+  font-size: 2.4rem;
+  color: var(--accent);
+}
+
+.figure-of {
+  font-size: 0.85rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* The level, on one line, deliberately small. */
+.prof-level {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  font-family: var(--display);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.prof-level-n {
+  flex: none;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.prof-bar {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--board);
+  overflow: hidden;
+}
+
+.prof-bar-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--accent);
+}
+
+.prof-level-xp {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Languages, recent words and games are all the same object: a list of rows
+   with a label on the left and a figure on the right. One set of rules. */
+.prof-langs,
+.prof-recent ul,
+.prof-games ul {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+}
+
+.prof-langs li,
+.prof-games li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+/* A game's row carries three things and only two of them fit on one line at a
+   phone width: the name, the record, and the run of pips. So the row is a grid
+   with the pips under the record, right-aligned to it, and the middle column
+   is allowed to be the one that shrinks. */
+.prof-games li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 3px 12px;
+}
+
+.prof-game-n {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 8px;
+}
+
+/* When it was last played, held apart from the record so the eye can take the
+   two as separate answers rather than one long string of numbers. */
+.prof-game-when {
+  font-style: normal;
+  color: var(--muted);
+}
+
+/* The total beside the heading, in the heading's own register so it reads as
+   part of the label rather than as the first row of the list. */
+.prof-games-total {
+  float: inline-end;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The form guide: oldest on the left, newest on the right, which is the
+   direction a run is read in. Hidden from screen readers -- the same run is
+   spelled out on the record's label, because ten dots say nothing out loud. */
+.prof-form {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.prof-pip {
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 999px;
+  /* Won and lost are the two colours this app already uses for a thing that
+     went well and a thing that did not, so a pip needs no key. A draw is the
+     absence of either and is drawn as one. */
+  background: var(--muted);
+}
+
+.prof-pip-won {
+  background: var(--live);
+}
+
+.prof-pip-lost {
+  background: var(--alert);
+}
+
+.prof-pip-drew {
+  background: var(--rule-hi);
+}
+
+.prof-lang,
+.prof-game {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.prof-lang-n,
+.prof-game-n {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.prof-lang-n em,
+.prof-game-n em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.prof-recent h3,
+.prof-games h3,
+.prof-keep h3 {
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
+/* A word: the lemma, its gloss, and when it comes back.
+
+   Three columns at the width that fits them and two rows below it, because the
+   gloss is the part that runs long and wrapping it under the word reads better
+   than three squeezed columns. */
+.prof-recent li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.prof-word {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* Japanese in its own script beside the romaji, so the romaji is never the
+   only thing a learner sees. Empty for the other two languages, and the gap
+   above collapses with it. */
+.prof-script {
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-family: var(--body);
+}
+
+.prof-gloss {
+  grid-column: 1;
+  font-size: 0.88rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.prof-when {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: var(--display);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Keeping the key. The one part of this screen that is housekeeping rather
+   than a record, and it is separated by a rule rather than by being hidden:
+   somebody who never reads it has still been shown that losing the key loses
+   the words. */
+.prof-keep {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.prof-keep p {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.prof-keep-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.prof-key textarea,
+.prof-paste textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--board);
+  border: 1px solid var(--rule-hi);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  /* The key is one long unbroken string; without this it scrolls sideways
+     inside a box the width of a phone. */
+  overflow-wrap: anywhere;
+}
+
+.prof-paste label {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.prof-bad {
+  color: var(--alert);
+  font-size: 0.88rem;
+}
+
+/* Destructive, and drawn as the quietest thing on the screen rather than the
+   loudest: it is confirmed before it does anything, and a red button people
+   are used to seeing is a red button they stop reading. */
+.prof-forget {
+  margin-top: 16px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 10px 0;
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* What a game just taught you, above the rematch button.
+
+   The moment the whole ledger is for, so it gets the accent and the largest
+   type on the end screen -- and it is still only three short lines, because
+   what comes after it is the button somebody is reaching for. */
+.takings {
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.takings h2 {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  margin: 0 0 2px;
+  color: var(--accent);
+}
+
+.takings p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.takings-xp {
+  font-family: var(--display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.takings-due {
+  margin-top: 4px;
+  color: var(--ink);
+}
+
+/* Handing the account to a second device.
+
+   The code is capped rather than stretched: a QR gains nothing above the size
+   a camera can already resolve, and a 61-module grid across a desktop window
+   is a thing people back away from to fit in shot. Centred with its own white
+   card, since the quiet zone is drawn inside the SVG and needs the two to
+   agree in both palettes. */
+.prof-qr {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.prof-qr .qr {
+  display: block;
+  inline-size: min(260px, 70vw);
+  block-size: auto;
+  margin: 0 auto 8px;
+  border-radius: 6px;
+}
+
+.prof-qr p {
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-inline-size: 34ch;
+  margin: 0 auto;
+}
+
+.prof-scan {
+  margin-bottom: 12px;
+}
+
+/* Only once it is running. Before that the element is `.sr-only`, because the
+   camera is handed an element that has to already exist. */
+.prof-scan-live {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 320px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--board);
+}

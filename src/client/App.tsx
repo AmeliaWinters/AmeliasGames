@@ -10,25 +10,23 @@ import {
   type GameEntry,
 } from "../shared/games/manifest.js";
 import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
-// Runtime, not type-only: the card motif and the board are drawn from the same
-// geometry as the rules. `morrisDisplay.js` imports nothing, so the reducer
-// does not follow it in, the same bargain wheelDisplay and battleshipDisplay
-// already make.
-import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
-import {
-  DEALS,
-  letterpressDeal,
-  liarsDeal,
-  morrisDeal,
-  yahtzeeDeal,
-} from "./cardDeal";
+// Every mark and motif this shell draws. See `art.tsx`: none of it reads the
+// room, so none of it belongs in the file that runs the room.
+import { BrandMark, CardArt, TopMark } from "./art.js";
 // Which board draws which game, and the state types that go with them, live in
 // `boards.ts`, where the compiler checks the pairing. Nothing here needs to
-// know: this file's business with a game is its name and its motif.
+// know: this file's business with a game is its name.
 import { boardFor, ownsSeats } from "./games/boards.js";
-import { Die } from "./games/Die.js";
-import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
-import { inviteUrl, loadLastGame, loadName, saveLastGame, saveName, useRoom } from "./net.js";
+import {
+  inviteUrl,
+  loadLastGame,
+  loadName,
+  lookupRoom,
+  saveLastGame,
+  saveName,
+  useRoom,
+} from "./net.js";
+import type { RoomPeek } from "../shared/session.js";
 import type { ErrorKind, RoomView } from "../shared/protocol.js";
 import {
   applyChannel,
@@ -42,56 +40,9 @@ import {
 import { applySound, loadSound } from "./feel.js";
 import { play, primeSfx, useTableSounds } from "./sfx.js";
 import { Toaster, useToasts, type Toasts } from "./toast.js";
-
-/**
- * A name in two parts, so the channel colour can land on the second half.
- *
- * Splitting at the last space is what makes "Rebellia Games" and "Wheel of
- * Fortune" read the way they should without a lookup table to keep in step with
- * the manifest. A one-word name has no second half, so it takes the accent
- * whole, which is the same rule and not an exception to it.
- */
-function splitMark(name: string): [string, string] {
-  const cut = name.lastIndexOf(" ");
-  return cut === -1 ? ["", name] : [name.slice(0, cut + 1), name.slice(cut + 1)];
-}
-
-function Wordmark({ name }: { name: string }) {
-  const [head, tail] = splitMark(name);
-  return (
-    <>
-      {head}
-      <span className="tail">{tail}</span>
-    </>
-  );
-}
-
-/**
- * What the top bar is called: the brand, and the game when a game is open.
- *
- * In a room this used to be the game's name *instead of* the brand, so the one
- * screen a player spends the whole evening on never said what they were playing
- * on. Both now, stacked: brand small above, game at full size below.
- *
- * Stacked rather than run together, because inline the two compete for a
- * phone's width against a room code and a sound button, and the brand wins by
- * being first. "REBELLIA GAMES - WORD D..." says the half you already knew and
- * cuts the half you are actually playing. Vertically they both fit inside the
- * 44px the tap target reserves anyway, so the bar is no taller for the line.
- *
- * The accent stays on the most specific thing on the bar, which is why it
- * moves to the game's name as soon as there is one.
- */
-function TopMark({ gameName }: { gameName?: string }) {
-  return (
-    <>
-      {gameName !== undefined && <span className="brand">Rebellia Games</span>}
-      <span className="playing">
-        <Wordmark name={gameName ?? "Rebellia Games"} />
-      </span>
-    </>
-  );
-}
+import { Profile } from "./Profile.js";
+import { earnedBetween, loadProfileCache, saveProfileCache, type Earned } from "./profileCache.js";
+import type { ProfileView } from "../shared/profile.js";
 
 /**
  * What the tab says before a room is open.
@@ -103,343 +54,6 @@ function TopMark({ gameName }: { gameName?: string }) {
  */
 const LOBBY_TITLE = typeof document === "undefined" ? "" : document.title;
 
-/**
- * Which shelf this visit gets.
- *
- * Drawn once at module load rather than per render, which is the whole of what
- * makes this safe: the four dealt motifs are read on every re-render of the
- * lobby, and a deal taken inside `motif()` would reshuffle the dice under
- * anyone who typed a letter into the name field. One integer, fixed for as
- * long as the tab is open, and a different one next time.
- *
- * See `cardDeal.ts` for what is dealt and why the other nine are not.
- */
-const DEAL = Math.floor(Math.random() * DEALS);
-
-/** N bare pieces, for the motifs the stylesheet lays out and colours itself. */
-function pieces(count: number) {
-  return Array.from({ length: count }, (_, i) => <i key={i} />);
-}
-
-/**
- * Word Hunt's own test grid, with CRANE across the top of it.
- *
- * Lifted from `wordHunt.test.ts`, which traces exactly this word through
- * exactly these letters, so the word on the card is one the game agrees is
- * there rather than five letters that look like one.
- */
-const WORD_HUNT_TILES = ["C", "R", "A", "N", "S", "E", "T", "E"];
-
-/**
- * Three links of an English chain: MILK, KIWI, ICEBERG.
- *
- * Checked against the game's own list rather than chosen for their shapes --
- * `chainLookup('en', ...)` finds all three -- and each one starts on the letter
- * the one above it ended with, which is the whole rule. The stagger in the
- * `.art-wordchain` block is what draws that: every word begins in the column
- * its parent's last letter is standing in, so the joint is one column of two
- * letters rather than a claim in a caption.
- *
- * Letters are separate elements because the joint has to line up to the
- * column. They are bare glyphs on the board -- no cell, no outline -- which is
- * also what keeps this from being a third lettered grid; see the register.
- */
-const CHAIN_LINKS = ["MILK", "KIWI", "ICEBERG"];
-
-/**
- * A Vocab Race reveal: the clue it asked, and the word that answers it.
- *
- * Real data, from `vocabQuestion('pl', 20)` -- the twentieth commonest Polish
- * word, which is what a game a few rounds deep is actually showing. Written
- * out rather than imported because the dictionary is a reducer-side module and
- * `bundle.test.ts` keeps the lobby out of it.
- */
-const VOCAB_REVEAL = { clue: "only, just", word: "tylko" };
-
-/**
- * The middle band of an Ultimate board, mid-game: boards 3, 4 and 5.
- *
- * Crosses have taken the left board on its left column and noughts the right
- * board on its middle row; the centre board is still being fought over. Seven
- * marks each, which is a position with noughts having just moved -- the other
- * six boards are off the card, and they are where the rest of both hands is.
- *
- * A crop cannot show that every move was sent where the rules send it, because
- * six of the nine boards are outside the frame. What it can show, and does, is
- * that no board holds a line it has not been credited with and that the two
- * counts are ones the turn order allows.
- */
-type Mark = 0 | 1 | null;
-const ULTIMATE_MOTIF: Array<{ marks: Mark[]; won: 0 | 1 | null; line: number[] }> = [
-  { marks: [0, 1, null, 0, 1, null, 0, null, null], won: 0, line: [0, 3, 6] },
-  { marks: [1, null, 0, null, 0, null, null, null, 1], won: null, line: [] },
-  { marks: [0, null, null, 1, 1, 1, null, null, 0], won: 1, line: [3, 4, 5] },
-];
-
-/**
- * The top of the wheel, rising past the crop.
- *
- * The whole wheel is drawn and most of it falls outside the box: a circle in a
- * frame two and a half times wider than it is tall can only ever be an arc of
- * one. `sectorPath` is the board's, so the lobby and the table cut their wedges
- * the same way.
- *
- * Fills come from classes rather than attributes, which is how the wheel itself
- * is drawn. A literal here would be the one colour in the app that could not
- * follow the palette.
- */
-function WheelArc() {
-  return (
-    <svg viewBox="0 0 220 88" preserveAspectRatio="xMidYMid slice">
-      {/* The wheel is drawn about its own origin and moved to its centre, which
-          sits a good way below the bottom edge. */}
-      <g transform="translate(110 110)">
-        {Array.from({ length: WEDGE_COUNT }, (_, i) => (
-          <path
-            key={i}
-            className={i === 33 ? "wedge cash" : i === 2 ? "wedge lose" : "wedge"}
-            d={sectorPath(i)}
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-      </g>
-      <path className="pointer" d="M 110 19 L 101 0 L 119 0 Z" />
-    </svg>
-  );
-}
-
-/**
- * The top-left corner of a morris board, enlarged until it runs off three
- * edges of the well.
- *
- * The whole board is a square and the well is two and a half times wider than
- * it is tall, so a board that fitted would be a postage stamp with nine
- * invisible points along each side. A corner instead: three nested right
- * angles and the spoke between them: a shape no other card here has, and the
- * one thing about this board people misremember, since the corners have no
- * spokes and only the midpoints of the edges do.
- *
- * Laid out against the 218 x 87 well at 38 units to a board unit, with the
- * outer corner off the frame at (-6, -8).
- *
- * Both numbers moved once the shelf started drawing this card at three sizes.
- * At 34 units to a board unit the outer ring was 204 wide inside a 218 well,
- * so the corner this motif is named for sat *inside* the frame with a margin
- * of air above and to the left of it, while the board ran 129px off the
- * bottom: a board that has been cut off, which is the opposite of a crop. At
- * 38 the outer ring is 228 wide -- wider than the well it is in -- and the
- * corner is outside the frame, so what is left in the frame is the nest of
- * rings a Morris board is, cut on all four edges. Points come from `pointXY`, which is the reducer's
- * own geometry, so the men stand exactly where the rules say the points are.
- *
- * The position: two men each in the corner being shown, no mill among them.
- * The rest of both hands is off the card, which is the point of a crop.
- */
-const MORRIS_UNIT = 38;
-/** Where board (0, 0), the centre of the board, falls in the well. */
-const MORRIS_CENTRE = { x: -6 + 3 * MORRIS_UNIT, y: -8 + 3 * MORRIS_UNIT };
-
-function morrisAt(point: number): { cx: number; cy: number } {
-  const { x, y } = pointXY(point);
-  return { cx: MORRIS_CENTRE.x + x * MORRIS_UNIT, cy: MORRIS_CENTRE.y + y * MORRIS_UNIT };
-}
-
-function MorrisCorner() {
-  const deal = morrisDeal(DEAL);
-  const men: Array<[number, 0 | 1]> = deal.men.map(({ ring, spot, seat }) => [
-    pointAt(ring, spot),
-    seat,
-  ]);
-  const empty = deal.empty.map(({ ring, spot }) => pointAt(ring, spot));
-  return (
-    <svg viewBox="0 0 218 87" preserveAspectRatio="xMidYMid slice">
-      {[3, 2, 1].map((reach) => (
-        <rect
-          key={reach}
-          className="line"
-          x={MORRIS_CENTRE.x - reach * MORRIS_UNIT}
-          y={MORRIS_CENTRE.y - reach * MORRIS_UNIT}
-          width={reach * 2 * MORRIS_UNIT}
-          height={reach * 2 * MORRIS_UNIT}
-        />
-      ))}
-      {[1, 3, 5, 7].map((spot) => {
-        const from = morrisAt(pointAt(0, spot));
-        const to = morrisAt(pointAt(2, spot));
-        return (
-          <line key={spot} className="line" x1={from.cx} y1={from.cy} x2={to.cx} y2={to.cy} />
-        );
-      })}
-      {empty.map((point) => (
-        <circle key={point} className="spot" r={7} {...morrisAt(point)} />
-      ))}
-      {men.map(([point, seat]) => (
-        <g key={point} className={`man s${seat}`}>
-          {/* The ring of board colour is the gap a real man leaves around
-              himself, and it is also what separates him from the line he is
-              standing on. Backgammon's checkers carry the same one. */}
-          <circle r={13} {...morrisAt(point)} />
-          {seat === 1 && <circle className="ring" r={10} {...morrisAt(point)} />}
-        </g>
-      ))}
-    </svg>
-  );
-}
-
-/**
- * The motif on a game's card: a crop of that game's own table, mid-play.
- *
- * Pieces rather than artwork, because the Android build ships offline with no
- * image assets and a disc grid says "Connect Four" more honestly than an
- * illustration would. A crop rather than an emblem, because the same pieces
- * shrunk to the middle of the well read as a specimen mounted on card instead
- * of a game being played.
- *
- * Most of these are a count and nothing more, laid out and coloured by
- * nth-child in the stylesheet. Six are not: the Wheel needs arcs, which CSS
- * cannot cut without a gradient; Morris needs its points at coordinates the
- * rules already hold; the two lettered grids need their letters, as do Word
- * Chain's three words and Vocab Race's clue and answer; and the two dice
- * games use the real `Die`, so their faces are the six the rest of the app
- * draws rather than a dot standing in for a pip.
- *
- * The rules all thirteen follow, and the register of which game owns which
- * shape, are in `docs/card-motifs.md`. Read it before adding a fourteenth.
- */
-function CardArt({ gameId }: { gameId: string }) {
-  return (
-    <span className={`art art-${gameId}`} aria-hidden="true">
-      {motif(gameId)}
-    </span>
-  );
-}
-
-function motif(gameId: string) {
-  switch (gameId) {
-    // Seven columns and the bottom three rows, cropped on three edges. Ember
-    // has a column of three standing and it is ice to play.
-    case "connect4":
-      return pieces(21);
-    // Twelve points a side, opposed across the bar as they are on a board --
-    // the bar itself is a pseudo-element, so these keep indices 1 to 24. The
-    // <b>s are checkers: they sit over the triangles, which are clipped and
-    // cannot hold anything.
-    case "backgammon":
-      return (
-        <>
-          {pieces(24)}
-          <b />
-          <b />
-          <b />
-          <b />
-          <b />
-        </>
-      );
-    case "wheel":
-      return <WheelArc />;
-    // A guess that has been marked and the empty row under it. No letters: the
-    // marks are the game, and letters here would make this the third card with
-    // writing on it.
-    case "wordle":
-      return pieces(10);
-    // The top four rows of a ten-wide sea: a ship with two hits in it, and
-    // three shots that found nothing.
-    case "battleship":
-      return pieces(40);
-    // A large straight, landed in the order dice land in rather than sorted:
-    // the one scoring hand that shows five different faces, which is what a
-    // row of dice should look like.
-    case "yahtzee":
-      return yahtzeeDeal(DEAL).map((value, i) => <Die key={i} value={value} label="" />);
-    // Your hand, and a hand that is somebody else's business.
-    case "liarsdice":
-      return (
-        <>
-          <span>
-            {liarsDeal(DEAL).map((value, i) => (
-              <Die key={i} value={value} label="" />
-            ))}
-          </span>
-          <span>
-            {Array.from({ length: 5 }, (_, i) => (
-              <Die key={i} value={0} hidden label="" />
-            ))}
-          </span>
-        </>
-      );
-    case "wordhunt":
-      return WORD_HUNT_TILES.map((letter, i) => <i key={i}>{letter}</i>);
-    // Fifteen tiles of a twenty-five-tile board, five across, with the third
-    // row all but off the bottom: ice holds six, ember five, four are still
-    // unclaimed. The K is surrounded on all three sides it has and is locked,
-    // which is the game's one rule and the only square-cornered tile in the
-    // lobby.
-    case "letterpress":
-      return letterpressDeal(DEAL).map((letter, i) => <i key={i}>{letter}</i>);
-    // Three nested corners of the board and the spoke between them, with four
-    // men standing on the points. The second motif that is not CSS, for the
-    // same reason as the first: the shape is line work, and a stylesheet with
-    // no gradients in it cannot draw a square with men sitting on its edge
-    // without inventing a second set of coordinates for them.
-    case "morris":
-      return <MorrisCorner />;
-    // Three of the nine boards, in the board's own markup and the board's own
-    // CSS -- so the crosses on the card are cut the same way as the crosses on
-    // the table, and the hash rules are the same gaps. Reuse rather than a
-    // second drawing of the same shape, which is what rule 4 asks for; the
-    // cost is that .ut-* class names now appear inside .art, and a change to
-    // the board's cell lands here too.
-    case "ultimate":
-      return ULTIMATE_MOTIF.map(({ marks, won, line }, board) => (
-        <span key={board} className={`ut-small ${won === null ? "live" : `settled won${won}`}`}>
-          {marks.map((mark, spot) => (
-            <i
-              key={spot}
-              className={`ut-cell${mark === null ? " empty" : ` m${mark}`}${
-                line.includes(spot) ? " line" : ""
-              }`}
-            >
-              <span className="ut-mark" />
-            </i>
-          ))}
-        </span>
-      ));
-    // Three links of a chain, each starting in the column its parent's last
-    // letter is standing in -- so the shared letter is one column of two
-    // glyphs, and the rule is drawn rather than described. Bare letters, no
-    // cells: the lobby already has two lettered grids and this is not a third.
-    case "wordchain":
-      return CHAIN_LINKS.map((word, link) => (
-        <span key={link}>
-          {[...word].map((letter, i) => (
-            <i key={i}>{letter}</i>
-          ))}
-        </span>
-      ));
-    // The six seconds after a round: the clue, and the word that answers it,
-    // inside the only full border the app draws around anything. Scores are
-    // cut off above it -- there is a race going on over this card, and the
-    // reveal is what everyone in it is looking at while it runs.
-    case "vocab":
-      return (
-        <>
-          <span>
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>
-            <b>{VOCAB_REVEAL.clue}</b>
-            <strong lang="pl">{VOCAB_REVEAL.word}</strong>
-          </span>
-        </>
-      );
-    // A game the manifest knows and this file does not. An empty well reads as
-    // a card with no picture, which is better than a card with a wrong one.
-    default:
-      return null;
-  }
-}
 
 /**
  * This page, addressed to a room: path, query, then the code.
@@ -539,9 +153,13 @@ function seatPips(table: GameEntry) {
 
 /** The same range, said out loud, for the card's accessible name. */
 function seatLabel(table: GameEntry): string {
-  return table.minPlayers === table.maxPlayers
-    ? `${table.minPlayers} players`
-    : `${table.minPlayers} to ${table.maxPlayers} players`;
+  // "1 players" was what a fourteenth game seating one turned this into. The
+  // figure on the card is a numeral and reads fine either way; this is the
+  // string a screen reader says out loud, so it has to be a sentence.
+  if (table.minPlayers === table.maxPlayers) {
+    return table.minPlayers === 1 ? 'on your own' : `${table.minPlayers} players`;
+  }
+  return `${table.minPlayers} to ${table.maxPlayers} players`;
 }
 
 /**
@@ -677,6 +295,7 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
     switchGame,
     startGame,
     dismissError,
+    profile,
   } = useRoom({
       active: intent === "play" && Boolean(name),
       name,
@@ -687,6 +306,34 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
   useChannel(room?.gameId ?? gameId);
   useTableSounds(room, seat, errorSeq);
+
+  /*
+    Cache every summary the server sends, and work out what the last game did.
+
+    Two jobs, one effect, because they are two halves of the same moment: the
+    incoming summary is what the lobby will draw next time, and the difference
+    between it and the one before is what the end screen draws now. See
+    `earnedBetween` for why the delta is subtracted here rather than sent.
+
+    The previous view is held in a ref rather than in state: it is an input to
+    a comparison and never something to render, so a re-render on every profile
+    message would be a re-render for nothing.
+  */
+  const [earned, setEarned] = useState<Earned | null>(null);
+  const lastProfile = useRef<ProfileView | null>(loadProfileCache());
+  useEffect(() => {
+    if (!profile) return;
+    setEarned(earnedBetween(lastProfile.current, profile));
+    lastProfile.current = profile;
+    saveProfileCache(profile);
+  }, [profile]);
+
+  // A new game clears the last one's takings, so an end screen never opens
+  // showing what the *previous* game taught somebody.
+  const dealt = room?.waiting === false;
+  useEffect(() => {
+    if (dealt) setEarned(null);
+  }, [dealt, room?.gameId]);
 
   // What the lobby will open on next time. Written from the room rather than
   // from the pick, so a game somebody else chose still counts as the game you
@@ -982,6 +629,7 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
       {room?.over && (
         <>
+          <Takings earned={earned} />
           <button className="primary" onClick={requestRematch}>
             Play again
           </button>
@@ -1002,6 +650,40 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
  * people, and it is better not to offer it than to explain that afterwards.
  * Nothing is shown at all when that leaves no alternatives.
  */
+/**
+ * What that game taught you, above the rematch button.
+ *
+ * The moment worth showing somebody, and the reason the server pushes a
+ * profile the instant a finished game is filed rather than waiting to be
+ * asked. It draws nothing at all for a guest, nothing for the eleven games
+ * that teach no vocabulary beyond their small flat payment, and nothing for a
+ * player who was away when the summary arrived — which is the honest answer to
+ * "what did that game teach you" for somebody who was not there.
+ *
+ * The words-due line is the one that does the work. It is the same number the
+ * lobby badge shows, said at the moment somebody has just finished playing and
+ * is deciding whether to go again.
+ */
+function Takings({ earned }: { earned: Earned | null }) {
+  if (!earned) return null;
+  return (
+    <section className="takings" aria-labelledby="takings-head">
+      <h2 id="takings-head">
+        {earned.learned > 0
+          ? `${earned.learned} new ${earned.learned === 1 ? "word" : "words"}`
+          : "Nothing new, but it counted"}
+      </h2>
+      <p className="takings-xp">+{earned.xp.toLocaleString()} XP</p>
+      {earned.streak && <p className="takings-streak">That is today done.</p>}
+      {earned.due > 0 && (
+        <p className="takings-due">
+          {earned.due} {earned.due === 1 ? "word is" : "words are"} due for review.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): void }) {
   const others = gameList().filter(
     (game) => game.id !== room.gameId && canSeat(game, room.players.length),
@@ -1250,8 +932,154 @@ function CodeCells({
   );
 }
 
-/** Which of the two panels under the bar is open, if either. */
-type Panel = null | "name" | "code";
+/** Which panel under the bar is open, if any. */
+type Panel = null | "name" | "profile";
+
+/**
+ * The join box: a code, who you are, and what the code turns out to be.
+ *
+ * Open on the page rather than behind a "Have a code?" button. Somebody who
+ * was read four letters over a table has exactly one job on this screen, and a
+ * button that hides the field for it is a step between them and it. The shelf
+ * is still the first thing under it, because everybody else is here to pick a
+ * game.
+ *
+ * What it adds over the old panel is the line under the cells: the code is
+ * checked as the fourth letter lands and the box says what it found -- the
+ * game, and how many are already sitting down. Four letters read across a room
+ * are misheard often enough that "join, connect, fail, come back, retype" was
+ * the ordinary path, and the failure arrived on a different screen than the
+ * mistake.
+ *
+ * The lookup is advisory. It cannot seat anybody and it never blocks the
+ * button on its own opinion: a lost lookup leaves the code joinable and the
+ * socket has the final say, which is the only place that can honestly have it.
+ */
+function JoinBox({
+  code,
+  onCode,
+  field,
+  name,
+  onName,
+  askName,
+  onEditName,
+  onJoin,
+}: {
+  code: string;
+  onCode(next: string): void;
+  field: React.RefObject<HTMLInputElement>;
+  name: string;
+  onName(next: string): void;
+  askName: boolean;
+  onEditName(): void;
+  onJoin(): void;
+}) {
+  const [found, setFound] = useState<RoomPeek | null>(null);
+  const [checking, setChecking] = useState(false);
+  const complete = code.length === CODE_LENGTH;
+  const trimmed = name.trim();
+
+  /*
+    One lookup per completed code, and never one per keystroke: the question
+    only has an answer once all four letters are in, and the three prefixes on
+    the way there would be three round trips whose answers are all "no".
+
+    Aborting the one in flight is what keeps the box honest when somebody
+    backspaces and retypes -- a slower first answer must not land on top of a
+    newer code and describe the wrong room.
+  */
+  useEffect(() => {
+    if (!complete || !isRoomCode(code)) {
+      setFound(null);
+      setChecking(false);
+      return;
+    }
+    const stop = new AbortController();
+    setChecking(true);
+    let live = true;
+    lookupRoom(code, stop.signal).then((answer) => {
+      if (!live) return;
+      setChecking(false);
+      setFound(answer);
+    });
+    return () => {
+      live = false;
+      stop.abort();
+    };
+  }, [code, complete]);
+
+  /*
+    One line, and it says the most specific true thing it can.
+
+    "We could not tell" is a real state and it is not a refusal: `lookupRoom`
+    answers null for anything that went wrong, including offline, and telling
+    somebody their good code is bad is worse than telling them nothing.
+  */
+  let status: React.ReactNode = null;
+  if (complete && checking) {
+    status = <span className="join-status">Looking for {code}...</span>;
+  } else if (complete && found?.exists) {
+    const seated = found.players ?? 0;
+    status = (
+      <span className="join-status join-found">
+        <strong>{found.gameName}</strong>
+        {found.full
+          ? `, full (${seated} of ${found.capacity} seated)`
+          : `, ${seated} ${seated === 1 ? "player" : "players"} waiting`}
+      </span>
+    );
+  } else if (complete && found && !found.exists) {
+    status = <span className="join-status join-missing">No room with that code. Check the letters?</span>;
+  }
+
+  return (
+    <form
+      className="joinbox"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onJoin();
+      }}
+    >
+      <h2>Join a room</h2>
+      <CodeCells value={code} field={field} onChange={onCode} />
+      {/* Only for somebody this browser has never been told the name of.
+          Everybody else is named in the bar above, and asking a returning
+          player to type it again in front of a code is the form this screen
+          got rid of. */}
+      {askName ? (
+        <label>
+          Your name
+          <input
+            value={name}
+            onChange={(e) => onName(e.target.value)}
+            placeholder="Amelia"
+            maxLength={20}
+          />
+        </label>
+      ) : (
+        <p className="join-as">
+          Joining as {trimmed}.{" "}
+          <button type="button" className="linky" onClick={onEditName}>
+            Not you?
+          </button>
+        </p>
+      )}
+      <button className="primary" disabled={!trimmed || !complete}>
+        Join
+      </button>
+      {/* Under the button rather than over it, and absent until there is
+          something to say. It used to sit above with 2.4em reserved under a
+          line of instructions nobody needed twice, which was a third of the
+          card's height spent on a hint. Below the button, appearing costs
+          nobody a mis-press: the only control it can move is not there. */}
+      {status && (
+        <p className="hint" id="code-hint">
+          {status}
+        </p>
+      )}
+    </form>
+  );
+}
 
 function Setup({
   initialName,
@@ -1287,7 +1115,14 @@ function Setup({
     that one opens the code panel itself rather than sending a person holding a
     code off to look for where to put it.
   */
-  const [panel, setPanel] = useState<Panel>(pendingCode ? "code" : null);
+  const [panel, setPanel] = useState<Panel>(null);
+  /*
+    The last summary this browser was sent, which is all the lobby can have:
+    a profile arrives down a socket and the shelf has none. Held in state
+    rather than read on every render so that signing in, signing out or
+    pasting a key repaints the badge without a reload.
+  */
+  const [profile, setProfile] = useState(loadProfileCache);
   /*
     The table somebody pressed before this app knew what to call them.
 
@@ -1300,16 +1135,16 @@ function Setup({
   */
   const [pending, setPending] = useState<string | null>(null);
   /*
-    Whether the code panel is asking for a name as well, decided when it opens
-    and not while it is open.
+    Whether the join box asks for a name as well, decided once on arrival and
+    not while somebody is typing.
 
     Asking for it is right: somebody arriving on a code they were sent may
     never have been here before, and the room needs to be able to say who just
     joined. Asking for it *live* is not. Written as "show the field while there
     is no name", the field vanished on the first letter typed into it, taking
-    the cursor with it. One answer per opening of the panel.
+    the cursor with it. One answer per visit.
   */
-  const [askName, setAskName] = useState(!initialName.trim());
+  const [askName] = useState(!initialName.trim());
   const nameField = useRef<HTMLInputElement>(null);
   const codeField = useRef<HTMLInputElement>(null);
   const trimmed = name.trim();
@@ -1324,14 +1159,21 @@ function Setup({
   */
   useEffect(() => {
     if (panel === "name") nameField.current?.focus();
-    if (panel === "code") {
-      const answered = code.length === CODE_LENGTH;
-      (answered && askName ? nameField : codeField).current?.focus();
-    }
-    // The panel opening is the event. Watching `code` here would move the
-    // cursor out of the field somebody is typing into on their fourth letter.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
+
+  /*
+    Arriving on an invite link that did not open by itself.
+
+    The join box is on the page either way, so nothing has to be opened for
+    them; what is left is the cursor, which belongs in the box that is already
+    filled in rather than at the top of the page. Once only, on the first
+    render: moving it later would take it out of whatever they have started
+    typing.
+  */
+  useEffect(() => {
+    if (pendingCode) codeField.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /*
     The shelf, with the game you last sat down to standing above it.
@@ -1350,9 +1192,7 @@ function Setup({
   const shelves = shelvedGames(featured.id);
 
   const togglePanel = (which: Exclude<Panel, null>) => {
-    const next = panel === which ? null : which;
-    if (next === "code") setAskName(!trimmed);
-    setPanel(next);
+    setPanel(panel === which ? null : which);
     setPending(null);
   };
 
@@ -1402,7 +1242,7 @@ function Setup({
           are, and the one control somebody arriving with a code came for. */}
       <header className="lobby-bar">
         <h1 className="wordmark">
-          <Wordmark name="Rebellia Games" />
+          <BrandMark />
         </h1>
         <button
           type="button"
@@ -1415,19 +1255,15 @@ function Setup({
           </span>
           <span className="who">{trimmed || "Add your name"}</span>
         </button>
-        <button
-          type="button"
-          className="havecode"
-          aria-expanded={panel === "code"}
-          onClick={() => togglePanel("code")}
-        >
-          Have a code?
-        </button>
-      </header>
 
-      {panel === "name" && (
+        {/* Anchored under the chip that opened it rather than laid across the
+            page. As a block in the flow it was a full-width card that shoved
+            the join box, the tagline and the whole shelf down the screen to
+            ask for one word; out of flow it costs the page no height at all
+            and appears where the press was. */}
+        {panel === "name" && (
         <form
-          className="panel"
+          className="panel panel-pop"
           onKeyDown={onEscape}
           onSubmit={(e) => {
             e.preventDefault();
@@ -1450,44 +1286,72 @@ function Setup({
             {pendingName ? "Deal me in" : "Save"}
           </button>
         </form>
-      )}
+        )}
+      </header>
 
-      {panel === "code" && (
-        <form
-          className="panel code-panel"
-          onKeyDown={onEscape}
-          onSubmit={(e) => {
-            e.preventDefault();
-            join();
-          }}
+      {/* The one thing on this screen with a deadline: somebody is holding
+          four letters somebody else read out. It sits above the tagline and
+          the shelf, and it is never behind a press. */}
+      <JoinBox
+        code={code}
+        onCode={setCode}
+        field={codeField}
+        name={name}
+        onName={setName}
+        askName={askName}
+        onEditName={() => togglePanel("name")}
+        onJoin={join}
+      />
+
+      {/* The tagline and the way into your words, on one line.
+
+          The due prompt used to be a full-width dashed bar of its own between
+          the two, which read as an empty form field somebody had forgotten to
+          fill in -- the loudest shape on the screen for the quietest state it
+          has. Paired with the tagline it is a line of lobby furniture instead,
+          and it still gets to be loud on the one state that earns it.
+
+          Not in the bar above: three chips do not fit at 375px, and the bar's
+          wordmark is the thing that would have lost the characters. That is
+          pinned in `css.test.ts`.
+
+          Cached rather than live, because the lobby has no socket. See
+          `profileCache.ts` for why a count that can only understate is the
+          right trade. */}
+      <div className="lobby-meta">
+        {/* The tagline's third clause used to be "no accounts", and it was
+            true. Accounts exist now and are optional, so it says the thing
+            that is still true and is the actual selling point: nobody needs
+            one, and a room where nobody has one plays exactly as it always
+            has. */}
+        <p className="tagline">
+          Two to eight players, one link. No ads, no account needed, no catch.
+        </p>
+
+        <button
+          type="button"
+          className={profile && profile.due > 0 ? "myword myword-due" : "myword"}
+          aria-expanded={panel === "profile"}
+          onClick={() => togglePanel("profile")}
         >
-          <h2>Type the four letters they read you</h2>
-          <CodeCells value={code} field={codeField} onChange={setCode} />
-          {/* Only for somebody who has not been here before. Everybody else has
-              a name in the bar, and asking again for it in front of a code they
-              were sent is the form this screen just got rid of. */}
-          {askName && (
-            <label>
-              Your name
-              <input
-                ref={nameField}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Amelia"
-                maxLength={20}
-              />
-            </label>
+          {profile && profile.due > 0 ? (
+            <>
+              <span className="myword-n">{profile.due}</span>
+              <span className="myword-of">
+                {profile.due === 1 ? "word due for review" : "words due for review"}
+              </span>
+            </>
+          ) : (
+            <span className="myword-of">
+              {profile ? "Your words" : "Keep track of what you learn"}
+            </span>
           )}
-          <button className="primary" disabled={!trimmed || code.length !== CODE_LENGTH}>
-            Join
-          </button>
-          <p className="hint" id="code-hint">
-            {CODE_LENGTH} letters, off the link or read out to you.
-          </p>
-        </form>
-      )}
+        </button>
+      </div>
 
-      <p className="tagline">Two to eight players, one link. No ads, no accounts, no catch.</p>
+      {panel === "profile" && (
+        <Profile profile={profile} onChanged={() => setProfile(loadProfileCache())} />
+      )}
 
       {/* One element around the shelf, which `base.css` reads: the two recovery
           screens wear `.app.setup` too, and the desktop layout is for the lobby

@@ -21,6 +21,8 @@
 
 export { clockCall, formatClock } from '../clock.js';
 
+import type { StudyLists } from '../profile.js';
+
 /**
  * The two languages you can learn.
  *
@@ -640,6 +642,21 @@ export interface VocabState {
    * different shape.
    */
   deck: number[];
+  /**
+   * The words this table is due to review, merged across seats, one list per
+   * language. Empty for a room of guests and for anybody with nothing due.
+   *
+   * Read in exactly one place, `studied` in the reducer, where it decides the
+   * *order* the deck is asked in once the host has chosen a language. It
+   * changes no rule: the same clues, the same scoring, the same draw. A state
+   * with this empty is the game exactly as it played before the ledger
+   * existed.
+   *
+   * **Redacted to `{}` by `view()`**, along with the deck it reorders. It is
+   * nobody's business on a client — the board never needs it — and a table's
+   * merged study list is still several people's vocabulary.
+   */
+  study: StudyLists;
   /** How far into the deck the game has read. Harmless on its own. */
   drawn: number;
   /** What the current phase ends at. Null only before the room is full. */

@@ -458,59 +458,8 @@
   text-align: center;
 }
 
-/* Two side by side on any phone wide enough, stacked below that. Both groups
-   -- languages and difficulties -- use one class, because they are the same
-   control asked twice and giving them separate styles would be inviting them
-   to drift. */
-.vr-choices {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-
-.vr-choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  min-height: 44px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  color: var(--ink);
-  text-align: left;
-}
-
-/* The chosen one, marked by its border rather than by its fill: these sit two
-   across, and a filled tile beside an empty one reads as one button and one
-   label. */
-.vr-choice.chosen {
-  border-color: var(--accent);
-  background: var(--rule);
-}
-
-.vr-choice-name {
-  font-family: var(--display);
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.vr-choice-note {
-  font-size: 0.76rem;
-  line-height: 1.35;
-  color: var(--muted);
-}
-
 .vr-begin {
   min-height: 44px;
-}
-
-/* Three across where two fit, because the levels are a scale and reading them
-   in one row is how a scale reads. `auto-fit` on a 100px floor lets them stack
-   at 320 rather than squeezing "Just starting" onto three lines. */
-.vr-levels {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 /* Who has claimed what. A quiet list rather than a table: it exists to be

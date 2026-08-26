@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { wantsStillness } from "../motion.js";
 
 import type { BoardProps } from "./boards.js";
+import { seatName } from "./names.js";
 
 type Props = BoardProps<UtState, UtMove>;
 
@@ -42,7 +43,7 @@ type Props = BoardProps<UtState, UtMove>;
  * nine small ones, is two overlapping shapes in the same colour.
  */
 export function UltimateBoard({ state, seat, names, canAct, onMove }: Props) {
-  const nameFor = (index: 0 | 1) => names[index] ?? `Player ${index + 1}`;
+  const nameFor = (index: 0 | 1) => seatName(names, index);
   const open = new Set(openBoards(state));
   // One open board is an instruction; eight is a permission. Both are true
   // statements about the position, so both are drawn, at different weights.
@@ -170,7 +171,7 @@ function SmallBoard({
 
   // Said in full, because a group label is all a screen reader has to go on
   // once it is inside the nine buttons.
-  const nameFor = (index: 0 | 1) => names[index] ?? `Player ${index + 1}`;
+  const nameFor = (index: 0 | 1) => seatName(names, index);
   const standing =
     result === "drawn"
       ? "drawn"

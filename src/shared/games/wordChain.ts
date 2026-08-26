@@ -8,6 +8,7 @@ import {
   chainKey,
   chainLookup,
   commonestStarting,
+  countEnding,
   countStarting,
   fold,
   foldLetter,
@@ -22,7 +23,7 @@ import {
   canAct,
   hasBeaten,
   isFinished,
-  lockCostFor,
+  lockTurns,
   lockedFor,
   saidBy,
   scoreFor,
@@ -61,7 +62,7 @@ export {
   formatClock,
   hasBeaten,
   isFinished,
-  lockCostFor,
+  lockTurns,
   lockedFor,
   missFor,
   msLeftFor,
@@ -75,6 +76,7 @@ export {
   usedKeys,
   wordPoints,
 } from './wordChainDisplay.js';
+export { LOCK_FREE, LOCK_FULL, MAX_LOCK } from './wordChainDisplay.js';
 export type {
   ActiveCooldown,
   ChainHighlight,
@@ -160,17 +162,20 @@ export type {
  *    three-letter ones, which is what makes reaching for a long word under a
  *    five-second clock a decision rather than a flourish.
  *
- * 7. **You cannot keep ending on your favourite letter.** Ending a word on a
- *    letter puts that letter on a cooldown for your own next turn, and the
- *    cooldown grows by one every time you go back to it: the fourth *-y* is
- *    four turns, the tenth is ten. Per seat and per letter, and the answer to a
- *    specific degenerate game, where a player who has worked out that *-y* is
- *    cheap hands their opponent a Y every turn and never has to think again.
- *    `LetterCooldown` carries the reasoning and `lockedFor` is the check. No
- *    escape hatch: unlike `tooThin`, which protects a player from the
- *    dictionary, this is a tax on a habit and a habit is exactly what should be
- *    punishable. It also means the reveal has to respect it, or the game would
- *    end by showing the loser a word it would have refused.
+ * 7. **A thin ending is not yours again for a while.** Ending a word puts that
+ *    letter out of your own reach for up to five of your turns, priced purely
+ *    by how many words in your language still end on it: three hundred left
+ *    costs nothing, a hundred and fifty or fewer costs the full five, and it is
+ *    a straight line between. `lockTurns` is the whole rule and `lockedFor` is
+ *    the check. It replaced a per-seat ladder that grew every time you went
+ *    back to a letter, which was fair and untrackable: the count was private,
+ *    invisible until a word was refused, and spread over every letter at once.
+ *    This price is a fact about the list, so both players see the same number
+ *    and it can be shown before the word is submitted. No escape hatch: unlike
+ *    `tooThin`, which protects a player from the dictionary, this is what stops
+ *    two players stripping the same corner of the list bare. It also means the
+ *    reveal has to respect it, or the game would end by showing the loser a
+ *    word it would have refused.
  *
  * 8. **The minute shrinks as the chain grows.** Every word on the chain takes
  *    a second off the answer, down to a floor of five. `turnMsFor` is the whole
@@ -263,22 +268,47 @@ function blockedFor(state: WcState, seat: number): Set<string> {
 }
 
 /**
+ * How long ending on `letter` would lock it for `seat`, were they to do it
+ * now. Zero when the ending is free, which is the common case.
+ *
+ * `used` is the set of words that count as spent for the question, which at
+ * the moment of charging includes the word being said: a player is not
+ * credited with the ending they have just consumed. Exported because the board
+ * can price a word before it is submitted, and because the warning and the
+ * penalty must not be able to disagree.
+ */
+export function lockCostFor(
+  state: WcState,
+  seat: number,
+  letter: string,
+  used: ReadonlySet<string> = usedKeys(state),
+): number {
+  const lang = state.langs[seat];
+  if (lang == null) return 0;
+  return lockTurns(countEnding(lang, letter, used, modeOf(state)));
+}
+
+/**
  * Charge `seat` for ending a word on `letter`, and hand back every seat's
  * cooldowns with that one seat's updated.
  *
  * Called with the state from *before* the word is appended, so the seat's own
- * word count is taken as `saidBy + 1`. The lock runs from there for as many of
- * their turns as they have now used the letter: first use one turn, second
- * two, and up with no ceiling.
+ * word count is taken as `saidBy + 1`; `used` is the after set, see
+ * `lockCostFor`. A free ending stores nothing, and clears any expired entry
+ * the letter was still carrying, so `cooldowns` never grows a row that means
+ * "this letter is fine".
  */
-function cooledBy(state: WcState, seat: number, letter: string): LetterCooldown[][] {
+function cooledBy(
+  state: WcState,
+  seat: number,
+  letter: string,
+  used: ReadonlySet<string>,
+): LetterCooldown[][] {
   const said = saidBy(state, seat) + 1;
-  const mine = state.cooldowns[seat] ?? [];
-  const used = lockCostFor(state, seat, letter);
+  const mine = (state.cooldowns[seat] ?? []).filter((cool) => cool.letter !== letter);
+  const turns = lockCostFor(state, seat, letter, used);
   return state.cooldowns.map((cools, index) =>
-    index === seat
-      ? [...mine.filter((cool) => cool.letter !== letter), { letter, used, until: said + used }]
-      : cools,
+    index === seat ? (turns === 0 ? mine : [...mine, { letter, until: said + turns }]) : cools,
   );
 }
 
@@ -542,7 +572,7 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       // is back in two turns is the difference between a wall and a cost.
       return {
         ok: false,
-        error: `${entry.word} ends in ${letter.toUpperCase()}, and you have used that ending too often. It is yours again in ${turns}.`,
+        error: `${entry.word} ends in ${letter.toUpperCase()}, and you have just used that ending. It is yours again in ${turns}.`,
       };
     }
 
@@ -564,7 +594,7 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       ...state,
       chain: [...state.chain, linkFrom(entry, lang, seat, tookUntil(state, at))],
       // Charged off the pre-append state, see `cooledBy`.
-      cooldowns: cooledBy(state, seat, letter),
+      cooldowns: cooledBy(state, seat, letter, after),
     };
 
     // A chase ends the moment it is won, in the middle of the chaser's run

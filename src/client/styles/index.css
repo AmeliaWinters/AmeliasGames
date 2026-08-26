@@ -76,6 +76,9 @@
 @import "./games/connect4.css";
 @import "./clock.css";
 @import "./controls.css";
+/* Before every game sheet: this is a shared control, and a game that needs to
+   bend it has to be able to. */
+@import "./choice.css";
 @import "./hover.css";
 @import "./games/backgammon.css";
 @import "./dice.css";
@@ -93,3 +96,5 @@
 @import "./games/wordchain.css";
 @import "./games/vocab.css";
 @import "./toast.css";
+@import "./profile.css";
+@import "./games/drill.css";

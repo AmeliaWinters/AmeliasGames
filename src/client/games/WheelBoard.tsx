@@ -478,6 +478,7 @@ function Wheel({
 }
 
 import type { BoardProps } from "./boards.js";
+import { namer, seatName } from "./names.js";
 
 type Props = BoardProps<WofState, WofMove>;
 
@@ -764,9 +765,7 @@ export function WheelBoard({
   // for the strip, where every seat is labelled the same way and the one that
   // is yours is marked with a badge rather than renamed. Calling yourself "You"
   // in a scoreboard reads as a fifth player.
-  const nameFor = (index: number) =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
-  const seatName = (index: number) => names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   const bank = seat === null ? 0 : (shown.bank[seat] ?? 0);
   const canBuyVowel =
@@ -807,7 +806,7 @@ export function WheelBoard({
           <Purse
             key={index}
             seatIndex={index}
-            name={seatName(index)}
+            name={seatName(names, index)}
             mine={index === seat}
             away={!(connected[index] ?? true) && !!names[index]}
             amount={amount}

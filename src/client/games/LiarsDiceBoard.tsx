@@ -24,6 +24,7 @@ import { Dice3DTray, type DiceTrayHandle } from "../dice3d/Dice3DTray.js";
 import { startingFrom, type ThrownDice, type Toss } from "../../shared/games/toss.js";
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<LdState, LdMove>;
 
@@ -165,8 +166,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raiseKey]);
 
-  const nameFor = (index: number) =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
   // "Bo called you's three 2s" is what naming a seat twice gets you. Second
   // person needs its own possessive, and its own verb.
   const possessiveOf = (index: number) =>

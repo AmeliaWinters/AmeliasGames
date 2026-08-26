@@ -47,6 +47,7 @@ function trayLabel(state: YState, flying: boolean, rolled: boolean): string {
 }
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<YState, YMove>;
 
@@ -130,8 +131,7 @@ export function YahtzeeBoard({ state, seat, names, canAct, onMove }: Props) {
   const trayRef = useRef<DiceTrayHandle>(null);
   const throwDice = (thrown: ThrownDice) => onMove({ type: "roll", throw: thrown });
 
-  const nameFor = (index: number) =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   const row = (category: Category) => (
     <tr key={category} className={legal.includes(category) ? "yz-row open" : "yz-row"}>

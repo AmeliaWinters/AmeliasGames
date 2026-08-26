@@ -17,6 +17,7 @@
  * sheet answers is the silhouette.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { PALETTE, Raster, rgba } from "./png.mjs";
 import {
   WHEEL,
@@ -150,7 +151,7 @@ const W = VIEW_W * SCALE;
 const H = CROP * SCALE;
 
 /** A sheet of `angles`, left to right, one panel each. */
-function sheet(angles: number[]): Raster {
+export function sheet(angles: number[]): Raster {
   const art = new Raster(
     angles.length * W + (angles.length + 1) * GAP,
     H + GAP * 2,
@@ -160,24 +161,48 @@ function sheet(angles: number[]): Raster {
   return art;
 }
 
-mkdirSync("preview", { recursive: true });
-
 /*
   Default sheet: the tick. Four panels a quarter of a wedge apart, so the
   flapper is caught at four points of one tick: hanging, lifting, about to
   drop, and just dropped. This is the silhouette question.
 */
-const PANELS = 4;
-const rest = restAngle(0);
-writeFileSync(
-  "preview/wheel.png",
-  sheet(
+export const PANELS = 4;
+
+/**
+ * The default sheet, as something that can be called rather than as a side
+ * effect of importing this file.
+ *
+ * Split out for `render-wheel.test.ts`, which draws this exact sheet and holds
+ * it to the one checked into `preview/`. The geometry here is pure and
+ * dependency-free, so the picture is a fact about the code rather than about
+ * the machine that drew it, and a fact can be pinned. Until now it was a fact
+ * nobody rechecked between the times somebody thought to look.
+ */
+export function restSheet(): Raster {
+  const rest = restAngle(0);
+  return sheet(
     Array.from({ length: PANELS }, (_, i) => rest + (WEDGE_ARC * i) / PANELS),
-  ).toPNG(),
-);
-console.log(
-  `preview/wheel.png: ${PANELS} panels, ${WHEEL.length} wedges, band ${RIM_INNER}..${RADIUS}`,
-);
+  );
+}
+
+/**
+ * Whether this file was run rather than imported.
+ *
+ * Without the guard, importing anything from here wrote PNGs into `preview/`
+ * and printed two paragraphs, which is a rude thing for a test to do to
+ * somebody's working tree.
+ */
+const RUN_DIRECTLY =
+  process.argv[1] !== undefined &&
+  pathToFileURL(process.argv[1]).href === import.meta.url;
+
+if (RUN_DIRECTLY) {
+  mkdirSync("preview", { recursive: true });
+  writeFileSync("preview/wheel.png", restSheet().toPNG());
+  console.log(
+    `preview/wheel.png: ${PANELS} panels, ${WHEEL.length} wedges, band ${RIM_INNER}..${RADIUS}`,
+  );
+}
 
 /*
   `--spin`: a whole throw, sampled at equal *times*.
@@ -193,7 +218,7 @@ console.log(
   the throw finally stopped. The fractional part is the whole point, and it is
   a number rather than a picture.
 */
-if (process.argv.includes("--spin")) {
+if (RUN_DIRECTLY && process.argv.includes("--spin")) {
   const hard = process.argv.includes("--hard");
   // Just inside the clamps rather than on them. The clamps are whole numbers
   // of wedges, so a throw sitting exactly on one stops exactly on a midpoint

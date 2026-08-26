@@ -28,6 +28,7 @@ import { wantsStillness } from "../motion.js";
 import { play } from "../sfx.js";
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<BsState, BsMove>;
 
@@ -810,8 +811,7 @@ function useShownWaters(desired: "theirs" | "yours"): "theirs" | "yours" {
 export function BattleshipBoard({ state, seat, names, canAct, onMove }: Props) {
   const sinking = useShotSounds(state);
   const them = seat === null ? null : opponentOf(seat);
-  const nameFor = (index: number | null) =>
-    index === null ? "" : index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   // Where the guns are pointed, which is not the same as where they have
   // fired. A shot cannot be taken back and costs the turn that fired it, and

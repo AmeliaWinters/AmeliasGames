@@ -10,6 +10,10 @@ import {
   TURN_STEP_WORDS,
   canAct,
   chainStats,
+  LOCK_FREE,
+  LOCK_FULL,
+  MAX_LOCK,
+  lockTurns,
   lockedFor,
   missFor,
   usedKeys,
@@ -1017,14 +1021,16 @@ describe('the shrinking minute', () => {
  * both look perfectly reasonable on the screen.
  */
 /**
- * Ending on a letter puts it out of that seat's reach, for longer every time.
+ * Ending on a letter puts it out of that seat's reach, priced by how thin the
+ * ending is: see `lockTurns`.
  *
- * The rule these are holding is per seat and per letter, counted in the seat's
- * own turns, and with no ceiling on the ladder -- all three of which are easy
- * to break by "simplifying" the arithmetic, and none of which a player would
- * report as a bug so much as a game that had gone vaguely unfair.
+ * The parts worth pinning are the ones a "simplification" would quietly move:
+ * the price comes from the pool of words still ending on that letter and not
+ * from the seat's history with it, the wait is counted in the seat's own turns,
+ * a free ending stores nothing at all, and the pool is the one the game's mode
+ * links on.
  */
-describe('a letter you keep ending on', () => {
+describe('a thin ending', () => {
   /** The letters the seat on the clock may not end on, and for how long. */
   const locks = (state: WcState): Record<string, number> =>
     Object.fromEntries(lockedFor(state, state.at).map((cool) => [cool.letter, cool.turns]));
@@ -1040,67 +1046,78 @@ describe('a letter you keep ending on', () => {
   const chain = (a: ChainLang, b: ChainLang, ...words: string[]): WcState =>
     on(playing(a, b), ...words);
 
-  it('is free the first time and locked the turn after', () => {
-    let state = say(playing('en', 'en'), 'apple');
-    expect(locks(state)).toEqual({});
-    state = say(state, 'every');
-
-    // Seat 0 again, and their E is spent. `yale` is in the list and starts
-    // with the required Y, so the cooldown is the only thing refusing it.
-    expect(locks(state)).toEqual({ e: 1 });
-    expect(refuse(state, { type: 'say', word: 'yale' })).toContain('your next turn');
-
-    state = say(state, 'yellow');
-    state = say(state, 'water');
-    // One of seat 0's own turns has passed, so E is theirs again -- and W,
-    // which `yellow` has just spent, is not.
-    expect(locks(state)).toEqual({ w: 1 });
-    expect(() => say(state, 'rise')).not.toThrow();
+  it('prices the lock off the pool and nothing else', () => {
+    // The two ends of the line and the middle of it. Held here rather than
+    // only in the reducer because these three numbers are the rule: a slope
+    // fitted the other way round would still be linear and still be wrong.
+    expect(lockTurns(LOCK_FREE)).toBe(0);
+    expect(lockTurns(LOCK_FREE + 5_000)).toBe(0);
+    expect(lockTurns(LOCK_FULL)).toBe(MAX_LOCK);
+    expect(lockTurns(0)).toBe(MAX_LOCK);
+    expect(lockTurns((LOCK_FREE + LOCK_FULL) / 2)).toBe(MAX_LOCK / 2 + 0.5);
   });
 
-  it('counts the wait in a seat own turns rather than the chain', () => {
-    // Seat 0 ends on E twice. The second costs two of *their* turns, which is
-    // four words of chain -- a cooldown counted in chain words would hand it
-    // back halfway through.
-    let state = chain('en', 'en', 'apple', 'east', 'told', 'dance', 'ease');
-    expect(wait(state, 0, 'e')).toBe(2);
-    state = say(state, 'every');
-    expect(wait(state, 0, 'e')).toBe(2);
-    state = on(state, 'yellow', 'water');
-    expect(wait(state, 0, 'e')).toBe(1);
-    state = on(state, 'road', 'dine');
+  it('leaves a fat ending free, however often it is used', () => {
+    // Six thousand English words end in E, so E is not a habit anybody needs
+    // protecting from. Under the old ladder this second E was refused.
+    let state = chain('en', 'en', 'apple', 'every', 'yale');
+    expect(locks(state)).toEqual({});
+    // And nothing is written down either: a row saying "this letter is fine"
+    // is a row that can rot into a lock.
+    expect(state.cooldowns[0]).toEqual([]);
+    state = on(state, 'east', 'take');
     expect(wait(state, 0, 'e')).toBe(0);
   });
 
+  it('locks an ending the list is thin in', () => {
+    // A hundred and sixty-odd English words end in B, one of them the word
+    // that has just been said, which prices B at the full five turns.
+    let state = chain('en', 'en', 'club');
+    expect(wait(state, 0, 'b')).toBe(5);
+    expect(locks(state)).toEqual({});
+
+    // Seat 0 again, and `knob` starts with the required K. The lock is the
+    // only thing refusing it, and it says how long.
+    state = on(state, 'bank');
+    expect(refuse(state, { type: 'say', word: 'knob' })).toContain('5 more of your turns');
+  });
+
+  it('counts the wait in a seat own turns rather than the chain', () => {
+    // Five of seat 0's turns is ten words of chain; a wait counted in chain
+    // words would hand B back halfway through.
+    let state = chain('en', 'en', 'club', 'bank');
+    expect(wait(state, 0, 'b')).toBe(5);
+    state = on(state, 'king', 'green');
+    expect(wait(state, 0, 'b')).toBe(4);
+    state = on(state, 'night', 'try', 'yes', 'save', 'end', 'dark');
+    expect(wait(state, 0, 'b')).toBe(1);
+    state = on(state, 'kind', 'dance');
+    expect(wait(state, 0, 'b')).toBe(0);
+  });
+
   it('is only the seat that used it that pays', () => {
-    const state = say(playing('en', 'en'), 'apple');
-    // Seat 1's E is untouched by seat 0 spending theirs. The rule is a tax on
-    // your own habit, and taxing you for your opponent's would be arbitrary
+    const state = chain('en', 'en', 'club');
+    // Seat 1's B is untouched by seat 0 spending theirs. The rule is a tax on
+    // your own ending, and taxing you for your opponent's would be arbitrary
     // from the inside -- you cannot even see it.
     expect(locks(state)).toEqual({});
-    expect(() => say(state, 'else')).not.toThrow();
+    expect(() => say(state, 'bulb')).not.toThrow();
+    expect(wait(say(state, 'bulb'), 1, 'b')).toBe(5);
   });
 
-  it('never stops growing', () => {
-    // Four turns ending on E, spaced far enough apart to be legal each time.
-    // The fourth costs four; a ladder capped at three would say three.
-    const state = chain(
-      'en', 'en',
-      'apple', 'east', 'told', 'dance', 'ease', 'every', 'yellow', 'water',
-      'road', 'dine', 'else', 'end', 'dark', 'king', 'green', 'night',
-      'try', 'yes', 'save',
-    );
-    expect(state.cooldowns[0].find((cool) => cool.letter === 'e')?.used).toBe(4);
-    expect(wait(state, 0, 'e')).toBe(4);
-  });
+  it('counts the pool the game links on', () => {
+    // `też` hands on a `ż` in a strict game, and a hundred and forty Polish
+    // words end on one, against two thousand ending in a plain `z`. Reading
+    // the loose pool here would price a strict ending off a letter the strict
+    // game does not have.
+    const strict = chain('pl', 'pl', 'też');
+    expect(strict.strict).toBe(true);
+    expect(lockedFor(strict, 0)).toEqual([{ letter: 'ż', turns: 5 }]);
 
-  it('links on the accented letter in a same-language chain', () => {
-    // `był` hands on a `ł` in a strict game. That must not spend the plain
-    // `l` that `styl` would: they are two letters to this chain, so they had
-    // better be two cooldowns.
-    const state = chain('pl', 'pl', 'byl', 'latwo');
-    expect(state.strict).toBe(true);
-    expect(lockedFor(state, 0)).toEqual([{ letter: 'ł', turns: 1 }]);
+    // The same word in a mixed game folds to `z`, which is nobody's corner.
+    const loose = chain('pl', 'en', 'też');
+    expect(loose.strict).toBe(false);
+    expect(lockedFor(loose, 0)).toEqual([]);
   });
 
   it('goes out to the seat it belongs to and nobody else', () => {
@@ -1114,12 +1131,13 @@ describe('a letter you keep ending on', () => {
    * be a word the game would in fact have taken from them.
    */
   it('is respected by the word the loser is shown', () => {
-    const state = chain('en', 'en', 'apple', 'every');
-    // Seat 0 is on the clock, owes a Y word, and cannot end on E.
-    expect(wait(state, 0, 'e')).toBe(1);
+    const state = chain('en', 'en', 'club', 'bank');
+    // Seat 0 is on the clock, owes a K word, and cannot end on B -- and `knob`
+    // is exactly the word the reveal would otherwise be free to offer them.
+    expect(wait(state, 0, 'b')).toBe(5);
     const over = wordChain.expire?.(state, (state.deadline ?? 0) + 1);
     expect(missFor(over as WcState, 0)?.reveal).not.toBeNull();
-    expect(missFor(over as WcState, 0)?.reveal?.key.slice(-1)).not.toBe('e');
+    expect(missFor(over as WcState, 0)?.reveal?.key.slice(-1)).not.toBe('b');
   });
 });
 

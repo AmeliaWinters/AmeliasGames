@@ -242,6 +242,7 @@
    words has no business being any other colour. */
 :root[data-game="wordchain"] { --accent: var(--seat-2); }
 :root[data-game="vocab"] { --accent: var(--seat-2); }
+:root[data-game="drill"] { --accent: var(--seat-2); }
 
 
 /* Card identity
@@ -344,6 +345,21 @@
 .game[data-game="wordchain"] { --card: #90610e; --card-well: #291d07; }
 .game[data-game="letterpress"] { --card: #66700c; --card-well: #1e2106; }
 .game[data-game="vocab"] { --card: #43771c; --card-well: #15220b; }
+/* The fourteenth card, and the one place this ring is no longer even.
+
+   Thirteen hues sat at exactly 360/13 apart, which is the property the note
+   above is proudest of. A fourteenth cannot join that without re-solving all
+   fourteen, so this one halves the vocab-to-wordle gap instead and pays for
+   the closeness on a second axis: its saturation is 0.34 where its two
+   neighbours are 0.62 and 0.56, so it reads as its own card at a hue it could
+   not have carried alone. That is also the right colour for what it is -- the
+   quiet one you play by yourself, next to the race it is the practice for.
+
+   Solved to the same targets as the rest of the family and checked by
+   `cardHues.test.ts` like the rest: 5.4 against white, well at 1.33%. If the
+   shelf ever grows again, re-space the whole ring rather than halving another
+   gap. */
+.game[data-game="drill"] { --card: #46763a; --card-well: #142211; }
 .game[data-game="wordle"] { --card: #227a25; --card-well: #0d240d; }
 .game[data-game="wordhunt"] { --card: #197949; --card-well: #0a2317; }
 .game[data-game="wheel"] { --card: #0c7773; --card-well: #062322; }

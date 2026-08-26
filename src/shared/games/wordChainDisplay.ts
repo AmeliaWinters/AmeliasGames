@@ -272,25 +272,56 @@ export interface ChainLink {
   rank: number;
 }
 
+/** No lock at all at or above this many words left behind the ending. */
+export const LOCK_FREE = 300;
+
+/** At or below this many, the ending costs the full `MAX_LOCK` turns. */
+export const LOCK_FULL = 150;
+
+/** The longest an ending is ever out of reach, in the seat's own turns. */
+export const MAX_LOCK = 5;
+
 /**
- * One letter a seat has ended a word on, and when they may end on it again.
+ * How long ending on a letter locks it, given how many words in that language
+ * still end on it and have not been said. See `countEnding`.
  *
- * The cooldown exists because the chain rewards a habit rather than a
- * vocabulary: a player who has noticed that *-y* is a cheap ending can sit on
- * it forever, and every one of their turns hands the opponent the same letter.
- * Ending on a letter puts it out of reach for a while, and the while grows
- * every time, so the letter you lean on hardest is the one that stops being
- * available at all.
+ * Straight line between the two thresholds: 300 words left is free, 150 is the
+ * full five turns, and 225 is two or three. Below 150 it flattens rather than
+ * climbing, because five of your own turns is already most of a game and a
+ * letter that kept getting more expensive would in practice be gone for good,
+ * which is a different rule wearing this one's clothes.
  *
- * Per seat and per letter. Your own habit is what is taxed, not the chain's:
- * your opponent's fondness for Y is their problem, and taxing you for it would
- * feel arbitrary from the inside.
+ * This replaced a per-seat ladder that charged one turn for the first *-y*,
+ * two for the second and up with no ceiling. The ladder was fair and nobody
+ * could track it: every letter carried its own private count, invisible until
+ * a word was refused, and the only way to play around it was to keep a tally
+ * on paper. The pool behind a letter is a fact about the list rather than
+ * about your history with it, so both players can see the same number and the
+ * board can price a word before it is submitted.
  *
- * The ladder has no ceiling: the fourth use costs four turns, the tenth costs
- * ten. A cap would make a favourite letter merely expensive, and by the point
- * a player has ended on Y ten times an expensive Y is still a bargain. This
- * way the habit eventually closes the letter for the rest of the game, which
- * is the outcome the rule is actually asking for.
+ * A consequence worth naming: the cheap endings stay cheap. There are far more
+ * than 300 English words left ending in *-y* for most of a game, so leaning on
+ * it is no longer taxed at all, and what is taxed is ending on the letters the
+ * list is thin in. That is the trade the simpler rule buys.
+ */
+export function lockTurns(wordsLeft: number): number {
+  if (wordsLeft >= LOCK_FREE) return 0;
+  if (wordsLeft <= LOCK_FULL) return MAX_LOCK;
+  return Math.round((MAX_LOCK * (LOCK_FREE - wordsLeft)) / (LOCK_FREE - LOCK_FULL));
+}
+
+/**
+ * One letter a seat may not end a word on yet, and when it comes back.
+ *
+ * Ending a word puts that letter out of *your* reach for a few of your turns,
+ * priced by how many words in your language still end on it: see `lockTurns`
+ * for the price and why it is that and not a ladder. Only letters that cost
+ * something are stored, so an entry here is always a lock that was real when
+ * it was written.
+ *
+ * Per seat and per letter. Your own ending is what is charged, not the
+ * chain's: your opponent's fondness for Y is their problem, and taxing you for
+ * it would feel arbitrary from the inside.
  */
 export interface LetterCooldown {
   /**
@@ -299,8 +330,6 @@ export interface LetterCooldown {
    * and never has to fold anything.
    */
   letter: string;
-  /** How many times this seat has ended a word on it, this game. */
-  used: number;
   /**
    * The seat's own word count at which the letter frees up: locked while
    * `saidBy(state, seat) < until`. Counted in the seat's *own* turns rather
@@ -377,17 +406,6 @@ export function lockedFor(state: WcState, seat: number): ActiveCooldown[] {
     .sort((a, b) => a.turns - b.turns || a.letter.localeCompare(b.letter));
 }
 
-/**
- * How long ending on `letter` would lock it, were `seat` to do it now.
- *
- * The number the board shows against the word being typed, and the number
- * `applyMove` writes down. One function, so the warning and the penalty cannot
- * come to disagree.
- */
-export function lockCostFor(state: WcState, seat: number, letter: string): number {
-  const cool = (state.cooldowns[seat] ?? []).find((c) => c.letter === letter);
-  return (cool?.used ?? 0) + 1;
-}
 
 /**
  * `chase` is the phase that stops a lost minute from being the end of it.

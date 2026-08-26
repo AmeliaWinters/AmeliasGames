@@ -361,3 +361,34 @@ export function chainListSizes(): Record<ChainLang, number> {
 export function chainRanked(lang: ChainLang): readonly ChainEntry[] {
   return (lists ?? build()).ordered[lang];
 }
+
+/**
+ * How many words in `lang` end on `letter` and have not been said.
+ *
+ * The mirror of `countStarting`, and the number the ending cooldown is priced
+ * off: see `lockTurns` in `wordChainDisplay.ts`. A letter with thousands of
+ * words behind it is a habit nobody needs protecting from, and one with a
+ * hundred is a corner of the list two players can strip bare between them.
+ *
+ * Matched on the *mode's* key, for the same reason `commonestStarting` filters
+ * blocked endings that way: a strict game links on `ś` and a plain `s` is a
+ * different letter with a different pool behind it. An empty `letter` counts
+ * nothing, since no word ends on nothing.
+ */
+export function countEnding(
+  lang: ChainLang,
+  letter: string,
+  used: ReadonlySet<string>,
+  mode: ChainMode = 'loose',
+): number {
+  const l = lists ?? build();
+  const last = foldLetter(letter, mode);
+  if (last === '') return 0;
+  let n = 0;
+  for (const entry of l.ordered[lang]) {
+    if (used.has(entry.key)) continue;
+    if (!chainKey(entry, mode).endsWith(last)) continue;
+    n++;
+  }
+  return n;
+}

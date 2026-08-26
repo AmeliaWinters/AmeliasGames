@@ -32,6 +32,8 @@ import type {
 import { useServerNow } from "../clock.js";
 
 import type { BoardProps } from "./boards.js";
+import { Choice, ChoiceGroup } from "./Choice.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<WcState, WcMove>;
 
@@ -571,8 +573,7 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
   // that still accepts one is promising something it cannot deliver.
   const myMove = mine && canAct && left !== 0;
 
-  const nameFor = (index: number): string =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   // A word that has been accepted is not a draft any more. Keyed on the chain
   // length rather than on the word, so a rejected word stays in the box for the
@@ -638,23 +639,19 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
           not <em>sen</em>. You still never have to type them.
         </p>
 
-        <div className="wc-langs" role="group" aria-label="Choose your language">
+        <ChoiceGroup label="Choose your language" columns={3}>
           {LANGS.map((lang) => (
-            <button
-              type="button"
+            <Choice
               key={lang}
-              className={chosen === lang ? "wc-lang surface chosen" : "wc-lang surface"}
+              name={LANG_NAME[lang]}
+              note={LANG_NATIVE[lang]}
+              noteLang={lang}
+              chosen={chosen === lang}
               disabled={!canAct}
-              aria-pressed={chosen === lang}
-              onClick={() => onMove({ type: "lang", lang })}
-            >
-              <span className="wc-lang-name">{LANG_NAME[lang]}</span>
-              <span className="wc-lang-native" lang={lang}>
-                {LANG_NATIVE[lang]}
-              </span>
-            </button>
+              onPick={() => onMove({ type: "lang", lang })}
+            />
           ))}
-        </div>
+        </ChoiceGroup>
 
         <p className="wc-waiting" aria-live="polite">
           {others.map(({ i, lang }) =>

@@ -222,6 +222,20 @@ export function exportAccount(): string | null {
   return keys === null ? null : JSON.stringify(keys, null, 2);
 }
 
+/**
+ * The same key with the whitespace taken out, for the QR.
+ *
+ * Not a formatting preference. A QR's size is decided by how many bytes go
+ * into it in steps, and the indentation `exportAccount` adds for a human
+ * reading a file is about twenty bytes that push this payload over one of
+ * those steps, costing four modules of grid on a code that a phone camera has
+ * to resolve across a room. Same JSON, same `importAccount` on the other end.
+ */
+export function exportCompact(): string | null {
+  const keys = read();
+  return keys === null ? null : JSON.stringify(keys);
+}
+
 /** Forget this browser's account. The key is gone; anything not exported is gone with it. */
 export function forgetAccount(): void {
   localStorage.removeItem(keyFor('account'));

@@ -48,6 +48,8 @@ import type {
 import { useServerNow } from "../clock.js";
 
 import type { BoardProps } from "./boards.js";
+import { Choice, ChoiceGroup } from "./Choice.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<VocabState, VocabMove>;
 
@@ -515,8 +517,7 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const hintLetters = [...hintShape].filter((ch) => ch === "_" || /\p{L}/u.test(ch)).length;
   const hintWords = hintShape === "" ? 0 : hintShape.split("   ").length;
 
-  const nameFor = (index: number): string =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   // A new clue is a new question, so the box is emptied and taken. Keyed on the
   // round count and the phase rather than on the clue text, so a refused word
@@ -573,23 +574,19 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           know.
         </p>
 
-        <div className="vr-choices" role="group" aria-label="Language">
+        <ChoiceGroup label="Language">
           {VOCAB_LANGS.map((lang) => (
-            <button
-              type="button"
+            <Choice
               key={lang}
-              className={state.lang === lang ? "vr-choice surface chosen" : "vr-choice surface"}
+              name={VOCAB_LANG_NAME[lang]}
+              note={LANG_NATIVE[lang]}
+              noteLang={lang}
+              chosen={state.lang === lang}
               disabled={!host}
-              aria-pressed={state.lang === lang}
-              onClick={() => onMove({ type: "settings", lang, mode: state.mode })}
-            >
-              <span className="vr-choice-name">{VOCAB_LANG_NAME[lang]}</span>
-              <span className="vr-choice-note" lang={lang}>
-                {LANG_NATIVE[lang]}
-              </span>
-            </button>
+              onPick={() => onMove({ type: "settings", lang, mode: state.mode })}
+            />
           ))}
-        </div>
+        </ChoiceGroup>
 
         {/*
           English is not on that list, and the setup screen is where anyone who
@@ -603,31 +600,30 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           give you.
         </p>
 
-        <div className="vr-choices" role="group" aria-label="Difficulty">
+        <ChoiceGroup label="Difficulty">
           {VOCAB_MODES.map((mode) => (
-            <button
-              type="button"
+            <Choice
               key={mode}
-              className={state.mode === mode ? "vr-choice surface chosen" : "vr-choice surface"}
+              name={
+                <>
+                  {/*
+                    The depth belongs beside the name where it is one, and
+                    "Phrases - everyday phrases" is the name said twice. The
+                    blurb under it is what tells that mode apart.
+                  */}
+                  {MODE_NAME[mode]}
+                  {!isPhrases(mode) && ` - ${MODE_LABEL[mode]}`}
+                </>
+              }
+              note={MODE_BLURB[mode]}
+              chosen={state.mode === mode}
               disabled={!host}
-              aria-pressed={state.mode === mode}
-              onClick={() =>
+              onPick={() =>
                 state.lang !== null && onMove({ type: "settings", lang: state.lang, mode })
               }
-            >
-              <span className="vr-choice-name">
-                {/*
-                  The depth belongs beside the name where it is one, and "Phrases
-                  - everyday phrases" is the name said twice. The blurb under it
-                  is what tells that mode apart.
-                */}
-                {MODE_NAME[mode]}
-                {!isPhrases(mode) && ` - ${MODE_LABEL[mode]}`}
-              </span>
-              <span className="vr-choice-note">{MODE_BLURB[mode]}</span>
-            </button>
+            />
           ))}
-        </div>
+        </ChoiceGroup>
 
         {/*
           The handicap, and the only thing on this screen each player sets for
@@ -639,18 +635,16 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
           Spectators get the block drawn and dead rather than hidden: somebody
           about to take a seat should be able to see the game has a handicap.
         */}
-        <div className="vr-choices vr-levels" role="group" aria-label="How much you already know">
+        <ChoiceGroup label="How much you already know" narrow>
           {VOCAB_LEVELS.map((level) => (
-            <button
-              type="button"
+            <Choice
               key={level}
-              className={myLevel === level ? "vr-choice surface chosen" : "vr-choice surface"}
+              name={LEVEL_NAME[level]}
+              note={LEVEL_BLURB[level]}
+              chosen={myLevel === level}
               disabled={!mine || !canAct}
-              aria-pressed={myLevel === level}
-              onClick={() => onMove({ type: "level", level })}
+              onPick={() => onMove({ type: "level", level })}
             >
-              <span className="vr-choice-name">{LEVEL_NAME[level]}</span>
-              <span className="vr-choice-note">{LEVEL_BLURB[level]}</span>
               {/*
                 The actual terms, in figures, under the sentence that describes
                 them. The handicap is the one thing in this game a player can
@@ -661,9 +655,9 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
                 {Math.round(LEVEL_WINDOW_MS[level] / 1000)}s -{" "}
                 {LEVEL_SCALE[level] === 1 ? "full points" : `x${LEVEL_SCALE[level]} points`}
               </span>
-            </button>
+            </Choice>
           ))}
-        </div>
+        </ChoiceGroup>
 
         {/*
           What that setting actually does, in one sentence, because a number on

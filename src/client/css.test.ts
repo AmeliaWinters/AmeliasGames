@@ -441,9 +441,15 @@ describe('the hero well', () => {
     the two that can fail rule 1 silently -- at one breakpoint, on one card.
   */
   it('makes every SVG motif crop rather than shrink', () => {
-    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-    const lobby = app.slice(0, app.indexOf('function roomUrl('));
-    const svgs = [...lobby.matchAll(/<svg[^>]*>/g)].map((m) => m[0]);
+    // The whole of `art.tsx`: it is nothing but marks and motifs, so there is
+    // no longer a shell to slice away. The mark is not a motif -- it is a
+    // fixed-aspect glyph sized in `em` beside the wordmark, and cropping it
+    // would crop the logo rather than fill a box -- and it is filtered below.
+    // Every other SVG in the file is drawn into a card and must fill it.
+    const art = readFileSync(new URL('./art.tsx', import.meta.url), 'utf8');
+    const svgs = [...art.matchAll(/<svg[^>]*>/g)]
+      .map((m) => m[0])
+      .filter((svg) => !svg.includes('className="logo"'));
     expect(svgs.length).toBeGreaterThan(0);
     for (const svg of svgs) {
       expect(svg, svg).toContain('preserveAspectRatio="xMidYMid slice"');
@@ -471,16 +477,482 @@ describe('the card motifs', () => {
     const { GAME_MANIFEST } = await import('../shared/games/manifest.js');
     const games = Object.keys(GAME_MANIFEST).sort();
 
-    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+    const art = readFileSync(new URL('./art.tsx', import.meta.url), 'utf8');
     // The switch itself, not the whole file: `case "wordchain"` appears in
     // other switches keyed by the same ids, and a motif is only a motif if it
     // is in this one.
-    const motif = app.slice(app.indexOf('function motif('), app.indexOf('function roomUrl('));
+    const motif = art.slice(art.indexOf('function motif('));
     expect(motif).toContain('switch (gameId)');
     const drawn = [...motif.matchAll(/case "([a-z0-9]+)":/g)].map((m) => m[1]).sort();
     expect(drawn).toEqual(games);
 
     const styled = [...css.matchAll(/\.art-([a-z0-9]+)\b/g)].map((m) => m[1]);
     expect([...new Set(styled)].sort()).toEqual(games);
+  });
+});
+
+/**
+ * The lobby bar's brand, which is the half of it people recognise.
+ *
+ * It shipped as one line of type at 1.4rem beside a name chip capped at 46vw,
+ * and at 375px it read "REBE...". Stacked over two lines it fits at 320 with a
+ * twenty-character name beside it, but only because three things hold: the
+ * heading can shrink, it clips what is left, and the chip gives way first.
+ *
+ * Measured in the browser once and pinned here, because the failure is one
+ * viewport wide and nobody re-measures a bar they did not touch.
+ */
+describe('the lobby bar', () => {
+  // Every block for a selector, joined: `.whoami` is written twice, once for
+  // the chip shape it shares and once for what is its own.
+  const rule = (selector: string) => {
+    const head = selector + ' {';
+    const blocks: string[] = [];
+    for (let at = css.indexOf(head); at !== -1; at = css.indexOf(head, at + 1)) {
+      blocks.push(css.slice(at, css.indexOf('}', at)));
+    }
+    expect(blocks.length, selector).toBeGreaterThan(0);
+    return blocks.join(' ');
+  };
+
+  it('lets the brand shrink and clips what is left', () => {
+    const heading = rule('.lobby-bar .wordmark');
+    expect(heading).toContain('min-width: 0');
+    expect(heading).toContain('overflow: hidden');
+  });
+
+  it('caps the name chip below the width the brand needs', () => {
+    // 40vw leaves the lockup its full width at 320px. Anything larger and a
+    // long name eats "Rebellia" one character at a time.
+    expect(rule('.whoami')).toContain('max-width: 40vw');
+  });
+
+  /*
+    The second word is set in the channel colour, which clears 3:1 against the
+    ground but not 4.5:1. Bold at 20px it is large text, where 3:1 is the bar
+    it has to clear; below 18.66px it is not, and the same colour quietly
+    fails.
+  */
+  it('keeps the accented word at large-text size', () => {
+    const mark = rule('.brandmark');
+    const size = mark.match(/font-size: ([\d.]+)rem/);
+    expect(size, mark).not.toBeNull();
+    expect(Number(size![1]) * 16).toBeGreaterThanOrEqual(18.66);
+    expect(mark).toContain('font-weight: 700');
+  });
+});
+
+/**
+ * The one "pick one of these" control, and the two things about it that a
+ * single declaration can quietly reverse.
+ *
+ * It was collected out of Word Chain's language row and Vocab Race's three
+ * rows, which had drifted into three looks; the collecting is only worth
+ * anything if the collected version cannot drift back. Both rules below are
+ * ones the originals had already got wrong in one copy or the other, so
+ * neither is hypothetical.
+ */
+describe('the choice control', () => {
+  const choice = css.slice(css.indexOf('.choice-group {'), css.indexOf('.choice-name {'));
+
+  /*
+    `--muted` is chosen against `--surface`. The chosen tile is not on
+    `--surface` -- it takes a fill to mark itself -- so a note left on `--muted`
+    lands at 4.3 in the dark palette and 4.1 in daylight, under AA, on the
+    smallest type in the control. Measured in the browser, on both palettes,
+    which is the only way this one shows up: nothing about the two declarations
+    looks wrong beside each other.
+  */
+  it('lifts the note off --muted wherever the chosen tile fills', () => {
+    const fills = /\.choice\.chosen\s*\{[^}]*background:/.test(css);
+    expect(fills).toBe(true);
+    const lifted = css.slice(css.indexOf('.choice.chosen .choice-note'));
+    expect(lifted).toMatch(/^\.choice\.chosen \.choice-note \{[^}]*color: var\(--ink\)/);
+  });
+
+  /*
+    `.even` keeps a fixed number of tracks at every width, so at 320 a track is
+    under 100px. A grid item's `min-width` defaults to `auto`, which is "as wide
+    as my content", and a row of three that will not shrink overflows the phone
+    rather than wrapping its words.
+  */
+  it('lets a fixed-column tile shrink under its own content', () => {
+    expect(choice).toMatch(/\.choice-group\.even \.choice \{[^}]*min-width: 0/s);
+  });
+
+  /* The thumb target both originals agreed on, and the only reason collecting
+     them was safe. */
+  it('keeps every tile a thumb target', () => {
+    expect(choice).toMatch(/\.choice \{[^}]*min-height: 44px/s);
+  });
+});
+
+
+/**
+ * The phone widths, and the arithmetic that goes with them.
+ *
+ * `CLAUDE.md` opens with this: nearly every visual bug reported here has been a
+ * phone bug, several of them invert on a desktop viewport, and checking the
+ * wide case first has already produced a confident wrong answer more than once.
+ * The remedy written there is "reproduce at 320, 375 and 390 before forming a
+ * theory", and the remedy has so far been a person, a browser and an afternoon.
+ *
+ * This is that check, done by arithmetic instead. It cannot see, and for this
+ * one bug it does not need to: what goes wrong is a *number* crossing 44, and
+ * the number is derivable from the declarations. See `trackAt` for the model
+ * and the block at the bottom for what is asserted about it.
+ */
+const PHONES = [320, 375, 390] as const;
+
+/** One rule, with the media query it was found inside. */
+interface Rule {
+  selectors: string[];
+  body: string;
+  /** The `@media` condition it sits in, or '' for the top level. */
+  media: string;
+}
+
+/**
+ * Every rule in the stylesheet, in source order, each carrying its media
+ * condition. A brace walk rather than a regex, because the whole point of this
+ * pass is which `@media` blocks apply and a regex cannot see that it is inside
+ * one.
+ */
+const RULES: Rule[] = (() => {
+  /*
+    Comments out first, and this is not tidiness. Half the commentary in this
+    stylesheet contains a brace -- a selector being quoted, a snippet being
+    contrasted -- and a brace walk that counts those loses its place and comes
+    back with rules filed under the wrong media query, or with no rules at all.
+    The first cut of this parser reported `.app` as having no padding, which
+    made every width below it 32px too generous and quietly wrong.
+  */
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const out: Rule[] = [];
+  const stack: string[] = [];
+  let i = 0;
+  let head = '';
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '{') {
+      const at = head.trim();
+      if (at.startsWith('@')) {
+        stack.push(at.startsWith('@media') ? at.slice('@media'.length).trim() : '');
+        head = '';
+        i += 1;
+        continue;
+      }
+      const end = source.indexOf('}', i);
+      const close = end === -1 ? source.length : end;
+      out.push({
+        selectors: at.split(',').map((sel) => sel.trim()),
+        body: source.slice(i + 1, close),
+        media: stack.filter(Boolean).join(' and '),
+      });
+      head = '';
+      i = close + 1;
+      continue;
+    }
+    if (ch === '}') {
+      stack.pop();
+      head = '';
+      i += 1;
+      continue;
+    }
+    head += ch;
+    i += 1;
+  }
+  return out;
+})();
+
+/**
+ * Whether a media condition holds at this viewport width.
+ *
+ * Only the width features are evaluated, because the width is the only thing
+ * being varied. A condition mentioning anything else -- `prefers-reduced-motion`,
+ * `hover` -- is treated as not applying, which is the right default here: those
+ * blocks say what happens for somebody who asked for something, and the sizes
+ * below are what everybody else gets.
+ */
+function mediaHolds(condition: string, width: number): boolean {
+  if (condition === '') return true;
+  if (/\((?!(min|max)-width)/.test(condition)) return false;
+  const features = [...condition.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)];
+  if (features.length === 0) return false;
+  return features.every(([, kind, size]) =>
+    kind === 'min' ? width >= Number(size) : width <= Number(size),
+  );
+}
+
+/**
+ * The declarations in force on an element with this class, at this width,
+ * last-wins in source order.
+ *
+ * Specificity is deliberately not modelled, and the shortcut is named rather
+ * than hidden: everything asked about below is a single-class rule or the bare
+ * `button` element rule, and a cascade solver would be a second implementation
+ * of a browser, free to be wrong in a new way. Where specificity has actually
+ * decided something here it was worth its own test -- see the disabled-button
+ * rule at the top of this file.
+ */
+function declsAt(target: string, width: number): Map<string, string> {
+  const decls = new Map<string, string>();
+  for (const rule of RULES) {
+    if (!mediaHolds(rule.media, width)) continue;
+    if (!rule.selectors.includes(target)) continue;
+    for (const [, name, value] of rule.body.matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)) {
+      decls.set(name, value.trim());
+    }
+  }
+  return decls;
+}
+
+/** `--bs-gap` and its neighbours, as they resolve at this width. */
+function varsAt(width: number): Map<string, string> {
+  const vars = new Map<string, string>();
+  for (const rule of RULES) {
+    if (!mediaHolds(rule.media, width)) continue;
+    if (!rule.selectors.some((sel) => sel.startsWith(':root'))) continue;
+    for (const [, name, value] of rule.body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+      vars.set(name, value.trim());
+    }
+  }
+  return vars;
+}
+
+/** A length in px, following one `var()` and honouring its fallback. */
+function px(value: string | undefined, vars: Map<string, string>): number {
+  if (value === undefined) return 0;
+  const ref = value.match(/var\((--[a-z0-9-]+)(?:\s*,\s*([^)]+))?\)/);
+  const text = ref ? vars.get(ref[1]) ?? ref[2] ?? '' : value;
+  return Number(text.match(/(-?[\d.]+)px/)?.[1] ?? 0);
+}
+
+/** `padding: 18px 16px ...` -- the inline half, doubled. */
+function paddingInline(decls: Map<string, string>, vars: Map<string, string>): number {
+  const shorthand = decls.get('padding');
+  if (shorthand !== undefined) {
+    // Split on spaces outside brackets, so `calc(28px + env(...))` stays whole.
+    const parts = shorthand.trim().split(/\s+(?![^(]*\))/);
+    const inline = parts.length === 1 ? parts[0] : parts[1];
+    return px(inline, vars) * 2;
+  }
+  return px(decls.get('padding-inline'), vars) * 2;
+}
+
+/** Columns and gap, for a `repeat(N, 1fr)` track list. */
+function tracksOf(decls: Map<string, string>, vars: Map<string, string>) {
+  const value = decls.get('grid-template-columns');
+  if (value === undefined) return null;
+  // `repeat(var(--wh-size, 4), 1fr)` -- the count is set from JS on the element,
+  // and the fallback in the stylesheet is the size the game actually plays at.
+  // Taking the fallback is taking the stylesheet at its word, which is the only
+  // source this test has.
+  const repeat = value.match(/repeat\(\s*(?:var\(--[a-z0-9-]+,\s*)?(\d+)/);
+  if (!repeat) return null;
+  // A fixed track before the repeat -- Battleships' rank gutter -- is width
+  // this grid's cells never see.
+  const fixed = value
+    .slice(0, value.indexOf('repeat('))
+    .split(/\s+/)
+    .reduce((sum, part) => sum + px(part, vars), 0);
+  return { count: Number(repeat[1]), gap: px(decls.get('gap'), vars), fixed };
+}
+
+/**
+ * How wide one cell of a board's grid comes out at a given viewport width.
+ *
+ * The chain is `.app` and then whatever wraps the grid: each step gives up its
+ * inline padding, and each grid divides what is left between its tracks. It is
+ * a model, and it is held to a number somebody arrived at in a real browser --
+ * see the cross-check below, where `ultimate.css` records 31px at 320 and this
+ * lands in the same place.
+ */
+function trackAt(chain: readonly string[], width: number): number {
+  const vars = varsAt(width);
+  const app = declsAt('.app', width);
+  let box = Math.min(width, px(app.get('max-width'), vars) || width) - paddingInline(app, vars);
+  for (const step of chain) {
+    const decls = declsAt(step, width);
+    box -= paddingInline(decls, vars);
+    const tracks = tracksOf(decls, vars);
+    if (tracks) box = (box - tracks.fixed - tracks.gap * (tracks.count - 1)) / tracks.count;
+  }
+  return box;
+}
+
+/**
+ * Every class a board puts on a `<button>`.
+ *
+ * This is the half of the question the stylesheet cannot answer, and getting it
+ * wrong would make the test below either useless or a nuisance. `button`
+ * carries the app's 44px touch floor and a `<span>` does not, so whether the
+ * floor is in play for a tile depends on a file in `games/` and on no
+ * declaration anywhere. Letterpress' tile and Word Duel's are spans with a
+ * deliberate `aspect-ratio` and no minimum reset, and both are right;
+ * Word Hunt's cell is nearly the same three declarations on a button, and is
+ * not the same thing at all.
+ */
+const BUTTON_CLASSES: ReadonlySet<string> = new Set(
+  boardSources().flatMap(({ source }) =>
+    buttonTags(source).flatMap((tag) => classesIn(tag, source)),
+  ),
+);
+
+/**
+ * The grids a board draws its playing surface with, and the boxes each one sits
+ * in. Written out rather than discovered, because the nesting lives in the TSX
+ * and the point of the list is to say plainly what is being modelled.
+ */
+const GRIDS: ReadonlyArray<{ what: string; chain: string[]; cell: string }> = [
+  { what: 'Connect Four', chain: ['.board'], cell: '.column' },
+  { what: 'Battleships', chain: ['.bs-gridwrap', '.bs-grid'], cell: '.bs-cell' },
+  { what: 'Ultimate', chain: ['.ut-board', '.ut-small'], cell: '.ut-cell' },
+  { what: 'Word Hunt', chain: ['.wh-grid'], cell: '.wh-cell' },
+  { what: 'Letterpress', chain: ['.lp-grid'], cell: '.lp-tile' },
+  { what: "the Wheel's keyboard", chain: ['.wof-keys'], cell: '.wof-key' },
+];
+
+/**
+ * Controls allowed under the 44px floor, and what was bought with the
+ * shortfall.
+ *
+ * The floor is not a guess -- it is the size named on `button` and on the toast
+ * close, and it is the number every other control here clears -- so a control
+ * under it should be a decision somebody made rather than a number somebody
+ * typed. Both halves are tested: a control that falls short without appearing
+ * here fails, and an entry here whose control has since grown fails too.
+ */
+const SHORT_ON_PURPOSE: Record<string, string> = {
+  // 40px. `yahtzee.css` has the reasoning: the cell is full-column-width, which
+  // does most of the work of making it hittable, and the column narrows with
+  // every player who sits down. Thirteen boxes on a sheet that already scrolls
+  // grow it by about a hundred pixels for the last four.
+  'yz-pick': 'the sheet would grow ~100px on a screen that already scrolls',
+};
+
+describe('a board at a phone width', () => {
+  it('measures the same board the stylesheet says it measured', () => {
+    /*
+      The model, checked against the one number in this repo that was arrived at
+      by a person looking at a real browser. `ultimate.css` records eighty-one
+      squares across a 320px phone coming out at 31px each, and says in the same
+      breath that the touch floor is genuinely unreachable there and that the
+      alternative to a small square is a board that scrolls. If the arithmetic
+      here ever stops landing on that number it is the arithmetic that is wrong,
+      and every assertion below it is worth nothing.
+    */
+    const cell = trackAt(['.ut-board', '.ut-small'], 320);
+    expect(cell, `ultimate.css says 31px at 320; this model says ${cell.toFixed(1)}`)
+      .toBeGreaterThan(30);
+    expect(cell).toBeLessThan(32);
+  });
+
+  it('never lets the touch floor decide the size of a cell', () => {
+    /*
+      The trap this project has sprung twice, and the first test to hold it
+      shut.
+
+      `button` carries `min-height: 44px`, and a minimum beats a size set on the
+      element. Against `aspect-ratio` on a track narrower than 44px the floor
+      wins and takes the width with it. Battleships came out as ten 44px squares
+      in 39px columns, overlapping into one solid bar with the gaps buried;
+      Ultimate came out as nine 44px squares in 31px columns and buried both
+      hashes. Both were found by eye, on a phone, after shipping, and both were
+      fixed by resetting the two minimums and making the width definite. Nothing
+      has been holding those three declarations in place since.
+
+      Only where the arithmetic says it matters. A cell with room to be 44px
+      does not need the reset, and demanding it everywhere would be a rule with
+      no visible reason, which is the kind that gets deleted.
+    */
+    const wrong: string[] = [];
+    for (const { what, chain, cell } of GRIDS) {
+      if (!BUTTON_CLASSES.has(cell.slice(1))) continue;
+      for (const width of PHONES) {
+        const track = trackAt(chain, width);
+        if (track >= 44) continue;
+        const vars = varsAt(width);
+        const decls = declsAt(cell, width);
+        if (decls.get('aspect-ratio') === undefined) continue;
+        const at = `${what} (${cell}) at ${width}px, where the track is ${track.toFixed(1)}px`;
+        if (px(decls.get('min-height'), vars) !== 0) {
+          wrong.push(`${at}: min-height is ${decls.get('min-height') ?? "the button floor's 44px"}`);
+        }
+        if (px(decls.get('min-width'), vars) !== 0) {
+          wrong.push(`${at}: min-width is ${decls.get('min-width') ?? 'unset'}`);
+        }
+        if (decls.get('width') !== '100%') {
+          // Without a definite width the ratio has nothing to derive the height
+          // from, and which way round an engine resolves that stops being
+          // something this stylesheet decides.
+          wrong.push(`${at}: its width is not 100%`);
+        }
+      }
+    }
+    expect(
+      wrong,
+      'a button narrower than the 44px touch floor, carrying an `aspect-ratio` ' +
+        'the floor will beat. Reset `min-width` and `min-height` to 0 and give ' +
+        `it \`width: 100%\`, as .bs-cell and .ut-cell do.\n  ${wrong.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps a control a finger can land on, at every phone width', () => {
+    /*
+      The other direction, and the one a media query breaks rather than the
+      cascade. A control is a word in a box beside the board -- Spin, Fire,
+      Submit -- and there is always room for one of those to be 44px tall, so a
+      phone width that shrinks one is a mistake and never a compromise. Cells
+      are deliberately not in this list: eighty-one of them do not fit, which is
+      what the test above is about.
+    */
+    const short: string[] = [];
+    for (const control of CONTROLS) {
+      if (control in SHORT_ON_PURPOSE) continue;
+      for (const width of PHONES) {
+        const decls = declsAt(`.${control}`, width);
+        const floor = decls.has('min-height')
+          ? px(decls.get('min-height'), varsAt(width))
+          : px(declsAt('button', width).get('min-height'), varsAt(width));
+        if (floor < 44) short.push(`.${control} at ${width}px is ${floor}px`);
+      }
+    }
+    expect(
+      short,
+      "a control shorter than the app's 44px touch floor. If the shortfall is " +
+        'the price of something -- a sheet that would otherwise grow a hundred ' +
+        'pixels -- say so in SHORT_ON_PURPOSE. Otherwise it is a control a ' +
+        `thumb misses: ${short.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('has no excuse left over for a control that grew back to full size', () => {
+    // The other half of the bargain above. An exception outlives the layout it
+    // was granted for, and a list of reasons nobody rechecks is how the floor
+    // quietly becomes advisory.
+    const stale: string[] = [];
+    for (const control of Object.keys(SHORT_ON_PURPOSE)) {
+      const floors = PHONES.map((width) => {
+        const decls = declsAt(`.${control}`, width);
+        return decls.has('min-height')
+          ? px(decls.get('min-height'), varsAt(width))
+          : px(declsAt('button', width).get('min-height'), varsAt(width));
+      });
+      if (floors.every((floor) => floor >= 44)) stale.push(`.${control}`);
+    }
+    expect(
+      stale,
+      `${stale.join(', ')} clears 44px at every phone width now. Drop it from ` +
+        'SHORT_ON_PURPOSE, so the next one that falls short is noticed.',
+    ).toEqual([]);
+  });
+
+  it('gives the app a wider content box on a wider phone', () => {
+    // Guards the model rather than the stylesheet. Three widths that all came
+    // back the same number would mean the width was reaching nothing, and every
+    // assertion above would be one assertion run three times over.
+    const boxes = PHONES.map((width) => trackAt([], width));
+    expect(new Set(boxes).size, `all three widths measured ${boxes[0]}px`).toBe(3);
   });
 });

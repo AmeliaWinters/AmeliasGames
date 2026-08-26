@@ -1,11 +1,12 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import type { Learned, SeatOutcome } from '../harvest.js';
+import type { StudyLists } from '../profile.js';
 import type { Grade } from '../review.js';
 import { wasFast } from '../review.js';
 import { GAME_MANIFEST } from './manifest.js';
 import { named } from '../refusal.js';
 import { chainLookup, fold } from './chainDictionary.js';
-import { vocabOptions, vocabQuestion } from './vocabDictionary.js';
+import { vocabOptions, vocabQuestion, vocabRanksFor } from './vocabDictionary.js';
 import type { VocabQuestion } from './vocabDictionary.js';
 import { phraseKeys } from './vocabPhrases.js';
 import {
@@ -242,6 +243,30 @@ export type {
 
 const seatCount = (state: VocabState): number => state.scores.length;
 
+/**
+ * Everybody's due words, merged into one list per language.
+ *
+ * A union rather than a per-seat list, and that is the whole shape of how this
+ * game differs from Word Chain: a chain asks one player for one word, so a
+ * reveal can be theirs alone, while a race asks the whole table the same
+ * question and a clue chosen for one seat would be a clue nobody else was
+ * racing on.
+ *
+ * Deduplicated, because two people learning Polish will be due many of the same
+ * words and a rank appearing twice would do nothing but make the list longer.
+ */
+function union(study: readonly StudyLists[] | undefined): StudyLists {
+  const out: StudyLists = {};
+  for (const seat of study ?? []) {
+    for (const lang of VOCAB_LANGS) {
+      const keys = seat?.[lang];
+      if (!keys || keys.length === 0) continue;
+      out[lang] = [...new Set([...(out[lang] ?? []), ...keys])];
+    }
+  }
+  return out;
+}
+
 /** A shuffled run of the ranks a game may ask about. See point 6 above. */
 function deal(rng: Rng): number[] {
   const deck = Array.from({ length: DECK_DEPTH }, (_, i) => i + 1);
@@ -460,8 +485,41 @@ function attemptOf(
 }
 
 /** Deal the first clue, with the settings the host chose. */
+/**
+ * Put the words this table owes a review to the front of the deck.
+ *
+ * The loop closing: the ledger decides what the game asks next, so a round of
+ * Vocab Race stops being a random walk through a frequency list and becomes
+ * the review somebody was due. Everything after this is unchanged — the same
+ * draw, the same clue, the same scoring.
+ *
+ * **Here rather than in `setup`, because the deck is dealt before the language
+ * is known.** Point 6 shuffles ranks 1..1000 at setup so that every later draw
+ * needs no randomness; but rank 42 is a different word in Polish and in
+ * Japanese, so a deck front-loaded for one is meaningless for the other. The
+ * host choosing settles it, and this runs once, there.
+ *
+ * **A stable partition, not a sort, and it uses no rng at all.** The deck is
+ * already shuffled; this only moves a subset forward, keeping the shuffled
+ * order inside each half. So the game stays exactly as decidable-without-
+ * randomness as it was, and two people who are due nothing get the deck they
+ * would have got anyway.
+ *
+ * **The union across seats, never per seat.** This is a race: the clue has to
+ * be identical for everybody or it is not one. A room of a learner and a
+ * native speaker therefore draws the learner's due words, which is the right
+ * answer anyway, since those are the words that room exists to practise.
+ */
+function studied(state: VocabState, lang: VocabLang): number[] {
+  const keys = state.study[lang] ?? [];
+  if (keys.length === 0) return state.deck;
+  const due = vocabRanksFor(lang, keys);
+  if (due.size === 0) return state.deck;
+  return [...state.deck.filter((rank) => due.has(rank)), ...state.deck.filter((rank) => !due.has(rank))];
+}
+
 function beginPlay(state: VocabState, lang: VocabLang, mode: VocabMode, now: number): VocabState {
-  return advance({ ...state, lang, mode }, now);
+  return advance({ ...state, lang, mode, deck: studied(state, lang) }, now);
 }
 
 function isLang(value: unknown): value is VocabLang {
@@ -479,7 +537,7 @@ function isLevel(value: unknown): value is VocabLevel {
 export const vocab: GameDefinition<VocabState, VocabMove> = {
   ...GAME_MANIFEST.vocab,
 
-  setup(playerCount, rng): VocabState {
+  setup(playerCount, rng, _now, study): VocabState {
     return {
       phase: 'setup',
       // Null rather than a default, so the board can tell "has not chosen" from
@@ -498,6 +556,10 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       history: [],
       // Dealt here because here is where the rng is. See point 6 above.
       deck: deal(rng),
+      // Everybody's due words in one list per language, because the clue is
+      // shared and a race with two different questions is not a race. See
+      // `studied`, which is what reads it, once, when the host chooses.
+      study: union(study),
       drawn: 0,
       // Null until the room says every seat is filled. See `start`.
       deadline: null,
@@ -875,13 +937,19 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
    */
   view(state, seat) {
     if (state.phase !== 'asking' || state.round === null) {
-      return { ...state, deck: [] };
+      return { ...state, deck: [], study: {} };
     }
     const round = state.round;
     const pick = round.ask === 'pick';
     return {
       ...state,
       deck: [],
+      // Redacted with the deck, and for a related reason. The deck is the rest
+      // of the game in order; this is what put it in that order, so a client
+      // holding it alongside a downloadable word list could work out much of
+      // what is coming. It is also several people's vocabulary, and the board
+      // has never needed it.
+      study: {},
       round: {
         ...round,
         clue: pick ? '' : round.clue,

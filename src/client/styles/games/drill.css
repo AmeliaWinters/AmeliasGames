@@ -1,0 +1,274 @@
+/* Drill
+   One card at a time, alone.
+
+   The quietest board in the app. There is nobody across the table, so there is
+   no seat strip, nothing reacting and nothing to wait for -- and anything that
+   would read as atmosphere in another game reads as noise here. The clue is the
+   largest thing on the screen because it is the question; everything else is
+   sized to stay out of its way.
+
+   It borrows Vocab Race's shapes deliberately, being the practice for the same
+   game: a framed answer on `--surface` with an accent border, the clue small
+   and grey above it. Somebody who has played one should recognise the other. */
+
+.drill {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 32rem;
+  margin: 0 auto;
+  inline-size: 100%;
+}
+
+/* The counter, the review flag and the clock, on one line above the clue. */
+.drill-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--display);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.drill-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Says this card is one you already owed, which is the difference between a
+   review and a new word and the only thing on this screen worth a colour. */
+.drill-due {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.drill-clock {
+  margin-inline-start: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Under five seconds. The one moment this board raises its voice, and it
+   raises it in the token that already means "running out" everywhere else. */
+.drill-clock-low {
+  color: var(--pending);
+}
+
+/* The clue: the question, so the largest thing here.
+   `balance` because a two-clause gloss ("all, entire, whole") breaking one
+   word onto a second line looks like two questions. */
+.drill-clue {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.75rem;
+  line-height: 1.15;
+  font-weight: 600;
+  text-wrap: balance;
+  text-align: center;
+}
+
+.drill-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drill-ask input {
+  inline-size: 100%;
+  font-family: var(--display);
+  font-size: 1.4rem;
+  text-align: center;
+  padding: 12px;
+  min-height: 52px;
+  color: var(--ink);
+  background: var(--board);
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+}
+
+.drill-ask input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.drill-acts {
+  display: flex;
+  gap: 8px;
+}
+
+.drill-acts .primary {
+  flex: 1 1 auto;
+}
+
+/* "I don't know it" is not a forfeit and is not drawn as one: it is how the
+   session keeps moving, and the ledger scores it one rung above a wrong
+   guess. So it is a plain secondary control, the same size as the answer
+   button, not a small apologetic link under it. */
+.drill-acts button:not(.primary) {
+  flex: 0 1 auto;
+  color: var(--muted);
+}
+
+/* The reveal. The whole point of the exercise, framed the way Vocab Race
+   frames its answer. */
+.drill-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 14px;
+  background: var(--surface);
+  border: 2px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+}
+
+/* Right and wrong are told apart by the frame rather than by the word, so the
+   answer is readable at a glance from across a room. `--live` and `--alert`
+   are the tokens that already mean this everywhere else. */
+.drill-answer.drill-right {
+  border-color: var(--live);
+}
+
+.drill-answer.drill-wrong,
+.drill-answer.drill-timeout {
+  border-color: var(--alert);
+}
+
+.drill-verdict {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.drill-word {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Japanese in its own script beside the romaji, so the romaji is never the
+   only thing a learner sees. Empty for Polish, and the gap goes with it. */
+.drill-script {
+  font-family: var(--body);
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* The dictionary form. It is the row the ledger files this under, so it is the
+   form worth learning, and it is shown small rather than instead of the word
+   that was actually asked about. */
+.drill-lemma {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The end of a session. A list, because the value of it is re-reading the ones
+   that went wrong. */
+.drill-over h2 {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  margin: 0;
+  text-align: center;
+}
+
+.drill-reviewed {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.drill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.drill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  padding: 10px 0 10px 12px;
+  border-top: 1px solid var(--rule);
+  /* The verdict as an edge rather than as a word, repeated down the list: the
+     eye reads the column of colours before it reads any of the words, which is
+     how you find the ones you got wrong. */
+  border-left: 3px solid var(--rule-hi);
+}
+
+.drill-row.drill-right {
+  border-left-color: var(--live);
+}
+
+.drill-row.drill-wrong,
+.drill-row.drill-timeout {
+  border-left-color: var(--alert);
+}
+
+.drill-row.drill-gave-up {
+  border-left-color: var(--pending);
+}
+
+.drill-w {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.drill-w .drill-script {
+  font-size: 0.95rem;
+}
+
+.drill-g,
+.drill-said {
+  font-size: 0.85rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* What they typed, beside what it should have been. Seeing your own near-miss
+   is most of what makes a wrong card worth having. */
+.drill-said {
+  font-style: italic;
+}
+
+/* Setup: two buttons and a line about what is coming. */
+.drill-setup {
+  align-items: center;
+  text-align: center;
+}
+
+.drill-setup h2 {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.drill-langs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}

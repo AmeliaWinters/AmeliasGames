@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   APPLIED_MEMORY,
+  FORM,
   LEARN_LANGS,
   PROFILE_VERSION,
   bumpStreak,
@@ -11,8 +12,10 @@ import {
   migrate,
   newProfile,
   restsFor,
+  decided,
   tallyFor,
   wordCount,
+  type GameTally,
   type Known,
   type Profile,
   type Streak,
@@ -92,6 +95,58 @@ describe('migration', () => {
    */
   it('holds its language list against the game it came from', () => {
     expect([...LEARN_LANGS].sort()).toEqual([...LANGS].sort());
+  });
+});
+
+describe('the games panel', () => {
+  const tally = (over: Partial<GameTally> = {}): GameTally => ({
+    gameId: 'wordchain',
+    played: 4,
+    won: 2,
+    lost: 1,
+    drew: 1,
+    last: ['won', 'lost', 'drew', 'won'],
+    lastAt: NOW,
+    ...over,
+  });
+
+  /**
+   * The rate the panel shows is over decided games, not over played ones. A
+   * game that never names a winner still counts as played, so `played` as a
+   * denominator would make somebody's Connect Four record fall as they won.
+   */
+  it('counts decided games rather than played ones', () => {
+    expect(decided(tally())).toBe(4);
+    expect(decided(tally({ played: 100, won: 0, lost: 0, drew: 0, last: [] }))).toBe(0);
+  });
+
+  /**
+   * A version 1 tally has neither field, and neither is recoverable. Filling
+   * `lost` from `played - won - drew` was the tempting version and it is a lie
+   * about every game that does not name a winner.
+   */
+  it('carries an old tally forward without inventing losses', () => {
+    const old = { version: 1, id: 'a', name: 'b', games: [{ gameId: 'connect4', played: 30, won: 0, drew: 0, lastAt: NOW }] };
+    expect(migrate(old, NOW).games[0]).toEqual({
+      gameId: 'connect4',
+      played: 30,
+      won: 0,
+      lost: 0,
+      drew: 0,
+      last: [],
+      lastAt: NOW,
+    });
+  });
+
+  it('drops junk out of a stored form guide and keeps it capped', () => {
+    const stored = {
+      version: PROFILE_VERSION,
+      games: [{ gameId: 'wordchain', played: 3, won: 1, lost: 1, drew: 1, last: ['won', 'nonsense', null, 'lost'], lastAt: NOW }],
+    };
+    expect(migrate(stored, NOW).games[0].last).toEqual(['won', 'lost']);
+
+    const long = { version: PROFILE_VERSION, games: [tally({ last: Array(40).fill('won') })] };
+    expect(migrate(long, NOW).games[0].last).toHaveLength(FORM);
   });
 });
 
@@ -221,7 +276,9 @@ describe('reading a profile', () => {
       gameId: 'yahtzee',
       played: 0,
       won: 0,
+      lost: 0,
       drew: 0,
+      last: [],
       lastAt: 0,
     });
   });

@@ -587,3 +587,44 @@ describe('harvesting', () => {
     expect(guest.of('profile')).toEqual([]);
   });
 });
+
+/**
+ * The lobby's lookup, which is the one thing that reaches a room without a
+ * socket. It is a branch of `fetch()` that returns before any WebSocketPair,
+ * so the fakes are enough to run it.
+ */
+describe('the room lookup', () => {
+  const ask = (room: GameRoom) => room.fetch(new Request('https://rooms/peek?code=TEST'));
+
+  it('says a code nobody has used does not exist', async () => {
+    const ctx = newRoom();
+    const answer = await (await ask(ctx.room)).json();
+    expect(answer).toEqual({ code: 'TEST', exists: false });
+  });
+
+  /*
+    The whole point of answering from storage. A lookup that opened a room
+    would leave one behind for every mistyped code, and the next person to type
+    that code correctly would be told their game is waiting for them.
+  */
+  it('does not open a room to answer', async () => {
+    const ctx = newRoom();
+    await ask(ctx.room);
+    expect(ctx.state.store.get('room')).toBeUndefined();
+  });
+
+  it('names the game and counts who is already sitting down', async () => {
+    const { ctx } = await seatTwo();
+    const answer = (await (await ask(ctx.room)).json()) as Record<string, unknown>;
+    expect(answer.exists).toBe(true);
+    expect(answer.gameName).toBe('Connect Four');
+    expect(answer.players).toBe(2);
+    expect(answer.full).toBe(true);
+  });
+
+  it('refuses anything that is not a room code', async () => {
+    const ctx = newRoom();
+    const res = await ctx.room.fetch(new Request('https://rooms/peek?code=nope'));
+    expect(res.status).toBe(400);
+  });
+});

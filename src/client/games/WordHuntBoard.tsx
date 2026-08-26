@@ -20,6 +20,7 @@ import type { WhMove, WhState } from "../../shared/games/wordHuntDisplay.js";
 import { useServerNow } from "../clock.js";
 
 import type { BoardProps } from "./boards.js";
+import { namer } from "./names.js";
 
 type Props = BoardProps<WhState, WhMove>;
 
@@ -148,8 +149,7 @@ export function WordHuntBoard({ state, seat, names, canAct, now, onMove }: Props
     }
   }, [myMove]);
 
-  const nameFor = (index: number) =>
-    index === seat ? "You" : names[index] || `Player ${index + 1}`;
+  const nameFor = namer(names, seat);
 
   function extend(cell: number) {
     if (!myMove) return;

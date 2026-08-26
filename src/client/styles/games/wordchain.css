@@ -372,35 +372,6 @@
   font-size: 0.84rem;
 }
 
-.wc-langs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.wc-lang {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  /* A thumb target, matching every other action in the app. */
-  min-height: 44px;
-  padding: 10px 6px;
-  background: var(--surface);
-  color: var(--ink);
-}
-.wc-lang.chosen {
-  background: var(--action);
-  color: var(--action-text);
-  border-color: var(--action);
-}
-.wc-lang-name {
-  font-size: 0.9rem;
-}
-.wc-lang-native {
-  font-size: 0.78rem;
-  opacity: 0.72;
-}
-
 .wc-entry {
   display: flex;
   flex-direction: column;

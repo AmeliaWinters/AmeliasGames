@@ -10,6 +10,7 @@ import {
   type ServerMessage,
 } from '../shared/protocol.js';
 import type { ProfileView } from '../shared/profile.js';
+import type { RoomPeek } from '../shared/session.js';
 import { claimFor } from './account.js';
 
 /**
@@ -96,6 +97,31 @@ export function serverOrigin(): string {
 /** The link to hand a friend: always the server, never the WebView. */
 export function inviteUrl(code: string): string {
   return `${serverOrigin()}/#${code}`;
+}
+
+/**
+ * What is behind a code, asked before anybody commits to it.
+ *
+ * The lobby has no socket -- that is the whole shape of this screen -- so the
+ * one question it needs answered before the join is a plain GET. Both adapters
+ * serve it from the same `peek`, and neither of them opens a room to answer:
+ * see the route in `src/worker/index.ts`.
+ *
+ * Every failure is "we could not tell", never "no such room". A lookup that
+ * fell over offline must not talk somebody out of a code that is perfectly
+ * good; the socket is still the thing that decides, and it will say so.
+ */
+export async function lookupRoom(code: string, signal?: AbortSignal): Promise<RoomPeek | null> {
+  try {
+    const res = await fetch(`${serverOrigin()}/peek?code=${encodeURIComponent(code)}`, {
+      signal,
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as RoomPeek;
+  } catch {
+    return null;
+  }
 }
 
 function socketUrl(code: string): string {

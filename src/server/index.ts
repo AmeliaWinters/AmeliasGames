@@ -1,10 +1,19 @@
 import { randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomEngine, isRoomCode } from '../shared/room.js';
 // The protocol above the engine: reading a frame, validating a hello, which
 // room a hello gets, running an action without throwing. Shared with the
 // worker, because two copies of those rules can drift.
-import { admit, applyAction, isAction, readFrame, readHello, type Hello } from '../shared/session.js';
+import {
+  admit,
+  applyAction,
+  isAction,
+  peek,
+  readFrame,
+  readHello,
+  type Hello,
+} from '../shared/session.js';
 import { verifyClaim } from '../shared/account.js';
 import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
 import { harvestKey } from '../shared/harvest.js';
@@ -324,8 +333,46 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
   });
 }
 
+/**
+ * The one HTTP request this process answers: the lobby's room lookup.
+ *
+ * In production the same question is a route on the worker, which forwards it
+ * to the Durable Object the code names. Here it is a `Map` lookup, which is
+ * the same split every other decision in this file makes -- `peek` itself is
+ * shared, so the two adapters cannot answer differently.
+ *
+ * CORS is wide open because in development the lobby is served by Vite on
+ * :5173 and this is :8787. Deployed they are one origin and no header is
+ * involved, so nothing here is ever shipped.
+ */
+function serveLookup(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  res.setHeader('access-control-allow-origin', '*');
+  if (url.pathname !== '/peek') {
+    res.writeHead(404).end('Not found');
+    return;
+  }
+  const code = (url.searchParams.get('code') ?? '').toUpperCase();
+  if (!isRoomCode(code)) {
+    res.writeHead(400).end('Invalid room code.');
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(peek(code, rooms.get(code)?.engine ?? null)));
+}
+
 export function startServer(port: number = PORT): WebSocketServer {
-  const wss = new WebSocketServer({ port });
+  // An explicit HTTP server rather than letting `ws` open its own, because the
+  // sockets and the lookup have to share one port: the client derives both
+  // from a single origin, and a second port would be a second thing to
+  // configure and to get wrong.
+  const http: Server = createServer(serveLookup);
+  const wss = new WebSocketServer({ server: http });
+  http.listen(port);
+  // `ws` only owns the listener when it opened it, so closing the socket
+  // server would otherwise leave this port held -- which in the test suite is
+  // a run that never exits.
+  wss.on('close', () => http.close());
   // The worker validates the code at the edge before routing and again on
   // hello. Nothing here routes by code, but "a bad code never gets a socket" is
   // an invariant, and an adapter that enforces it in one place only is where

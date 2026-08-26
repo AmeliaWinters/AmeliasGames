@@ -120,38 +120,88 @@ button.primary:focus-visible {
   gap: 11px;
 }
 
-/* The bar: the wordmark, who you are, and the way in for somebody holding a
-   code. Everything the old left-hand column held, on one line.
+/* The bar: the brand, and who you are. Two things now -- the way in for
+   somebody holding a code left it, because that person's one job does not
+   belong behind a button, and it is the box directly under this bar.
 
    It is not sticky. A lobby is scrolled once, on purpose, and a bar that
    follows the thumb down thirteen cards would be covering two of them the
-   whole way for the sake of a control almost nobody on this screen needs
-   twice. Both of its buttons open a panel directly beneath it, so the thing
-   they open is never off-screen when they are pressed. */
+   whole way. The one button left on it opens a panel directly beneath, so the
+   thing it opens is never off-screen when it is pressed. */
 .lobby-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--rule);
-  /* The two buttons hold their size and the wordmark takes what is left, so a
-     long name never squeezes "Have a code?" onto two lines. */
   flex-wrap: nowrap;
+  /* The anchor for the name popover, which hangs off the chip at the far end
+     of this bar. */
+  position: relative;
 }
-/* Small, because it is a mark on a bar rather than a title on a page. The
-   clamped 4rem version below still belongs to the two recovery screens, which
-   are a heading and a button and nothing else -- they have no `.lobby-bar`, so
-   this rule cannot reach them. */
 .lobby-bar .wordmark {
-  font-size: 1.4rem;
-  letter-spacing: 0.02em;
-  margin-right: auto;
-  /* The one thing on this line allowed to lose characters, and it loses them
-     last: the brand is the half of this bar the reader already knows. */
+  margin: 0 auto 0 0;
+  /* Both, or the lockup simply overflows the heading and runs under the name
+     chip: `min-width: 0` is what lets the flex item shrink at all, and the
+     hidden overflow is what keeps what is left inside the bar. A 20-character
+     name at 320px is the case that found this. */
   min-width: 0;
+  overflow: hidden;
+}
+
+/* The mark and the name, side by side, as one thing.
+
+   Sized in `rem` on the lockup and in `em` on the glyph, so the whole logo is
+   tuned by the one font-size here: the mark is always as tall as the two lines
+   of type beside it, at every width, without a second number to keep in step.
+
+   This used to be "Rebellia Games" set on one line at 1.4rem, and at 375px it
+   was `REBE...` -- the brand ellipsised by a name chip, which is the wrong way
+   round for the only two things on the bar. Stacked, the longer word is nine
+   characters instead of fourteen and nothing is cut at 320. */
+.brandmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--display);
+  /* 20px, and the size is a contrast decision as much as a visual one: the
+     second word is set in the channel colour, which clears 3:1 but not 4.5:1
+     on daylight's ground. Bold at 20px is "large text" by WCAG, where 3:1 is
+     the bar it has to clear. Do not shrink this without taking the accent off
+     the word. */
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  min-width: 0;
+}
+.brandmark .logo {
+  flex: none;
+  width: 2.35em;
+  height: 2.35em;
+  /* The body is drawn in `currentColor`, so it inherits the ink of whatever it
+     sits on and needs nothing said about it in either palette. */
+  color: var(--ink);
+}
+.brandmark .logo .pip {
+  fill: var(--accent);
+}
+.brandmark .lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16em;
+  min-width: 0;
+}
+/* The lockup is the last thing on the bar allowed to lose characters, and at
+   these two word lengths it never has to. */
+.brandmark .line {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.brandmark .tail {
+  color: var(--accent);
 }
 
 /* Who you are: an avatar, a name, and a press to change either.
@@ -165,8 +215,7 @@ button.primary:focus-visible {
    the thing that says your name to change your name is the whole of the
    affordance. `aria-expanded` carries the rest, since what it opens is a panel
    directly below it. */
-.whoami,
-.havecode {
+.whoami {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -186,7 +235,15 @@ button.primary:focus-visible {
 }
 .whoami {
   padding-left: 6px;
-  max-width: 46vw;
+  /* The far end of the bar, said on the chip as well as by the heading's auto
+     margin beside it. Two ways of saying the same thing, because this is the
+     one property of the bar anybody notices when it goes: a name sitting in
+     the brand's lap reads as part of the logo. */
+  margin-left: auto;
+  /* The chip is capped so the brand beside it is never the thing that gives
+     way. It was 46vw, which at 320px left the lockup ten pixels short of
+     "Rebellia" and clipped the brand to fit a name nobody reads twice. */
+  max-width: 40vw;
 }
 .whoami .who {
   overflow: hidden;
@@ -208,11 +265,10 @@ button.primary:focus-visible {
   background: var(--accent);
   color: var(--ground);
 }
-/* Pressed open, both of them read as pressed: the panel underneath is the
-   other half of this control, and a bar button that opened something without
-   changing is a button people press twice. */
-.whoami[aria-expanded="true"],
-.havecode[aria-expanded="true"] {
+/* Pressed open, it reads as pressed: the panel underneath is the other half of
+   this control, and a bar button that opened something without changing is a
+   button people press twice. */
+.whoami[aria-expanded="true"] {
   background: var(--ink);
   color: var(--ground);
   border-color: var(--ink);
@@ -220,6 +276,91 @@ button.primary:focus-visible {
 .whoami[aria-expanded="true"] .av {
   background: var(--ground);
   color: var(--ink);
+}
+
+/* The join box: open on the page, above the shelf.
+
+   It borrows the panel's surface on purpose. It is the same object the code
+   used to open, and a second card style for the same content would be two
+   things to keep in step for no reader's benefit.
+
+   Quieter than the shelf below it, though: a dashed rule of code cells and a
+   muted heading, so a returning player's eye goes past it to the games. The
+   people it is for arrived knowing they had four letters to type. */
+.joinbox {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 12px;
+}
+/* On a phone it is the column. On a wide lobby the page is 1120px of shelf and
+   a code box stretched across all of it would be the loudest thing on the
+   screen for the smallest job on it, so it keeps a phone's width and sits
+   where the eye already is. */
+@media (min-width: 760px) {
+  .joinbox {
+    max-width: 420px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
+.joinbox h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+/* The status line, and it is only ever rendered once there is a status. It
+   sits *under* the Join button, so the card growing when the fourth letter
+   lands cannot move the control a thumb is already travelling to -- which is
+   what the 2.4em of reserved blank space that used to live here was paying
+   for, on every visit, for a card whose whole job is four letters. */
+.joinbox .hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.joinbox .join-as {
+  margin: 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+/* What the lookup found. The game's name is the half worth reading, so it is
+   the half set in ink; the count beside it is context. */
+.join-found strong {
+  color: var(--ink);
+}
+/* Not an error state, and not drawn as one: nothing has failed and nothing was
+   refused, somebody has a letter wrong. The Join button stays live, because
+   the socket is the thing that actually decides. */
+.join-missing {
+  color: var(--muted);
+}
+
+/* A button that has to read as part of a sentence, for the one case where a
+   name is already known and this is not the person it belongs to. */
+.linky {
+  font: inherit;
+  /* `font: inherit` does not carry text-transform, so this read as NOT YOU? --
+     a shout in the middle of a sentence. It has to be said separately. */
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* What either bar button opens: one panel, under the bar, holding only the
@@ -233,6 +374,23 @@ button.primary:focus-visible {
   border-radius: var(--panel-radius);
   padding: 14px;
 }
+/* The same card, hung off the control that opened it instead of taking a
+   slice out of the page. Right-aligned to the chip and width-capped, because
+   the chip is at the right-hand end of the bar and the panel holds one field.
+
+   `position: fixed` is what a popover wants on a scrolling page, but this bar
+   is not sticky and the lobby is scrolled once: absolute keeps it attached to
+   the bar it belongs to, with no scroll listener to keep in step. */
+.panel-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  margin-top: 8px;
+  width: min(320px, calc(100vw - 32px));
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+}
+
 .panel h2 {
   margin: 0;
   font-family: var(--display);
@@ -256,9 +414,6 @@ button.primary:focus-visible {
 
    The boxes are drawn from the value and the input lies transparently over
    them; see `CodeCells` in `App.tsx` for why it is one field and not four. */
-.code-panel {
-  align-items: stretch;
-}
 .cells {
   position: relative;
   display: flex;
@@ -266,8 +421,8 @@ button.primary:focus-visible {
   gap: 8px;
 }
 .cells .cell {
-  width: 54px;
-  height: 62px;
+  width: 50px;
+  height: 54px;
   display: grid;
   place-items: center;
   font-family: var(--display);
@@ -325,8 +480,21 @@ button.primary:focus-visible {
   color: var(--accent);
 }
 
+/* The tagline and the way into your words, on one line. See the note in
+   `App.tsx`: the due prompt on its own was a full-width dashed bar that read
+   as an unfilled form field. Wrapped on a phone, where two of them side by
+   side would be two columns of four words each. */
+.lobby-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 14px 0;
+}
+
 .tagline {
-  margin: 0 0 14px;
+  margin: 0;
   color: var(--muted);
 }
 
