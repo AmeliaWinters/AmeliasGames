@@ -23,6 +23,7 @@ import {
   askIn,
   autoHinted,
   canHint as seatCanHint,
+  choosing,
   clockCall,
   firstRight,
   formatClock,
@@ -48,12 +49,24 @@ import type {
   VocabTry,
 } from "../../shared/games/vocabDisplay.js";
 import { useServerNow } from "../clock.js";
+import { hush, speak, useCanSpeak } from "../speech.js";
 
 import type { BoardProps } from "./boards.js";
 import { Choice, ChoiceGroup } from "./Choice.js";
 import { namer } from "./names.js";
 
 type Props = BoardProps<VocabState, VocabMove>;
+
+/**
+ * The speaker on every button that says a word.
+ *
+ * One glyph in one constant because it is drawn in three places and they have
+ * to be the same mark: a learner looking for "the thing that makes the sound"
+ * should find one shape, not three. Always paired with `sr-only` text, since a
+ * bare emoji is announced as "speaker with three sound waves" or as nothing at
+ * all, depending on the reader.
+ */
+const SPEAKER = "\u{1F50A}";
 
 /** Under this much left, the clock starts shouting about it. */
 const URGENT_MS = 10 * 1000;
@@ -242,6 +255,52 @@ function Scores({
 }
 
 /**
+ * A clue you listen to.
+ *
+ * The whole of a `hear` round's question: a big button that says the word, and
+ * nothing else on the screen that could answer it. The four meanings are drawn
+ * below by the same code that draws a `pick`'s, since from the options down the
+ * two rounds are identical.
+ *
+ * **It says the word once, by itself, when the clue goes up**, and that is the
+ * part worth defending. A round that waited to be pressed would spend its first
+ * two seconds teaching the player that this round has a button on it, every
+ * time, and the round is thirty seconds long. Keyed on `began` rather than on
+ * the word so that a retry of a word already met this game still speaks: the
+ * word is the same string, the round is not.
+ *
+ * Autoplay is allowed here because it is not autoplay in the sense browsers
+ * block. Speech synthesis is exempt from the gesture requirement on every
+ * engine this runs on once anything on the page has been touched, and by the
+ * time a clue is up the player has pressed at least "start". A device that
+ * refuses anyway is a device where `speak` returns false and the round has
+ * already fallen back to a printed word; see `hearing` in the board.
+ */
+function Heard({ word, lang, began }: { word: string; lang: VocabLang; began: number }) {
+  useEffect(() => {
+    if (word === "") return;
+    speak(word, lang);
+    return hush;
+  }, [began, word, lang]);
+
+  return (
+    <button
+      type="button"
+      className="vr-speak vr-speak-clue"
+      onClick={() => speak(word, lang)}
+    >
+      <span aria-hidden="true">{SPEAKER}</span>
+      {/*
+        The word is never in the accessible name, which would be handing a
+        screen reader the answer this button exists to withhold. What a reader
+        gets is what a sighted player gets: a control that plays the clue.
+      */}
+      <span className="sr-only">Play the word again</span>
+    </button>
+  );
+}
+
+/**
  * The answer, held up.
  *
  * This is the game. Everything else on the board exists to produce six seconds
@@ -263,6 +322,24 @@ function Answer({
   mode: VocabMode;
 }) {
   const answer = round.answer;
+  const canSpeak = useCanSpeak(lang);
+
+  // Said once, as the reveal opens, on every device that can. This is the
+  // moment the word is worth hearing: the meaning is on the screen above it and
+  // the player has just found out whether they knew it. It is also the only
+  // audio a `say`-only table ever gets, which is most tables, so a fluent
+  // player and a beginner both leave a game having heard every word in it.
+  //
+  // Keyed on the word rather than on the phase so a re-render inside the reveal
+  // does not say it again, and hushed on the way out so the next clue does not
+  // arrive over the top of the last answer.
+  const word = answer?.word ?? "";
+  useEffect(() => {
+    if (word === "") return;
+    speak(word, lang);
+    return hush;
+  }, [word, lang]);
+
   if (answer === null) return null;
   return (
     <div className="vr-answer">
@@ -270,6 +347,22 @@ function Answer({
       <p className="vr-answer-word" lang={lang}>
         {answer.word}
       </p>
+      {/*
+        Replay, for the player who was reading the meaning while it played. Not
+        drawn at all where there is no voice, rather than drawn and dead: a
+        speaker button that does nothing is worse than no speaker button, since
+        it reads as the app being broken rather than as the phone being quiet.
+      */}
+      {canSpeak && (
+        <button
+          type="button"
+          className="vr-speak vr-speak-small"
+          onClick={() => speak(answer.word, lang)}
+        >
+          <span aria-hidden="true">{SPEAKER}</span>
+          <span className="sr-only">Hear it again</span>
+        </button>
+      )}
       {answer.script && (
         <p className="vr-answer-script" lang="ja">
           {answer.script}
@@ -299,6 +392,40 @@ function Answer({
           <span className="sr-only">
             the {ordinal(answer.rank)} commonest {VOCAB_LANG_NAME[lang]} word
           </span>
+        </p>
+      )}
+
+      {/*
+        The other words that would have been taken.
+
+        The reducer has always been this generous -- `accepts` is every word in
+        the language filed under any of the clue's senses, so a learner who
+        answers "small" with a synonym of the word the clue was cut from is
+        marked right -- and until this line existed the only way anybody found
+        that out was by accidentally doing it. A player who typed a real Polish
+        word for small and was told they were wrong was being told something
+        false about the rules.
+
+        Under the answer rather than beside it, and in small type: it is a
+        footnote to the word, and the word is still what the six seconds are
+        for. Capped at `ALSO_SHOWN` in the dictionary, and absent on a clue with
+        no synonyms and in phrase mode, which is most rounds.
+      */}
+      {answer.also.length > 0 && (
+        <p className="vr-answer-also">
+          also{" "}
+          {answer.also.map((other, i) => (
+            <span key={i}>
+              {i > 0 && ", "}
+              <strong lang={lang}>{other.word}</strong>
+              {other.script && (
+                <span className="vr-also-script" lang="ja">
+                  {" "}
+                  {other.script}
+                </span>
+              )}
+            </span>
+          ))}
         </p>
       )}
     </div>
@@ -493,6 +620,12 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   const input = useRef<HTMLInputElement>(null);
 
   const clock = useServerNow(now, state.deadline !== null && state.phase !== "over");
+  // Asked here, at the top, because hooks may not sit behind the setup and
+  // game-over returns further down. `state.lang` is null until the host has
+  // chosen and Polish is the default the host would time out into, so this asks
+  // about the language the table is most likely to end up in and re-asks when
+  // it turns out to be the other one.
+  const canSpeak = useCanSpeak(state.lang ?? "pl");
   const left = state.deadline === null ? null : msLeftFor(state, clock);
   const mine = seat !== null;
   // Whether the room is answering with sentences. It changes the question's
@@ -841,7 +974,15 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
   // typing the same word you are choosing the meaning of. A spectator with no
   // seat is sent the say view, which is `askIn`'s default and the only one of
   // the two that is safe to be wrong about.
-  const picking = !revealing && askIn(round, seat ?? -1) === "pick";
+  const ask = askIn(round, seat ?? -1);
+  const picking = !revealing && choosing(ask);
+  // A listening round this device can actually ask. `useCanSpeak` is the whole
+  // of the fallback: with no voice for the language the word is drawn instead
+  // of spoken, which makes it a plain `pick`, which is a question this seat
+  // could have been asked anyway. So a phone with no Polish voice plays a
+  // slightly easier game rather than a broken one, and nothing about that
+  // reaches the server. See `HEAR_SCALE` for what it costs.
+  const hearing = !revealing && ask === "hear" && canSpeak;
   // Everyone's result, in the order they finished, with the seats that never
   // answered on the end. `settle` writes those in, so this is the whole table.
   const payout = revealing && round ? round.tries : [];
@@ -855,6 +996,15 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
         Round {state.history.length + 1} - {VOCAB_LANG_NAME[lang]},{" "}
         {MODE_LABEL[state.mode]}
       </p>
+
+      {/*
+        Said out loud, because a word turning up twice with nothing to mark it
+        reads as the deck repeating itself rather than as a second chance. Drawn
+        during the reveal too, so the payout line is read as a retry's payout.
+      */}
+      {round?.retry && (
+        <p className="vr-retry">Nobody got this one. Here it is again.</p>
+      )}
 
       {revealing && round ? (
         <>
@@ -888,7 +1038,24 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
             `.vr-clue`, because the rule this board is built on is that exactly
             one thing on it is worth reading and it should be unmistakable which.
           */}
-          {picking ? (
+          {hearing ? (
+            <>
+              <p className="vr-clue-label">What does this mean?</p>
+              {/*
+                The question is a button, because the question is a sound and a
+                sound the player cannot replay is a question asked once at
+                somebody who may have been looking away. Unlimited replays: the
+                word is not information being rationed, it is the clue, and the
+                thirty seconds are the cost.
+
+                Deliberately no spelling anywhere on this screen. Drawing the
+                word beside the speaker would answer the question with the eye
+                and turn the round back into a `pick`, which is the round this
+                seat would have had anyway. See `Heard`.
+              */}
+              <Heard word={round?.answer?.word ?? ""} lang={lang} began={round?.began ?? 0} />
+            </>
+          ) : picking ? (
             <>
               <p className="vr-clue-label">What does this mean?</p>
               <p className="vr-clue" lang={lang}>

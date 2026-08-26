@@ -24,11 +24,13 @@ import {
   VOCAB_LANG_NAME,
   VOCAB_LEVELS,
   VOCAB_MODES,
+  RETRY_AFTER,
   askFor,
   askIn,
   autoHinted,
   canAct,
   canHint,
+  choosing,
   everyoneDone,
   firstRight,
   hintOf,
@@ -38,6 +40,7 @@ import {
   leaders,
   levelOf,
   maskWord,
+  retryAsks,
   roundDeadline,
   roundPoints,
   tryOf,
@@ -47,6 +50,7 @@ import {
 import type {
   VocabAsk,
   VocabHint,
+  VocabRetry,
   VocabHow,
   VocabLang,
   VocabLevel,
@@ -76,6 +80,8 @@ export {
   PICK_OPTIONS,
   PICK_SCALE,
   RARITY_STEP,
+  HEAR_SCALE,
+  RETRY_AFTER,
   REVEAL_MS,
   ROUND_MS,
   SETUP_MS,
@@ -89,8 +95,10 @@ export {
   askIn,
   askOf,
   autoHinted,
+  ALSO_SHOWN,
   canAct,
   canHint,
+  choosing,
   clockCall,
   everyoneDone,
   firstRight,
@@ -105,6 +113,7 @@ export {
   maskWord,
   msLeftFor,
   outOfTime,
+  retryAsks,
   rightTries,
   roundDeadline,
   roundPoints,
@@ -114,6 +123,7 @@ export {
   windowMs,
 } from './vocabDisplay.js';
 export type {
+  VocabAlso,
   VocabAnswer,
   VocabAsk,
   VocabHint,
@@ -123,6 +133,7 @@ export type {
   VocabMode,
   VocabMove,
   VocabPhase,
+  VocabRetry,
   VocabRound,
   VocabSeatStat,
   VocabState,
@@ -142,7 +153,7 @@ export type {
  * game cost the bundle nothing. `vocabDictionary.ts` is where a gloss becomes a
  * clue.
  *
- * Nine things here are worth knowing before changing anything:
+ * Eleven things here are worth knowing before changing anything:
  *
  * 1. **One language and one difficulty for the whole room**, chosen by the
  *    seat that opened it. Per-player languages were the obvious design and
@@ -221,19 +232,26 @@ export type {
  *    score enough, often enough, to run away with it, and nothing they do
  *    silences the other end of the table. `canAct` is the only gate.
  *
- * 8. **Every third round turns the question round.** A `say` round asks you to
- *    produce the word from its meaning; a `pick` round puts the word up and
- *    offers four meanings. Production is the direction this game is for, and it
- *    is also the direction where a learner who cannot reach the word does
- *    nothing at all for fifteen seconds, so recognition is mixed in at half
- *    points, as the round they can always play. See `VocabAsk`.
+ * 8. **A clue is asked three ways, and which one you get is your level.** A
+ *    `say` round asks you to produce the word from its meaning; a `pick` round
+ *    puts the word up and offers four meanings; a `hear` round *speaks* the
+ *    word and offers the same four. Production is the direction this game is
+ *    for, and it is also the direction where a learner who cannot reach the
+ *    word does nothing at all for thirty seconds, so recognition is mixed in
+ *    below full points as the round they can always play. See `LEVEL_ASKS`.
  *
  *    It costs a redaction rather than buying one. On a `say` round the clue is
- *    the question and the answer is the secret; on a `pick` round the *clue is
- *    the secret*, because it is the option that is correct, and the word is
- *    what goes out. A choice therefore names an index into `options` rather
- *    than a meaning, so a board never holds both halves. `view()` is where the
- *    asymmetry lives and it is the easiest thing in this file to get backwards.
+ *    the question and the answer is the secret; on a `pick` or a `hear` the
+ *    *clue is the secret*, because it is the option that is correct, and the
+ *    word is what goes out. A choice therefore names an index into `options`
+ *    rather than a meaning, so a board never holds both halves. `view()` is
+ *    where the asymmetry lives and it is the easiest thing in this file to get
+ *    backwards.
+ *
+ *    `choosing()` is the predicate for "answered by index", and every rule that
+ *    used to test `ask === 'pick'` means that instead. The two places that
+ *    still say `pick` are the two that genuinely mean *printed word*: nothing
+ *    in the reducer, as it happens, only the board.
  *
  * 9. **Three hints a game, and spending one is the only real decision in a
  *    round.** A hint shows the first letter and the length and halves what the
@@ -246,6 +264,31 @@ export type {
  *    round's deadline does not move. `canHint` is its gate, deliberately not
  *    folded into `canAct`, and hints are `say`-only, because the first letter
  *    of a word already printed on the screen is not information.
+ *
+ * 10. **The word has a sound, and until `hear` existed this game never played
+ *    it.** Every question was a gloss and a spelling, and for Japanese the
+ *    spelling was romaji, which is a transliteration nobody writing Japanese
+ *    uses. A player could win a whole game without once learning what any of it
+ *    sounds like.
+ *
+ *    A `hear` round is a `pick` whose question is spoken rather than printed,
+ *    which is why it cost this file almost nothing: same options, same choice
+ *    by index, same redaction of the clue. **The word goes out unredacted on
+ *    one**, deliberately, because the board is the only thing that knows
+ *    whether this device has a voice for the language, and a phone with no
+ *    Polish voice has to be able to fall back to printing it. What is secret on
+ *    a `hear` is the meaning, exactly as on a `pick`. See `HEAR_SCALE`.
+ *
+ * 11. **A clue nobody got comes back five rounds later.** The deck was dealt
+ *    once and read forwards, so the single most valuable question in the game,
+ *    the one the whole table drew a blank on, was shown for six seconds and
+ *    never mentioned again. The ledger picks it up tomorrow; nothing picked it
+ *    up today.
+ *
+ *    It is a queue beside the deck rather than a splice into it, because `draw`
+ *    filters the deck against every clue already asked and a retry is one of
+ *    those by definition. It comes back as a choosing round, recognition before
+ *    production, and only ever once. See `RETRY_AFTER`, `requeue` and `redue`.
  */
 
 const seatCount = (state: VocabState): number => state.scores.length;
@@ -289,6 +332,7 @@ function roundFrom(
   now: number,
   asks: VocabAsk[],
   options: string[],
+  retry = false,
 ): VocabRound {
   return {
     clue: question.clue,
@@ -300,9 +344,11 @@ function roundFrom(
       script: question.script,
       lemma: question.lemma,
       rank: question.rank,
+      also: [...question.also],
     },
     began: now,
     tries: [],
+    retry,
   };
 }
 
@@ -351,7 +397,7 @@ function draw(
     if (question === null || asked.has(question.clue)) continue;
     const index = state.history.length;
     const wanted = state.scores.map((_, seat) => askFor(levelOf(state, seat), index));
-    const options = wanted.includes('pick')
+    const options = wanted.some(choosing)
       ? vocabOptions(lang, mode, rank, cap, state.deck)
       : [];
     const asks: VocabAsk[] =
@@ -359,6 +405,45 @@ function draw(
     return { round: roundFrom(question, now, asks, options), drawn: i + 1 };
   }
   return null;
+}
+
+/**
+ * The clue owed a second showing, if one is due.
+ *
+ * Shaped exactly like `draw`'s return so `advance` can take either without
+ * caring which it got, and `drawn` is passed straight back untouched: a retry
+ * is not a card off the deck, so reading one must not move the deck on. That is
+ * the whole reason the two are separate functions rather than one with a flag.
+ *
+ * Due is `history.length`, not a clock. The retry has to land the same number
+ * of *rounds* later however long they took, and a room paused for an hour
+ * between two of them should not come back to find the retry expired. It is
+ * also the only counter here a tick cannot move on its own, which keeps this
+ * decidable without an rng along with everything else. See point 6.
+ *
+ * Null when nothing is due, or when the rank has no question any more. When the
+ * options cannot be built it falls back to `say` for everybody rather than to
+ * no retry at all: asking the hard version of a word you missed beats not
+ * asking it.
+ */
+function redue(
+  state: VocabState,
+  lang: VocabLang,
+  mode: VocabMode,
+  now: number,
+): { round: VocabRound; drawn: number } | null {
+  const due = state.retry.find((item) => state.history.length >= item.at);
+  if (due === undefined) return null;
+
+  const question = vocabQuestion(lang, mode, due.rank);
+  if (question === null) return null;
+
+  const wanted = state.scores.map((_, seat) => retryAsks(levelOf(state, seat)));
+  const options = wanted.some(choosing)
+    ? vocabOptions(lang, mode, due.rank, MODE_CAP[mode], state.deck)
+    : [];
+  const asks: VocabAsk[] = options.length === 0 ? wanted.map(() => 'say') : wanted;
+  return { round: roundFrom(question, now, asks, options, true), drawn: state.drawn };
 }
 
 /**
@@ -395,7 +480,14 @@ function advance(state: VocabState, now: number): VocabState {
   if (put.lang === null) return finish(put);
   if (put.scores.some((score) => score >= TARGET)) return finish(put);
 
-  const next = draw(put, put.lang, put.mode, now);
+  // A word the table missed comes before a word it has not met. Checked ahead
+  // of the deck rather than spliced into it, because the deck is filtered by
+  // `draw` against every clue already asked, and a retry is by definition one
+  // of those: putting it in the deck would mean teaching that filter about an
+  // exception, and a filter with an exception in it is how the answer gets
+  // broadcast twice. See `RETRY_AFTER`.
+  const again = redue(put, put.lang, put.mode, now);
+  const next = again ?? draw(put, put.lang, put.mode, now);
   if (next === null) return finish(put);
 
   return {
@@ -403,11 +495,47 @@ function advance(state: VocabState, now: number): VocabState {
     phase: 'asking',
     round: next.round,
     drawn: next.drawn,
+    retry: again === null ? put.retry : put.retry.filter((due) => due.rank !== again.round.answer?.rank),
     // The longest window in the room, not a fixed thirty: a table where
     // everybody has said they are fluent gets fifteen-second rounds, which is
     // the game running at the speed the people in it actually play.
     deadline: roundDeadline(put, next.round, now),
   };
+}
+
+/**
+ * The retry queue after a round settles: unchanged, or one longer.
+ *
+ * A clue joins it when **nobody** got it, and the test is deliberately every
+ * seat rather than a majority or the seat that is behind. One person at the
+ * table knowing the word means the word got said, got revealed next to its
+ * meaning, and got beaten by somebody in the room, which is the version of
+ * learning this game is built around (point 5). The round worth asking again is
+ * the one where the whole table drew a blank.
+ *
+ * A timeout counts as missing it, and that is a judgement call worth writing
+ * down. `record` refuses to grade a timeout at all, on the grounds that a
+ * locked phone is not a wrong answer; here the question is different and much
+ * cheaper to get wrong in the generous direction. Nobody typed the word, so
+ * nobody demonstrated they had it, and the cost of asking again is one round
+ * out of a game that has plenty. It also keeps the rule readable on the board:
+ * the reveal said nobody had it, and the clue comes back.
+ *
+ * Never twice. See `RETRY_AFTER` for why a table stuck on one word should not
+ * be asked it forever.
+ */
+function requeue(
+  state: VocabState,
+  round: VocabRound,
+  tries: readonly VocabTry[],
+): VocabRetry[] {
+  if (round.retry) return state.retry;
+  const rank = round.answer?.rank ?? 0;
+  if (rank === 0) return state.retry;
+  if (tries.some((attempt) => attempt.how === 'right')) return state.retry;
+  // Filed against the round that is about to join `history`, hence the plus
+  // one: `settle` has not put it away yet, `advance` will.
+  return [...state.retry, { rank, at: state.history.length + 1 + RETRY_AFTER }];
 }
 
 /**
@@ -450,6 +578,7 @@ function settle(state: VocabState, round: VocabRound, now: number): VocabState {
     phase: 'reveal',
     round: { ...round, tries },
     scores,
+    retry: requeue(state, round, tries),
     deadline: now + REVEAL_MS,
   };
 }
@@ -597,6 +726,8 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       // `studied`, which is what reads it, once, when the host chooses.
       study: union(study),
       drawn: 0,
+      // Filled by `settle` when a clue beats the whole table. See `RETRY_AFTER`.
+      retry: [],
       // Null until the room says every seat is filled. See `start`.
       deadline: null,
       winner: null,
@@ -724,7 +855,7 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     }
 
     if (move.type === 'choose') {
-      if (askIn(round, seat) !== 'pick') {
+      if (!choosing(askIn(round, seat))) {
         return { ok: false, error: 'This one is typed, not chosen.' };
       }
       // An index, so the board never held the answer to send back. Validated
@@ -914,7 +1045,14 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     if (state.phase === 'reveal') {
       const word = state.round?.answer?.word ?? '';
       const first = state.round === null ? null : firstRight(state.round);
-      if (first === null) return `Nobody had it: ${word}.`;
+      if (first === null) {
+        // A missed clue is about to be queued, unless it was already a retry
+        // and this was its second miss. Saying so is most of what makes the
+        // requeue readable: without it the word simply turns up again five
+        // rounds later and reads as the deck repeating itself.
+        const again = state.round !== null && !state.round.retry;
+        return again ? `Nobody had it: ${word}. It'll be back.` : `Nobody had it: ${word}.`;
+      }
       const also = state.round === null
         ? 0
         : state.round.tries.filter((a) => a.how === 'right').length - 1;
@@ -932,6 +1070,11 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
     // reach the seats picking (whose question is the word) *and* the seats
     // typing (for whom it is the answer), and the clue would leak the other
     // way round. The board draws the question itself, per seat, out of `view`.
+    // Still says "pick" on a table where somebody is listening, and that is the
+    // right lie. This line has no seat to aim itself at (see the note above),
+    // so it describes the round to everybody at once, and "pick" is what both
+    // choosing rounds ask you to do. Naming the third would be telling seven
+    // people about a question one of them is being asked.
     return isPhrases(state.mode)
       ? `Say the phrase in ${language}, or pick what it means.`
       : `Say the ${language} word, or pick what it means.`;
@@ -988,10 +1131,15 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
       return { ...state, deck: [], study: {} };
     }
     const round = state.round;
-    const pick = askIn(round, seat) === 'pick';
+    const ask = askIn(round, seat);
+    const pick = choosing(ask);
     return {
       ...state,
       deck: [],
+      // Redacted with the deck, and worse than the deck: every rank on it is a
+      // question this game is going to ask *again*, of a table that has already
+      // been shown the answer once. See `VocabState.retry`.
+      retry: [],
       // Redacted with the deck, and for a related reason. The deck is the rest
       // of the game in order; this is what put it in that order, so a client
       // holding it alongside a downloadable word list could work out much of
@@ -1008,9 +1156,22 @@ export const vocab: GameDefinition<VocabState, VocabMove> = {
         // seat is offered the easy question is to hand it the pieces.
         options: pick ? round.options : [],
         // On a recognition round the word and its script are the question. The
-        // lemma and the rank are not, and they are the two things the reveal
-        // has left to tell anybody, so they wait for it.
-        answer: pick && round.answer !== null ? { ...round.answer, lemma: '', rank: 0 } : null,
+        // lemma, the rank and the synonyms are not, and they are what the
+        // reveal has left to tell anybody, so they wait for it. The synonyms
+        // would not merely be early: they are other words meaning what the
+        // answer means, so on a `pick` they cut four options to one.
+        //
+        // On a `hear` the word itself goes out, unredacted, and that is not the
+        // hole it looks like. The board is the thing that decides whether to
+        // draw it or speak it, because only the board knows whether this device
+        // has a voice for the language, and a question the server withheld the
+        // word for is one a phone with no Polish voice could not ask at all.
+        // What is being protected here is the *meaning*, which is `clue`, and
+        // that is redacted on both. See `HEAR_SCALE`.
+        answer:
+          pick && round.answer !== null
+            ? { ...round.answer, lemma: '', rank: 0, also: [] }
+            : null,
         tries: round.tries.map((attempt) => ({ ...attempt, said: '', points: 0 })),
         hints: [
           ...round.hints.map((hint) =>
@@ -1144,7 +1305,7 @@ function freeHint(state: VocabState, round: VocabRound, seat: number): VocabHint
 function gradeOf(attempt: VocabTry, ask: VocabAsk, window: number): Grade {
   if (attempt.how === 'wrong') return 'wrong';
   if (attempt.how === 'gave-up') return 'gave-up';
-  if (ask === 'pick') return 'recognised';
+  if (choosing(ask)) return 'recognised';
   if (attempt.hinted) return 'hinted';
   return wasFast(attempt.ms, window) ? 'produced-fast' : 'produced';
 }

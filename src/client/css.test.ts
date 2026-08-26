@@ -62,6 +62,8 @@ const CONTROLS = new Set([
   'vr-submit', // the answer button beside Vocab Race's entry field
   'vr-give-up', // "I don't know it", under the entry row
   'vr-hint-buy', // spending one of the three, beside it
+  'vr-speak-clue', // the spoken clue itself, on a listening round
+  'vr-speak-small', // replaying the answer, on the reveal
   'yz-pick',
 ]);
 

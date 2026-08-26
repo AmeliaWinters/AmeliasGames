@@ -249,27 +249,39 @@ export const LEVEL_NAME: Record<VocabLevel, string> = {
  *
  * The densities are the argument:
  *
- * - **new** is three `pick`s in four. Recognition is where somebody three
- *   weeks in actually lives, and a blank box they cannot fill is not a
- *   question, it is a wait. The one `say` in the cycle is the point: a beginner
- *   who never types never learns to produce, and one round in four is often
- *   enough to be worth reaching for and rare enough not to be a wall.
- * - **some** is one `pick` in three, which is the rhythm the whole table used
- *   to get and the reason this is the default. Production is the game, with a
- *   breather in it.
- * - **fluent** is no `pick` at all. Offering four English meanings to somebody
- *   who grew up with the language is not a question, and paying them half for
- *   answering it would be the old multiplier wearing a hat.
+ * - **new** is half recognition, a quarter listening, a quarter production.
+ *   Recognition is where somebody three weeks in actually lives, and a blank
+ *   box they cannot fill is not a question, it is a wait. The one `say` is the
+ *   point: a beginner who never types never learns to produce, and one round in
+ *   four is often enough to be worth reaching for and rare enough not to be a
+ *   wall.
+ * - **some** is two production rounds and a listening one. Production is the
+ *   game, with a breather in it, and this is the rhythm the whole table used to
+ *   get, which is why it is the default.
+ * - **fluent** is production and listening, no `pick` at all. Offering four
+ *   English meanings under a *printed* word to somebody who grew up with the
+ *   language is not a question. Offering them under a *spoken* one still is,
+ *   which is the only reason this level has a choosing round at all.
+ *
+ * **Every level hears the language, and that is the point of `hear` being here
+ * rather than bolted onto the beginner cycle.** Before it, a player could win
+ * this game without the words ever having had a sound: everything was glosses
+ * and spelling, and for Japanese the spelling was romaji, which is a way of
+ * writing a sound nobody writes that way. A learner who can only read is half
+ * taught.
  *
  * They start on different feet on purpose. A beginner's first round is a
  * `pick`, so the first thing they ever see is a question they can answer;
  * everybody else opens on a `say`, which is the game the setup screen has just
- * described.
+ * described. Nobody opens on a `hear`, because the first round is the one
+ * where a table finds out whether the audio works at all, and finding that out
+ * on a question that has been silently redrawn (see `HEAR_SCALE`) is worse than
+ * finding it out on round three.
  */
 export const LEVEL_ASKS: Record<VocabLevel, readonly VocabAsk[]> = {
-  new: ['pick', 'pick', 'say', 'pick'],
-  some: ['say', 'say', 'pick'],
-  fluent: ['say'],
+  new: ['pick', 'hear', 'say', 'pick'],
+  some: ['say', 'say', 'hear'],
+  fluent: ['say', 'say', 'hear'],
 };
 
 /** Which way round the round at `index` is asked of a seat at `level`. */
@@ -380,6 +392,37 @@ export const SPEED_BONUS = 1;
 export const PICK_SCALE = 0.5;
 
 /**
+ * What a listening round is worth: three quarters.
+ *
+ * Between the two on purpose, because the question is between the two. A
+ * `hear` round offers the same four meanings a `pick` does, so the floor is the
+ * same one-in-four guess and it cannot be worth a full production round. But
+ * the thing being asked is harder in the way that matters: the word arrives as
+ * a sound with no spelling under it, so recognising it means having heard it
+ * before rather than having read it, and a learner who can match `koohii` to
+ * "coffee" on the page may have no idea at all what it sounds like.
+ *
+ * Three quarters rather than a full point also keeps the ordering honest for a
+ * fluent seat, whose cycle is two `say`s and a `hear`: their listening round is
+ * genuinely the easy one of the three and should not pay like the hard ones.
+ *
+ * **A `hear` the board could not speak still pays three quarters**, and that is
+ * deliberate. A device with no voice for the language draws the word instead,
+ * which makes it a plain `pick` worth `PICK_SCALE`, and pricing that difference
+ * would mean the server scoring a round by what a client claimed its speech
+ * engine could do. The overpay is one eighth of one round on a phone that could
+ * not ask the question properly; the alternative is a scoring rule a client can
+ * lie to. See the board's `speak`.
+ */
+export const HEAR_SCALE = 0.75;
+
+/** What an ask multiplies a right answer by. See `PICK_SCALE` and `HEAR_SCALE`. */
+export function askScale(ask: VocabAsk): number {
+  if (ask === 'hear') return HEAR_SCALE;
+  return ask === 'pick' ? PICK_SCALE : 1;
+}
+
+/**
  * How many hints a seat gets for a whole game.
  *
  * Three, and they do not come back, which is the entire mechanic: a hint is
@@ -445,7 +488,26 @@ export const DECK_DEPTH = Math.max(MODE_CAP.hard, MODE_CAP.phrases);
  * still racing on the same clue and their scores are still comparable. A
  * per-seat *word* would not be a race at all.
  */
-export type VocabAsk = 'say' | 'pick';
+export type VocabAsk = 'say' | 'pick' | 'hear';
+
+/**
+ * Whether an ask is answered by choosing a meaning rather than typing a word.
+ *
+ * `pick` and `hear` are the same question wearing two faces: four English
+ * meanings, one of them right, answered by index. They differ only in what the
+ * board draws above the options, the word printed or the word spoken, and that
+ * is a display concern from top to bottom. Everything in the reducer that used
+ * to test `ask === 'pick'` means *this* instead, and the two that genuinely
+ * mean printed-word-only (the redaction of `word` in `view`, and the copy)
+ * still say `pick`.
+ *
+ * A function rather than an inline `||` because getting it wrong in one of the
+ * five places is a silent leak or a silent refusal, and neither shows up as a
+ * type error.
+ */
+export function choosing(ask: VocabAsk): boolean {
+  return ask === 'pick' || ask === 'hear';
+}
 
 /**
  * How many meanings a `pick` round offers.
@@ -462,6 +524,73 @@ export type VocabAsk = 'say' | 'pick';
 export const PICK_OPTIONS = 4;
 
 export type VocabPhase = 'setup' | 'asking' | 'reveal' | 'over';
+
+/**
+ * A clue the table missed, and the round it is allowed back at.
+ *
+ * See `RETRY_AFTER` for the timing and `settle` in the reducer for what puts
+ * one here.
+ */
+export interface VocabRetry {
+  /** The rank to ask again. The clue is rebuilt from it, so nothing is stored twice. */
+  rank: number;
+  /** The `history.length` at which it becomes eligible. */
+  at: number;
+}
+
+/**
+ * How many rounds later a missed clue comes back.
+ *
+ * Five, and the number is doing two jobs at once.
+ *
+ * **A word nobody got is the most valuable word in the game and the deck used
+ * to throw it away.** The clue everybody missed is, by definition, the one the
+ * table did not know, and the old behaviour was to show it for six seconds and
+ * never mention it again. Between sessions the ledger handles that; within a
+ * session, "tomorrow" is the wrong interval for a word you missed ninety
+ * seconds ago, and there was nothing else.
+ *
+ * **Five rounds is far enough that it is a recall and not an echo.** One or two
+ * would be answered off the reveal that is still on the screen behind the
+ * player's eyes, which tests nothing and teaches nothing. Five is about ninety
+ * seconds of other words, which is long enough that getting it right means
+ * something and short enough that it is still the same sitting. It is the first
+ * rung of the Leitner ladder in `review.ts` scaled down to fit inside one game.
+ *
+ * **It comes back as a choosing round, not a typed one.** Recognition before
+ * production is the direction the ladder already believes in, and asking a
+ * table to type a word they collectively could not reach twenty seconds ago is
+ * asking the same question again and expecting a different answer. See
+ * `retryAsks`.
+ *
+ * **Once only.** A round already marked `retry` is never requeued, whatever
+ * happens on it. Without that a table stuck on one hard word would be asked it
+ * every five rounds until the deck ran out, which is a game that gets worse the
+ * worse you are doing at it.
+ */
+export const RETRY_AFTER = 5;
+
+/**
+ * Which way round a retried clue is asked of a seat.
+ *
+ * `say` only for a seat that says it is fluent, and choosing for everybody
+ * else. This is the one place an ask is a function of level alone rather than
+ * of level and round number, and that is the point: `LEVEL_ASKS` is a rhythm,
+ * and this is an intervention.
+ *
+ * The fluent exception is the same argument `LEVEL_ASKS` makes: four English
+ * meanings under a printed word is not a question for somebody who grew up with
+ * the language, and a retry that hands them a free point is not a review, it is
+ * an apology. They get the word to type, again.
+ *
+ * A `hear` rather than a `pick` for everybody else, when the round can be heard
+ * at all: the word has already been on the screen once in this game, spelled
+ * out on the reveal, so printing it again is asking the eye a question the eye
+ * has answered. Asking the ear is the part that is still open.
+ */
+export function retryAsks(level: VocabLevel): VocabAsk {
+  return level === 'fluent' ? 'say' : 'hear';
+}
 
 /** The word a clue was pointing at, as the board should draw it. */
 export interface VocabAnswer {
@@ -485,7 +614,49 @@ export interface VocabAnswer {
    * cannot get through a sentence without, `#870` is one you are learning.
    */
   rank: number;
+  /**
+   * Other words in the language that would also have been accepted, commonest
+   * first, at most `ALSO_SHOWN`.
+   *
+   * This is `accepts` made visible, and it is the only thing on the reveal that
+   * the game already knew and never said. Point 3 in the reducer spends real
+   * complexity being generous about synonyms -- `accepts` is every word filed
+   * under any of the clue's senses -- and before this the only way a player
+   * ever found that out was by accidentally typing one. A learner who answered
+   * "small" with the wrong word for small was told they were wrong and shown
+   * one right answer, when the game was holding three.
+   *
+   * Built in `vocabDictionary`, where the sense index is, and empty in phrase
+   * mode, where there is no list of words to be a synonym in. Inflections of
+   * the answer's own lemma are filtered out there too: `być` listing `jestem`
+   * as an alternative is the dictionary talking to itself.
+   *
+   * **Redacted with `lemma` and `rank` on a choosing round**, and it has to be:
+   * these are words meaning the same thing as the answer, so on a `pick` they
+   * would narrow four options to one, and on a `hear` they would put the
+   * spelling on screen and answer the question outright.
+   */
+  also: VocabAlso[];
 }
+
+/** One of the other words a clue would have taken. See `VocabAnswer.also`. */
+export interface VocabAlso {
+  /** As it should be read: Polish with its diacritics, Japanese in romaji. */
+  word: string;
+  /** Japanese in its own script. Empty for Polish. */
+  script: string;
+}
+
+/**
+ * How many alternatives the reveal prints.
+ *
+ * Three. The reveal is six seconds long and already carries the word, its
+ * script, its rank and a payout line, and a common Polish adjective can have
+ * twenty acceptable synonyms: printing them all would bury the answer under a
+ * thesaurus. Three is enough to make the point that the game was generous and
+ * few enough to read in the time available.
+ */
+export const ALSO_SHOWN = 3;
 
 /**
  * How a seat's round ended. Everything but `right` scores nothing.
@@ -650,6 +821,17 @@ export interface VocabRound {
    * one try per seat and the review never has a hole in it.
    */
   tries: VocabTry[];
+  /**
+   * Whether this clue is coming round a second time because the table missed
+   * it. See `RETRY_AFTER`.
+   *
+   * Read three ways and they are all worth having: the board says so above the
+   * clue, so a second showing is recognisably a second chance rather than the
+   * game repeating itself; `settle` reads it to make sure a word is only ever
+   * requeued once; and `draw` reads it to know that this one clue is allowed
+   * past the already-asked filter.
+   */
+  retry: boolean;
 }
 
 export interface VocabState {
@@ -711,6 +893,20 @@ export interface VocabState {
   study: StudyLists;
   /** How far into the deck the game has read. Harmless on its own. */
   drawn: number;
+  /**
+   * Clues nobody got, waiting to be asked again. See `RETRY_AFTER`.
+   *
+   * **Redacted to an empty array by `view()`**, for the same reason the deck
+   * is: it is a list of questions this game is about to ask, and a client
+   * holding it beside a downloadable word list is a client that knows what is
+   * coming. It leaks slightly worse than the deck does, in fact, since every
+   * rank on it is one the table has already seen the answer to.
+   *
+   * A list rather than a single pending rank because two rounds can be missed
+   * before either comes back round, and dropping one on the floor would make
+   * the feature depend on how badly the table was doing.
+   */
+  retry: VocabRetry[];
   /** What the current phase ends at. Null only before the room is full. */
   deadline: number | null;
   /**
@@ -1012,7 +1208,7 @@ export function roundPoints(
   const scaled =
     rarity *
     (1 + SPEED_BONUS * left) *
-    (ask === 'pick' ? PICK_SCALE : 1) *
+    askScale(ask) *
     (hinted ? HINT_SCALE : 1);
   return Math.max(1, Math.round(scaled));
 }
