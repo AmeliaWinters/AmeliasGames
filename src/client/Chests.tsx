@@ -17,10 +17,18 @@
  * either way, because from where the player is standing it is the same act.
  *
  * A press here and a press in the gacha dialog spend the same purse on the
- * same act, and they used to move like two different apps: the pull cycled
- * portraits behind a blur, this one pulsed a border and then had the item.
- * Both now spin through what is actually in the box and slow into the answer,
- * out of `roll.ts` and `roll.css`. See `Spinning` below.
+ * same act, and they used to move like two different apps. Everything about
+ * how either of them *feels* now lives in three shared files: `roll.ts` for
+ * the timing, `roll.css` for the movement, and `RollTheatre.tsx` for the
+ * takeover both of them happen inside. What is left in here is what a chest
+ * is: a grid of sets, a purse, and what came out.
+ *
+ * **The reveal is a blackout, and that reverses an argument this file used to
+ * make.** It said a reveal belonged on the card because a modal has to be
+ * dismissed and opening several in a row is the ordinary case. That was right
+ * about the cost and wrong about the fix: the answer is a button that opens
+ * the next one without leaving, which is what `ChestTheatre` puts under the
+ * drop. A 13rem card was never going to hold a moment worth a hundred GP.
  *
  * The screen is a grid over `SETS` rather than four hand-placed cards, so a
  * fifth set costs a folder of art and a manifest line here as well. The gacha
@@ -37,6 +45,7 @@ import { Avatar, SetCover } from "./avatar/Avatar.js";
 import { partOf, partsIn, SETS, starterFor } from "./avatar/manifest.js";
 import { bareId, isColourId } from "./avatar/wardrobeSplit.js";
 import { mintNonce, openChest, type ChestError, type ChestOpened } from "./chestApi.js";
+import { RollTheatre } from "./RollTheatre.js";
 import { WaifuRoll } from "./WaifuRoll.js";
 import type { Rolled } from "./waifuApi.js";
 import type { AvatarSet, Loadout, PartId, Slot } from "./avatar/types.js";
@@ -53,7 +62,7 @@ interface Props {
   /** Hands back the new owned list and profile so the app can cache both. */
   onOpened(result: ChestOpened): void;
   onBack(): void;
-  /** Wear the thing that just came out. Never automatic; see `Reveal`. */
+  /** Wear the thing that just came out. Never automatic; see `ChestTheatre`. */
   onEquip(set: string, drop: string): void;
   /** Open The Polycule, the shelf a pull lands on. See `App.tsx` for why
       that is a route on the lobby and a layer over a room. */
@@ -76,6 +85,9 @@ type Phase =
   | { at: "opening"; set: string }
   | { at: "opened"; set: string; result: ChestOpened }
   | { at: "failed"; set: string; nonce: string; error: ChestError };
+
+/** Everything except `idle`, which is to say every state the takeover is up in. */
+type Busy = Exclude<Phase, { at: "idle" }>;
 
 export function Chests({
   profile,
@@ -104,16 +116,44 @@ export function Chests({
   const rollPurse = purseOf(spendable, ROLL_COST);
   const rollable = rollPurse.ready > 0;
 
+  /* Which face the spin is on. Screen-level rather than per-card, which is
+     what moving the reveal into a takeover bought: there is exactly one spin
+     on this screen, and the card it came from is behind a blackout. */
+  const [step, setStep] = useState(0);
+  /* Asked once, as the pull asks it. A preference that changes mid-request is
+     not worth a subscription, and every caller of it here is deciding whether
+     to animate or to go straight to the answer. */
+  const [still] = useState(wantsStillness);
+  /* The way to stop the spin, not the spin itself: `startSpin` hands back a
+     cancel because its gaps are unequal and there is no single interval. */
+  const stop = useRef<(() => void) | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    return () => {
+      alive.current = false;
+      stop.current?.();
+    };
+  }, []);
+
   async function open(setId: string, reuse?: string): Promise<void> {
     if (phase.at === "opening") return;
     const nonce = reuse ?? mintNonce();
     setPhase({ at: "opening", set: setId });
+    setStep(0);
+    stop.current?.();
+    stop.current = null;
+    /* The spin walks parts of the set being opened, so what goes past is
+       genuinely what is in the box. A set with no parts at all would spin
+       nothing, and a ticker with nothing to show is a ticker not worth
+       starting. */
+    const spun = SETS.find((each) => each.id === setId);
+    if (!still && (spun?.parts.length ?? 0) > 0) stop.current = startSpin(setStep);
 
     const began = Date.now();
     const answer = await openChest(setId, nonce);
     /* The same floor the pull waits out, and the reason it is here is that
        this screen did not have one. A chest is a single request and the server
-       answers in a few milliseconds, so the spin below would start and stop
+       answers in a few milliseconds, so the spin above would start and stop
        inside one frame -- which is what the old border pulse did, and why the
        cheaper-feeling of these two hundred-GP presses was this one.
 
@@ -122,13 +162,14 @@ export function Chests({
        waits it out too, on purpose -- an error that appears instantly while a
        success takes two seconds teaches that the fast answer is the bad one.
 
-       Not applied when the movement is unwanted: `Spinning` never starts its
-       ticker for somebody who asked for less motion, and a floor with nothing
-       moving behind it is a screen that has simply stopped. */
-    if (!wantsStillness()) {
-      const left = Math.max(0, SPIN_MS - (Date.now() - began));
-      await new Promise((done) => setTimeout(done, left));
-    }
+       Not applied when the movement is unwanted: nothing is spinning for
+       somebody who asked for less motion, and a floor with nothing moving
+       behind it is a screen that has simply stopped. */
+    const left = Math.max(0, SPIN_MS - (Date.now() - began));
+    await new Promise((done) => setTimeout(done, still ? 0 : left));
+    if (!alive.current) return;
+    stop.current?.();
+    stop.current = null;
 
     if (!answer.ok) {
       setPhase({ at: "failed", set: setId, nonce, error: answer.error });
@@ -235,14 +276,25 @@ export function Chests({
                ignored has to look ignorable before it is made. */
             affordable={affordable && phase.at !== "opening"}
             focused={focus === set.id}
-            phase={phase}
             onOpen={() => void open(set.id)}
-            onRetry={(nonce) => void open(set.id, nonce)}
-            onEquip={onEquip}
-            onDismiss={() => setPhase({ at: "idle" })}
           />
         ))}
       </div>
+
+      {/* The press, and everything it bought. Over the whole screen rather
+          than on the card, and the same layer the gacha's pull lands in. */}
+      {phase.at !== "idle" && (
+        <ChestTheatre
+          phase={phase}
+          step={step}
+          still={still}
+          affordable={affordable}
+          onEquip={onEquip}
+          onAgain={() => void open(phase.set)}
+          onRetry={() => void open(phase.set, phase.at === "failed" ? phase.nonce : undefined)}
+          onDismiss={() => setPhase({ at: "idle" })}
+        />
+      )}
 
       {/* The pull, over the shop rather than through a door out of it.
           Pressing the card used to navigate to The Polycule -- a shelf with a
@@ -363,26 +415,26 @@ function GachaCard({
   );
 }
 
+/**
+ * One set, as a card.
+ *
+ * It knows nothing about what a press leads to any more. That was four props
+ * -- the phase, a retry, an equip and a dismiss -- threaded through a card so
+ * it could draw a reveal in its own bottom third, and every one of them went
+ * when the reveal became a takeover the screen owns.
+ */
 function ChestCard({
   set,
   wardrobe,
   affordable,
   focused,
-  phase,
   onOpen,
-  onRetry,
-  onEquip,
-  onDismiss,
 }: {
   set: AvatarSet;
   wardrobe: Set<string>;
   affordable: boolean;
   focused: boolean;
-  phase: Phase;
   onOpen(): void;
-  onRetry(nonce: string): void;
-  onEquip(set: string, drop: string): void;
-  onDismiss(): void;
 }) {
   const pool = wardrobeSet(set.id);
   const total = pool?.pool.length ?? 0;
@@ -393,13 +445,8 @@ function ChestCard({
   // and a roll" is a very different offer from "one hair clip".
   const first = pool !== undefined && !pool.floor.some((id) => wardrobe.has(id));
 
-  const mine = phase.at !== "idle" && phase.set === set.id;
-  const busy = mine && phase.at === "opening";
-
   return (
-    <article
-      className={`chest-card${focused ? " chest-card-focus" : ""}${busy ? " chest-card-opening" : ""}`}
-    >
+    <article className={`chest-card${focused ? " chest-card-focus" : ""}`}>
       <SetCover set={set} className="chest-art" />
 
       <div className="chest-meta">
@@ -425,75 +472,64 @@ function ChestCard({
       {complete ? (
         <p className="chest-done">Nothing left to find.</p>
       ) : (
-        <button
-          type="button"
-          className="primary chest-open"
-          disabled={!affordable || busy}
-          onClick={onOpen}
-        >
+        <button type="button" className="primary chest-open" disabled={!affordable} onClick={onOpen}>
           {/* The price is on the button rather than only in the header,
               because the button is what somebody is looking at when they
               decide. "Start this set" carries it too: a first chest costs the
               same hundred and hands over the whole floor with it. */}
-          {busy
-            ? "Opening..."
-            : first
-              ? `Start this set, ${CHEST_COST}`
-              : `Open a chest, ${CHEST_COST}`}
+          {first ? `Start this set, ${CHEST_COST}` : `Open a chest, ${CHEST_COST}`}
         </button>
-      )}
-
-      {/* The wait, spent on the contents rather than on a border. See
-          `Spinning`: it stands exactly where the reveal is about to, so the
-          answer replaces it in place. */}
-      {busy && <Spinning set={set} />}
-
-      {mine && phase.at === "opened" && (
-        <Reveal set={set} result={phase.result} onEquip={onEquip} onDismiss={onDismiss} />
-      )}
-
-      {mine && phase.at === "failed" && (
-        <p className="chest-error" role="status">
-          {phase.error === "no-account"
-            ? "You need an account for this. Make one from the menu."
-            : phase.error === "offline"
-              ? "That did not reach the server."
-              : "That did not work."}{" "}
-          {phase.error !== "no-account" && (
-            <button type="button" className="chest-retry" onClick={() => onRetry(phase.nonce)}>
-              Try again
-            </button>
-          )}
-        </p>
       )}
     </article>
   );
 }
 
 /**
- * The wait, spent showing what is in the box.
+ * The press, from the first frame to the way out.
  *
- * A chest is one request and on a good connection it answers in a few
- * milliseconds, so the press used to have no beat at all: a border pulsed for
- * a frame or two and then the item was simply there. The gacha, which costs
- * the same hundred, spun through faces for the best part of two seconds. The
- * cheaper-feeling of the two was the one with more in it.
+ * Everything a chest does once it has been pressed is in here, and all of it
+ * is fed to `RollTheatre`, which is the same layer a gacha pull lands in.
+ * This component's whole job is to answer three questions on the chest's
+ * behalf: what is spinning, what came out, and what to offer next.
  *
- * So this cycles pieces out of the set being opened -- real parts, drawn by
- * the same `Avatar` the reveal draws its drop with -- and it slows as it goes,
- * on `roll.ts`'s schedule, which is the schedule the pull uses. Anything that
- * lands could genuinely come out of this chest, so the spin is not decoration:
- * it is the answer to "what is in here", asked at the only moment somebody is
- * definitely wondering.
+ * **Nothing is equipped automatically.** A chest that silently changed the
+ * face somebody had built would be taking something away to give something,
+ * and the whole point of the no-duplicates rule is that a chest only ever
+ * adds. So the drop is shown, and wearing it is a press.
  *
- * It is stopped by unmounting, which is what `phase` leaving `opening` does,
- * so there is no cancel to get wrong -- the effect's own teardown is it.
+ * **A refusal is not a present and is not paced like one.** The theatre is
+ * already up when the server says no, so it stays up and simply does not
+ * celebrate: no burst, no stagger, no noise, and the text is the whole of it.
+ * None of these cost anything -- `applyChest` refuses before it charges -- and
+ * saying so is the job, since somebody who has watched a button do nothing
+ * will assume it took their hundred.
  */
-function Spinning({ set }: { set: AvatarSet }) {
+function ChestTheatre({
+  phase,
+  step,
+  still,
+  affordable,
+  onEquip,
+  onAgain,
+  onRetry,
+  onDismiss,
+}: {
+  phase: Busy;
+  step: number;
+  still: boolean;
+  affordable: boolean;
+  onEquip(set: string, drop: string): void;
+  onAgain(): void;
+  onRetry(): void;
+  onDismiss(): void;
+}) {
+  const set = SETS.find((each) => each.id === phase.set);
+
   /* One loadout per part, the starter wearing that part. Not every drop is a
      part -- a colour is a drop too -- but a swatch flicking past at speed is a
      square changing colour, which reads as a glitch rather than as contents. */
   const faces = useMemo(() => {
+    if (!set) return [] as Loadout[];
     const base = starterFor(set);
     return set.parts.map((part) => ({
       ...base,
@@ -501,166 +537,165 @@ function Spinning({ set }: { set: AvatarSet }) {
     })) as Loadout[];
   }, [set]);
 
-  const [step, setStep] = useState(0);
-  /* Asked once, as the pull asks it: a preference that changes mid-request is
-     not worth a subscription. When it is set the spin never starts, so the box
-     is one still piece of the set with the line under it, which is the honest
-     shape of "this is being opened" without anything moving. */
-  const [still] = useState(wantsStillness);
-  useEffect(() => {
-    if (still || faces.length === 0) return;
-    return startSpin(setStep);
-  }, [still, faces.length]);
+  if (!set) return null;
 
-  if (faces.length === 0) return null;
-  /* Hidden from a screen reader, all of it. The button beside this already
-     says "Opening..." and is the thing that was pressed; a second live region
-     saying the same word, over a picture whose whole point is that it is not
-     the answer yet, is noise. The gacha's stage is silent for the same reason
-     -- its faces carry an empty `alt`. */
-  return (
-    <div className="chest-spin" aria-hidden="true">
-      <Avatar
-        loadout={faces[spinFace(step, faces.length)]}
-        crop="bust"
-        initial="?"
-        className={`chest-drop-art${still ? "" : " roll-art-spin"}`}
+  if (phase.at === "opening") {
+    return (
+      <RollTheatre
+        at="charging"
+        label={`Opening a chest in ${set.name}`}
+        step={step}
+        /* No way out while a paid-for chest is in flight. It is the one press
+           on this screen that could lose something. */
+        onDismiss={null}
+        art={
+          faces.length > 0 ? (
+            <Avatar
+              loadout={faces[spinFace(step, faces.length)]}
+              crop="bust"
+              initial="?"
+              className={`roll-hero${still ? "" : " roll-art-spin"}`}
+            />
+          ) : undefined
+        }
+        lines={<p className="chest-drop-note">{set.name}</p>}
       />
-    </div>
-  );
-}
+    );
+  }
 
-/**
- * What came out.
- *
- * **Nothing is equipped automatically.** A chest that silently changed the
- * face somebody had built would be taking something away to give something,
- * and the whole point of the no-duplicates rule is that a chest only ever
- * adds. So the drop is shown, and wearing it is a press.
- *
- * The animation this wants is deliberately not here. The Browser pane cannot
- * composite frames, so anything driven by `requestAnimationFrame` cannot be
- * checked at all (see CLAUDE.md); a CSS transition on this element can be
- * measured by `css.test.ts` instead, which is why the class is on the wrapper
- * and the reveal is a state change rather than a timeline.
- */
-function Reveal({
-  set,
-  result,
-  onEquip,
-  onDismiss,
-}: {
-  set: AvatarSet;
-  result: ChestOpened;
-  onEquip(set: string, drop: string): void;
-  onDismiss(): void;
-}) {
-  // A refusal is not nothing happening. The server can say no to a press this
-  // screen believed in -- a balance spent in another tab, a set finished
-  // somewhere else, a set the art no longer has -- and the old code returned
-  // null here, so the button un-busied and the screen said nothing at all. A
-  // press that appears to do nothing is read as a broken button and pressed
-  // again, which is the worst thing this particular screen could teach.
-  if (!result.drop) return <Refused refusal={result.refusal} onDismiss={onDismiss} />;
+  if (phase.at === "failed") {
+    return (
+      <RollTheatre
+        at="plain"
+        label="That chest did not open"
+        onDismiss={onDismiss}
+        lines={
+          <p className="chest-drop-name">
+            {phase.error === "no-account"
+              ? "You need an account for this. Make one from the menu."
+              : phase.error === "offline"
+                ? "That did not reach the server."
+                : "That did not work."}
+          </p>
+        }
+        acts={
+          <>
+            {/* Retried with the *same* nonce, which is the whole of the
+                double-charge defence on this side. See `chestApi.ts`. */}
+            {phase.error !== "no-account" && (
+              <button type="button" className="primary" onClick={onRetry}>
+                Try again
+              </button>
+            )}
+            <button type="button" onClick={onDismiss}>
+              Done
+            </button>
+          </>
+        }
+      />
+    );
+  }
+
+  const result = phase.result;
+
+  if (!result.drop) {
+    const said =
+      result.refusal === "too-poor"
+        ? "Not enough to spend yet. Nothing was taken."
+        : result.refusal === "complete"
+          ? "You already have everything in this set."
+          : "That set is not here any more.";
+    return (
+      <RollTheatre
+        at="plain"
+        label="Nothing was opened"
+        onDismiss={onDismiss}
+        lines={<p className="chest-drop-name">{said}</p>}
+        acts={
+          <button type="button" onClick={onDismiss}>
+            Done
+          </button>
+        }
+      />
+    );
+  }
+
   const named = describe(set, result.drop);
   const pool = wardrobeSet(set.id);
   const left = pool ? pool.pool.length - ownedIn(pool, new Set(result.owned)) : 0;
 
   return (
-    <div className="chest-reveal roll-panel" role="status">
-      {named.preview && (
-        <Avatar
-          loadout={named.preview}
-          crop="bust"
-          initial="?"
-          className="chest-drop-art roll-land"
-        />
-      )}
-      {named.swatch && (
-        <span className="chest-drop-chip roll-land" style={{ background: named.swatch }} />
-      )}
-
-      <p className="chest-drop-name roll-say">{named.name}</p>
-      {/* What the drop cost the pool. The number is the point of the screen and
-          it was only ever on the card behind the reveal, where it is covered at
-          the exact moment somebody wants it. */}
-      <p className="chest-drop-note roll-say-late">
-        {left === 0
-          ? `That was the last of ${set.name}.`
-          : `${left} left in ${set.name}.`}
-      </p>
-      {result.repeat && (
-        <p className="chest-drop-note roll-say-late">You already had this one open.</p>
-      )}
-      {result.granted.length > 0 && (
-        <p className="chest-drop-note roll-say-late">
-          And the {result.granted.length} pieces {set.name} starts with.
-        </p>
-      )}
-
-      <div className="chest-drop-acts roll-say-late">
-        {named.wearable && (
-          <button
-            type="button"
-            className="primary"
-            /* Closing on the way out. The account screen navigates to the
-               customiser and this unmounts anyway, but the copy of this
-               screen that opens over a room does not go anywhere, and there
-               the reveal used to sit on the card afterwards saying "Wear it"
-               about a thing already being worn. */
-            onClick={() => {
-              onEquip(set.id, result.drop!);
-              onDismiss();
-            }}
-          >
-            Wear it
+    <RollTheatre
+      at="landed"
+      label={`You opened ${named.name}`}
+      onDismiss={onDismiss}
+      art={
+        named.preview ? (
+          <Avatar loadout={named.preview} crop="bust" initial="?" className="roll-hero" />
+        ) : named.swatch ? (
+          /* A colour, drawn at the size everything else lands at. It used to
+             be a 2.5rem pill under a heading, which made the one drop that is
+             *only* a colour the one drop that looked like a footnote. */
+          <span
+            className="roll-hero chest-drop-chip"
+            style={{ background: named.swatch }}
+            aria-hidden="true"
+          />
+        ) : undefined
+      }
+      lines={
+        <>
+          <p className="chest-drop-name roll-say">{named.name}</p>
+          {/* What the drop cost the pool. The number is the point of the
+              screen and it was only ever on the card behind the reveal, where
+              it is covered at the exact moment somebody wants it. */}
+          <p className="chest-drop-note roll-say-late">
+            {left === 0 ? `That was the last of ${set.name}.` : `${left} left in ${set.name}.`}
+          </p>
+          {result.repeat && (
+            <p className="chest-drop-note roll-say-late">You already had this one open.</p>
+          )}
+          {result.granted.length > 0 && (
+            <p className="chest-drop-note roll-say-late">
+              And the {result.granted.length} pieces {set.name} starts with.
+            </p>
+          )}
+        </>
+      }
+      acts={
+        <div className="chest-drop-acts roll-say-late">
+          {named.wearable && (
+            <button
+              type="button"
+              className="primary"
+              /* Closing on the way out. The account screen navigates to the
+                 customiser and this unmounts anyway, but the copy of this
+                 screen that opens over a room does not go anywhere, and there
+                 the reveal used to sit on the card afterwards saying "Wear it"
+                 about a thing already being worn. */
+              onClick={() => {
+                onEquip(set.id, result.drop!);
+                onDismiss();
+              }}
+            >
+              Wear it
+            </button>
+          )}
+          {/* The answer to the objection a takeover raises. Opening several in
+              a row is the ordinary case, and this is what stops the blackout
+              costing a dismissal every time: the next chest starts from here,
+              and the layer never comes down. */}
+          {left > 0 && affordable && (
+            <button type="button" onClick={onAgain}>
+              Open another, {CHEST_COST}
+            </button>
+          )}
+          <button type="button" onClick={onDismiss}>
+            Done
           </button>
-        )}
-        <button type="button" onClick={onDismiss}>
-          Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The server said no.
- *
- * Worth a component rather than a line, because each of these is a different
- * instruction and only one of them is worth retrying. None of them cost
- * anything -- `applyChest` refuses before it charges -- and saying so is the
- * whole job, since somebody who has just watched a button do nothing will
- * assume it took their hundred.
- */
-function Refused({
-  refusal,
-  onDismiss,
-}: {
-  refusal: ChestOpened["refusal"];
-  onDismiss(): void;
-}) {
-  const said =
-    refusal === "too-poor"
-      ? "Not enough to spend yet. Nothing was taken."
-      : refusal === "complete"
-        ? "You already have everything in this set."
-        : "That set is not here any more.";
-
-  return (
-    /* No `roll-panel` and no stagger. A refusal is not a present and is not
-       paced like one: it is the answer to a question, so it arrives at once.
-       It used to carry a `chest-reveal-no` class whose only job was to cancel
-       three animations this element no longer asks for, so the class went with
-       them. */
-    <div className="chest-reveal" role="status">
-      <p className="chest-drop-name">{said}</p>
-      <div className="chest-drop-acts">
-        <button type="button" onClick={onDismiss}>
-          Done
-        </button>
-      </div>
-    </div>
+        </div>
+      }
+    />
   );
 }
 

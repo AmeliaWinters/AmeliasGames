@@ -12,10 +12,14 @@
    because the card list is a map over `SETS` and a fifth set has to land
    without anyone editing this file.
 
-   The spin and the reveal are not in this file. A chest and a gacha pull are
-   the same hundred GP spent on the same press, and they moved like two
-   different apps until `roll.css` became the one place either of them gets its
-   movement from; what is left here is this screen's layout. */
+   The spin and the reveal are not in this file, and by now neither is the
+   *screen* they happen on. A chest and a gacha pull are the same hundred GP
+   spent on the same press, and they moved like two different apps until
+   `roll.css` became the one place either of them gets its movement from; the
+   takeover both of them now land in is in there too. What is left here is the
+   shop: a header, a grid and a card. The drop's own lines are still here,
+   because the words on a chest are a chest's business, but the box they arrive
+   in is `.roll-show`. */
 
 .chests {
   display: grid;
@@ -165,72 +169,15 @@
   min-height: 44px;
 }
 
-/* The wait, such as it is.
-
-   A chest is one request and on a good connection it answers in a few
-   milliseconds, so without this the item is simply there and the press had no
-   beat. The beat is now the spin itself -- see `.chest-spin` below and
-   `roll.ts` -- and this is only the card saying which of the four is the one
-   doing it. It was a pulsing border because there was nothing else; a border
-   that pulses forever beside a picture that is already moving is two answers
-   to one question, so it holds still now. */
-.chest-card-opening {
-  border-color: var(--accent);
-}
-
-/* The spin, in the slot the reveal is about to take.
-
-   The card cycles pieces out of the set it is opening, which is the whole
-   reason this is worth doing on a chest rather than only on a pull: the
-   pictures going past are the actual contents of the box, so the wait says
-   what is in it. Same size, same padding and same border as `.chest-reveal`,
-   so the answer replaces the spin in place rather than resizing the card
-   underneath somebody's thumb. */
-.chest-spin {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: center;
-  text-align: center;
-  padding: 0.6rem;
-  border-radius: calc(var(--panel-radius) - 2px);
-  border: 1px solid var(--accent);
-}
-
-/* What came out. A block under the button rather than a dialog over the
-   screen: a modal would have to be dismissed before the next chest, and
-   opening several in a row is the ordinary case.
-
-   Staggered rather than dropped in whole, and the stagger is `roll.css`: the
-   markup wears `roll-panel` on this box, `roll-land` on the item, `roll-say`
-   and `roll-say-late` on the lines under it. Word for word what the gacha's
-   reveal wears, which is the point -- these two were the same press paced two
-   different ways, and a comment claiming they matched was the only thing
-   holding them together.
-
-   A refusal is not a present and is not paced like one. `Refused` carries no
-   `roll-*` class at all, so it arrives at once, as the answer to a question. */
-.chest-reveal {
-  display: grid;
-  gap: 0.4rem;
-  justify-items: center;
-  text-align: center;
-  padding: 0.6rem;
-  border-radius: calc(var(--panel-radius) - 2px);
-  border: 1px solid var(--accent);
-}
-
-.chest-drop-art {
-  width: 60%;
-  aspect-ratio: 1;
-  border-radius: calc(var(--panel-radius) - 2px);
-}
-
 /* The one colour on this screen that is not a token. It is a picture of the
-   art, not chrome. See the note at the top and `Variant` in `types.ts`. */
+   art, not chrome. See the note at the top and `Variant` in `types.ts`.
+
+   Nothing but the border. It used to be a 2.5rem pill under a heading, which
+   made the one drop that is *only* a colour the one drop that looked like a
+   footnote; it is drawn at `.roll-hero`'s size in the takeover now, and the
+   size and the radius have to come from there rather than from here, since
+   this file is imported after `roll.css` and would win. */
 .chest-drop-chip {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 999px;
   border: 1px solid var(--rule-hi);
 }
 
@@ -266,18 +213,6 @@
   color: var(--muted);
   text-decoration: underline;
   text-decoration-color: var(--rule-hi);
-}
-
-.chest-error {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--ink);
-}
-
-.chest-retry {
-  min-height: 44px;
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

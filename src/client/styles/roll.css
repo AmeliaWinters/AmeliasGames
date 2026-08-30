@@ -17,14 +17,357 @@
    cannot walk a list. Everything around it is `animation-delay` on a state
    change, so `css.test.ts` can resolve the declarations and assert the order
    -- the Browser pane never composites a frame, so an unlooked-at animation
-   is one a tidy-up deletes. See CLAUDE.md. */
+   is one a tidy-up deletes. See CLAUDE.md.
 
-/* The box a spin happens in, while it is happening. A ring that says this
-   thing is busy, rather than a spinner somewhere else on the screen saying it
-   on the page's behalf. */
-.roll-stage-spin {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+   The file is in two halves. The `roll-say` / `roll-land` stagger at the
+   bottom is the older one and is unchanged; the theatre above it is the
+   takeover both spends now happen inside, and `RollTheatre.tsx` is the markup
+   that wears it. A card-sized reveal was never going to be worth a hundred
+   GP, and two screens each growing their own idea of a big moment is the
+   thing this file exists to prevent.
+
+   **Every colour in the burst is `--accent` and there is only one of it.**
+   Not laziness: `chest.ts` has no rarity, no weights and no pity timer, so a
+   gold burst and a blue one would be a tier system invented in a stylesheet
+   about a decision the server never makes. */
+
+/* The takeover.
+
+   Over the gacha dialog's own 40, because for the gacha this is drawn on top
+   of the dialog that launched it rather than instead of it: the terms, the
+   balance and the pool are still behind, and they are what somebody comes
+   back to. Nothing else in this app goes above 40. */
+.roll-theatre {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  /* The rays are deliberately wider than the screen. Without this they give
+     the page a scrollbar and drag the whole layout sideways. */
+  overflow: hidden;
+  background: color-mix(in srgb, var(--hole) 92%, transparent);
+  /* **This animation is the only thing making the layer visible**, so the
+     reduced-motion block at the bottom has to keep naming `.roll-theatre` --
+     `animation: none` there is what leaves it at its own opacity of 1. Drop it
+     and somebody who asked for less motion gets a chest that opens into
+     nothing at all. `css.test.ts` asserts the selector is still in that block
+     for exactly this reason. */
+  animation: roll-open 180ms ease-out both;
+}
+
+@keyframes roll-open {
+  from {
+    opacity: 0;
+  }
+}
+
+/* One wrapper whose only job is to be shaken. It exists because the rumble
+   and the kick would otherwise share an element with `roll-panel` or
+   `roll-land`, and an element carrying two animations is one where adding a
+   third silently drops the first. */
+.roll-quake {
+  display: grid;
+  place-items: center;
+  width: 100%;
+}
+
+/* The anticipation. Small, fast and symmetric: it is under a picture that is
+   already tilting on `roll-art-spin`, and two big movements at once reads as a
+   page failing rather than as a machine working. */
+.roll-theatre[data-at="charging"] .roll-quake {
+  animation: roll-rumble 200ms ease-in-out infinite alternate;
+}
+
+@keyframes roll-rumble {
+  from {
+    transform: translate3d(-2px, 1px, 0) rotate(-0.25deg);
+  }
+  to {
+    transform: translate3d(2px, -1px, 0) rotate(0.25deg);
+  }
+}
+
+/* The impact. One kick, out of the burst and into the resting size, and it is
+   over before the name arrives at 460ms. */
+.roll-theatre[data-at="landed"] .roll-quake {
+  animation: roll-kick 400ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes roll-kick {
+  from {
+    transform: scale(1.06);
+  }
+  40% {
+    transform: scale(0.985);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.roll-show {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  width: min(22rem, 100%);
+  text-align: center;
+}
+
+/* The picture, and the box the sweep is clipped to.
+
+   Three caps, and each is a viewport that was actually measured rather than a
+   number that looked right.
+
+   `40vh` is the one doing the work, and it is not about width at all: the
+   gacha's portrait is 3:4, so a width chosen against `vw` decides a *height*
+   two thirds larger, and on an 812x375 landscape phone that puts the buttons
+   off the bottom of a layer with no scrollbar. At 40vh the whole of it lands
+   in 337 of the 375 available.
+
+   `20rem` caps the desktop, where the other two stop biting at about 1280 and
+   a picture sized against the viewport becomes a poster. `100%` is the floor
+   under both.
+
+   What this deliberately does *not* try to be is bigger than the card it
+   replaced. On a phone the shop is one full-width column, so the card's own
+   art is 364 to this 320, and chasing that number costs the landscape case for
+   4% of a picture. The takeover is not worth a hundred GP because it is large;
+   it is worth it because nothing else is on the screen and there is light
+   coming off it. On a desktop, where the shop is a grid of 13rem cards, it is
+   320 against 217 and the difference is obvious anyway. */
+.roll-figure {
+  position: relative;
+  width: min(100%, 40vh, 20rem);
+  overflow: hidden;
+  border-radius: calc(var(--panel-radius) - 2px);
+}
+
+/* What the callers hang in it. Square by default, since a wardrobe part is;
+   `.roll-hero-tall` is the gacha's portrait, which is 3:4 off somebody else's
+   CDN and has to be cropped rather than squashed. */
+.roll-hero {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: inherit;
+}
+
+.roll-hero-tall {
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  /* A portrait that has not arrived is a shape and not a hole. */
+  background: var(--rule);
+}
+
+/* The holographic sweep. Pure decoration and the only thing in here that
+   admits it: it is also what makes an ordinary drop look like it was worth
+   opening, which is the whole brief. */
+.roll-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    color-mix(in srgb, var(--accent) 45%, transparent) 50%,
+    transparent 62%
+  );
+  /* Invisible until its own keyframes raise it. See the note on
+     `.roll-flash`: nothing in the burst may be visible by default. */
+  opacity: 0;
+  animation: roll-shine 720ms ease-out 460ms both;
+}
+
+@keyframes roll-shine {
+  from {
+    transform: translateX(-150%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(150%);
+    opacity: 0;
+  }
+}
+
+.roll-lines {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.roll-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.roll-acts button {
+  min-height: 44px;
+}
+
+/* The light. Four layers, all of them drawn with gradients and borders rather
+   than with an image, so it themes with the palette and ships nothing. */
+.roll-burst {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  /* One cell, pinned to the layer, and it is load bearing. Without it the
+     implicit track sizes itself to the largest item -- the rays are 200vmax --
+     so the track came out 1688px wide inside a 390px phone, every layer was
+     centred in *that* rather than in the screen, and the whole burst sat off
+     to the right where `overflow: hidden` clipped it. The flash was the only
+     part of it anybody ever saw, because the flash is the one layer that is
+     absolutely positioned instead. */
+  grid-template: 100% / 100%;
+  place-items: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Stacked in one cell rather than absolutely placed, so the ring, the rays and
+   the sparks all share a centre without any of them being given coordinates. */
+.roll-burst > * {
+  grid-area: 1 / 1;
+}
+
+.roll-rays {
+  /* Twice the longer edge, so the spokes still reach the corners at the far
+     end of the rotation below. */
+  width: 200vmax;
+  height: 200vmax;
+  border-radius: 50%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--accent) 55%, transparent) 0deg 4deg,
+    transparent 4deg 15deg
+  );
+  /* Faded out towards the rim so it reads as light coming off the middle
+     rather than as a wheel laid over the page. The two stops are measured
+     against the screen and not chosen: `closest-side` resolves against this
+     element's own 200vmax, so the first pass at 6% and 60% put the whole fade
+     inside a 400px circle and the rays came out as a warm haze round the drop
+     with no spokes in them at all.
+
+     `currentColor` rather than a literal black: a mask reads alpha and nothing
+     else, and this file names no colour the palette did not give it. */
+  -webkit-mask-image: radial-gradient(closest-side, currentColor 12%, transparent 82%);
+  mask-image: radial-gradient(closest-side, currentColor 12%, transparent 82%);
+  opacity: 0;
+  animation: roll-rays 1100ms ease-out both;
+}
+
+@keyframes roll-rays {
+  from {
+    transform: rotate(-14deg) scale(0.25);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  to {
+    transform: rotate(10deg) scale(1);
+    opacity: 0;
+  }
+}
+
+.roll-wave {
+  width: 11rem;
+  height: 11rem;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  animation: roll-wave 620ms cubic-bezier(0.2, 0.8, 0.3, 1) 60ms both;
+}
+
+@keyframes roll-wave {
+  from {
+    transform: scale(0.2);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+/* The frame that hides the swap. It peaks at 12% of its own life and is gone
+   inside half a second, which is the whole trick: the picture underneath
+   changes from the last spun face to the real drop while this is over it. */
+.roll-flash {
+  position: absolute;
+  inset: 0;
+  /* Radial, and that was the difference between a burst and a bug. Flat
+     `--accent` across the whole layer washed the scrim out to an even sheet
+     and let the page behind read faintly through it, so the frame looked like
+     the app had turned red rather than like light coming off the middle. The
+     core is where the drop is; the edge stays the blackout. */
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--accent) 92%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 52%, transparent) 30%,
+    transparent 66%
+  );
+  /* **Every layer of the burst is transparent until its keyframes raise it,
+     and this one is why.** Its whole job is a full-viewport rectangle of
+     `--accent`, so with no animation running it is a solid ember sheet over
+     the entire app -- which is precisely what it drew the first time it was
+     looked at, because the Browser pane never advances a timeline (CLAUDE.md)
+     and a paused animation left the base value showing. An element that is
+     only invisible while something is animating it is one bad `animation:
+     none` away from covering the screen, and reduced motion writes exactly
+     that declaration two hundred lines down. */
+  opacity: 0;
+  animation: roll-flash 420ms ease-out both;
+}
+
+@keyframes roll-flash {
+  from {
+    opacity: 0;
+  }
+  /* Peaks a little over half, not at full. This is the whole viewport in a
+     saturated hue, `--accent` resolves to ember on most of this app's screens,
+     and a full-strength flash of that is the one thing in here that could be
+     unpleasant to somebody sensitive to it. One flash per reveal is well under
+     the three-a-second that actually matters, and reduced motion drops the
+     burst entirely -- but there is no reason to spend the last 30% of it. */
+  12% {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Fourteen of them, and their angles and distances are inline custom
+   properties out of `RollTheatre.tsx` rather than fourteen rules here. Fixed
+   and even rather than random, for the reason everything else in this app is
+   seeded: a burst that differs every time is one no test can hold. */
+.roll-spark {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  animation: roll-spark 720ms cubic-bezier(0.1, 0.7, 0.3, 1) var(--spark-late, 0ms) both;
+}
+
+@keyframes roll-spark {
+  from {
+    transform: rotate(var(--spark, 0deg)) translateY(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--spark, 0deg)) translateY(calc(var(--spark-far, 25vmin) * -1))
+      scale(0.2);
+    opacity: 0;
+  }
 }
 
 /* Mid-spin. The blur and the tilt are what make fourteen pictures read as one
@@ -106,7 +449,12 @@
      only the order it arrives in -- so the order goes and it is all there at
      once. The spin's blur and tilt go with it; the face swap itself is stopped
      in JavaScript, in both components, because `startSpin` is not called at
-     all when this is set. */
+     all when this is set.
+
+     The takeover stays. It is the *layout* the answer arrives in and not a
+     movement, and somebody who has asked for less motion has not asked to be
+     shown a smaller present. What goes is everything that moves: the fade in,
+     the rumble, the kick and the sweep. */
   .roll-art-spin,
   .roll-panel,
   .roll-land,
@@ -117,5 +465,25 @@
 
   .roll-art-spin {
     filter: none;
+  }
+
+  /* The takeover's own four, kept in a rule of their own rather than added to
+     the list above: `css.test.ts` reads that list by its last selector, and a
+     group somebody can extend from the bottom is a group whose assertion
+     quietly stops meaning anything. */
+  .roll-theatre,
+  .roll-shine,
+  .roll-theatre[data-at="charging"] .roll-quake,
+  .roll-theatre[data-at="landed"] .roll-quake {
+    animation: none;
+  }
+
+  /* The light goes entirely rather than being stilled. A flash held at its
+     brightest frame is a screen with a coloured sheet over it, and a ring
+     frozen mid-expansion is a circle nobody can explain. There is nothing in
+     here that is worth anything standing still, which is what tells you it is
+     the one part of this that is only decoration. */
+  .roll-burst {
+    display: none;
   }
 }

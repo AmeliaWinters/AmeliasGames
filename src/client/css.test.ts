@@ -1234,7 +1234,7 @@ describe('the chest screen at a phone width', () => {
     // The screen is reached from a menu on a phone and its whole job is to be
     // pressed. `min-height` rather than `height`, so a label that wraps grows
     // the button instead of clipping it.
-    for (const control of ['.chest-open', '.chest-retry']) {
+    for (const control of ['.chest-open', '.chest-shelf', '.roll-acts button']) {
       const decls = declsAt(control, 320);
       const floor = px(decls.get('min-height'), varsAt(320));
       expect(floor, `${control} is ${floor}px tall`).toBeGreaterThanOrEqual(44);
@@ -1250,7 +1250,7 @@ describe('the chest screen at a phone width', () => {
       this screen is square on purpose, so the rule is that the square things
       are not the pressable things.
     */
-    for (const square of ['.chest-art', '.chest-drop-art']) {
+    for (const square of ['.chest-art', '.roll-hero']) {
       const decls = declsAt(square, 320);
       expect(decls.get('aspect-ratio'), `${square} should be square`).toBe('1');
       expect(
@@ -1322,11 +1322,90 @@ describe('the chest screen at a phone width', () => {
       '.roll-land',
       '.roll-say',
       '.roll-say-late',
+      // And the takeover, which arrived with four more moving things on it.
+      // The blackout itself stays: it is the layout the answer arrives in and
+      // not a movement, and somebody who asked for less motion did not ask to
+      // be shown a smaller present.
+      '.roll-theatre',
+      '.roll-shine',
+      '.roll-quake',
+      '.roll-burst',
     ]) {
       expect(quiet, `${stage} still moves`).toContain(stage);
     }
     expect(quiet).toMatch(/\.roll-say-late \{\s*animation:\s*none/);
     expect(quiet).toMatch(/\.roll-art-spin \{\s*filter:\s*none/);
+    // The light is removed rather than stilled. A flash held at its brightest
+    // frame is a coloured sheet over the screen, which is worse than the
+    // animation it is standing in for.
+    expect(quiet).toMatch(/\.roll-burst \{\s*display:\s*none/);
+  });
+
+  it('blacks the screen out and lands the drop in the middle of it', () => {
+    /*
+      The takeover, which is a reversal: the drop used to be a block on the
+      card it came from, on the argument that a modal has to be dismissed and
+      opening several in a row is the ordinary case. The argument was right
+      about the cost and wrong about the fix, and the fix -- an "open another"
+      inside the layer -- is asserted where the markup is.
+
+      What is asserted here is the part a stylesheet decides. It has to cover
+      the screen, it has to sit above the gacha dialog that launches it, and it
+      must not be the thing that gives the page a horizontal scrollbar: the
+      rays are 160vmax across on purpose and would do exactly that.
+    */
+    const decls = declsAt('.roll-theatre', 320);
+    expect(decls.get('position')).toBe('fixed');
+    expect(decls.get('inset')).toBe('0');
+    expect(decls.get('overflow'), 'the rays are wider than the screen').toBe('hidden');
+    const over = Number(decls.get('z-index'));
+    const dialog = Number(declsAt('.gacha-back', 320).get('z-index'));
+    expect(dialog, 'the gacha dialog has no z-index to sit above').toBeGreaterThan(0);
+    expect(over, `${over} is not above the dialog's ${dialog}`).toBeGreaterThan(dialog);
+  });
+
+  it('caps the drop against the viewport height, not only its width', () => {
+    /*
+      The one that was got wrong first. The gacha's portrait is 3:4, so a width
+      chosen against `vw` alone decides a height two thirds larger, and on an
+      812x375 landscape phone that put the buttons off the bottom of a layer
+      with no scrollbar -- measured, in a real browser, at three phone sizes
+      and one landscape one.
+
+      So the height cap is the assertion, and the `rem` cap beside it, which is
+      what stops the same rule drawing a poster on a desktop.
+    */
+    const width = declsAt('.roll-figure', 320).get('width') ?? '';
+    expect(width, '.roll-figure has no width').not.toBe('');
+    expect(width, `${width} is not capped against the viewport height`).toMatch(/vh|vmin/);
+    expect(width, `${width} has no cap at the desktop end`).toMatch(/rem/);
+    expect(width, `${width} is not a cap at all`).toMatch(/min\(/);
+  });
+
+  it('paints the burst out of the palette and out of one token', () => {
+    /*
+      `chest.ts` has no rarity, no weights and no pity timer, so a burst that
+      came in three colours would be a tier system invented in a stylesheet
+      about a decision the server never makes. One token, and it is the same
+      one the progress bars and the focus ring take.
+
+      The hex check is the house rule from the top of every stylesheet here,
+      and this is the file most likely to break it: light effects are where
+      somebody reaches for white.
+    */
+    const light = ['.roll-flash', '.roll-wave', '.roll-spark', '.roll-rays', '.roll-shine'];
+    const source = readFileSync(new URL('roll.css', STYLES), 'utf8');
+    expect(source, 'roll.css named a colour the palette did not give it').not.toMatch(
+      /#[0-9a-fA-F]{3,8}\b/,
+    );
+    for (const layer of light) {
+      const decls = declsAt(layer, 320);
+      const paint = [decls.get('background'), decls.get('border'), decls.get('background-image')]
+        .filter(Boolean)
+        .join(' ');
+      expect(paint, `${layer} paints nothing`).not.toBe('');
+      expect(paint, `${layer} is not drawn in --accent`).toContain('--accent');
+    }
   });
 });
 

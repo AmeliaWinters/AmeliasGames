@@ -11,6 +11,12 @@
  * It answers the three questions a card cannot fit, in the order they are
  * asked: what this is, what is in it, and what it costs. Then it rolls.
  *
+ * **The dialog asks; the takeover answers.** Everything from the press to the
+ * face is `RollTheatre`, drawn over this, and it is the very same layer a
+ * chest lands in. The dialog stays mounted underneath because the terms and
+ * the balance are what somebody comes back to, and because a pull that
+ * replaced this screen would be the door problem again in miniature.
+ *
  * **The spin is a JavaScript ticker, and it is the one in this app.** Every
  * other reveal here is staged with `animation-delay` on a state change so that
  * `css.test.ts` can assert the order, because the Browser pane never
@@ -43,7 +49,9 @@ import {
   type Waifu,
 } from "../shared/waifu.js";
 import { mintNonce, rollWaifu, type Rolled, type WaifuError } from "./waifuApi.js";
+import { RollTheatre } from "./RollTheatre.js";
 import { SPIN_MS, spinFace, startSpin } from "./roll.js";
+import { useModalKeys } from "./modalKeys.js";
 import { wantsStillness } from "./motion.js";
 
 interface Props {
@@ -57,30 +65,23 @@ interface Props {
   onClose(): void;
 }
 
-/**
- * What counts as a tab stop, for the trap above.
- *
- * The dialog's own contents are three buttons and a heading, so this is
- * deliberately the short list rather than the exhaustive one -- but written as
- * a selector rather than as `querySelectorAll("button")`, because the next
- * thing added in here will be a link or a field and a trap that silently
- * stopped covering it would be worse than no trap.
- */
-const FOCUSABLE =
-  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
 type Phase =
   | { at: "idle" }
   | { at: "spinning" }
   | { at: "pulled"; result: Rolled }
   | { at: "failed"; nonce: string; error: WaifuError };
 
+/** The two the takeover is up for. Spelled out so `PullTheatre` cannot be
+    handed a state it has nothing to draw for. */
+type Spent = Extract<Phase, { at: "spinning" } | { at: "pulled" }>;
+
 export function WaifuRoll({ profile, claimed, onRolled, onOpenPolycule, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>({ at: "idle" });
-  /* Which face the spin is showing. Meaningless outside `spinning`, and left
-     where it stopped afterwards on purpose: the reveal draws the real portrait
-     over the top, so resetting it would only buy a flash of the first face. */
-  const [face, setFace] = useState(0);
+  /* How far through the spin, rather than which face: the step is what the
+     ratchet is pitched by and `spinFace` turns it into a portrait. Left where
+     it stopped afterwards on purpose -- the reveal draws the real face over
+     the top, so resetting it would only buy a flash of the first one. */
+  const [step, setStep] = useState(0);
 
   const all = roster();
   const spendable = profile?.spendable ?? 0;
@@ -120,10 +121,11 @@ export function WaifuRoll({ profile, claimed, onRolled, onOpenPolycule, onClose 
     if (phase.at === "spinning") return;
     const nonce = reuse ?? mintNonce();
     setPhase({ at: "spinning" });
+    setStep(0);
+    stop.current?.();
+    stop.current = null;
 
-    if (!still && all.length > 0) {
-      stop.current = startSpin((step) => setFace(spinFace(step, all.length)));
-    }
+    if (!still && all.length > 0) stop.current = startSpin(setStep);
 
     const began = Date.now();
     const answer = await rollWaifu(nonce);
@@ -152,6 +154,10 @@ export function WaifuRoll({ profile, claimed, onRolled, onOpenPolycule, onClose 
   }, []);
 
   const busy = phase.at === "spinning";
+  /* Whether the takeover is over this. It owns the keyboard while it is, and
+     this dialog stands down: see `useModalKeys`, where two armed traps calling
+     `preventDefault` on one Tab is named as the bug that parameter prevents. */
+  const covered = busy || phase.at === "pulled";
 
   /*
     The only modal in this app, and the one thing it was missing.
@@ -169,207 +175,267 @@ export function WaifuRoll({ profile, claimed, onRolled, onOpenPolycule, onClose 
     scaffolding that made a route the better answer. This one earns it: the
     press and the thing it buys have to stay on one screen.
 
-    On `document` rather than on the dialog, so it holds however focus got
-    out, and in the capture phase so a button's own key handling cannot eat
-    the Tab first.
+    The trap itself lives in `modalKeys.ts` now, because the takeover needs the
+    same one and two copies of a focus trap is two traps fighting.
   */
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // Not mid-pull. Dismissing a roll that has been paid for and not yet
-        // shown is the one press in here that could lose something.
-        if (!busy) onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const dialog = box.current;
-      if (!dialog) return;
-      const able = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-        // A disabled control is in the DOM and out of the tab order, and the
-        // roll button is disabled for exactly the people most likely to be
-        // tabbing around this dialog looking for the way out.
-        (el) => !el.hasAttribute("disabled") && el.tabIndex !== -1,
-      );
-      if (able.length === 0) return;
-      const first = able[0];
-      const last = able[able.length - 1];
-      const on = document.activeElement;
-      // Wrapping, and also catching the case where focus is already outside:
-      // `dialog.contains` is false then, and either end is a way back in.
-      if (e.shiftKey && (on === first || !dialog.contains(on))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (on === last || !dialog.contains(on))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [busy, onClose]);
+  useModalKeys(box, { onEscape: onClose, enabled: !covered });
 
   return (
-    <div
-      className="gacha-back"
-      /* Only when it is not mid-pull. Dismissing a roll that has been paid for
-         and not yet shown is the one press in here that could lose something. */
-      onClick={() => !busy && onClose()}
-    >
+    <>
       <div
-        className="gacha"
-        ref={box}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="gacha-head"
-        onClick={(e) => e.stopPropagation()}
+        className="gacha-back"
+        /* Only when nothing is over it. Dismissing a roll that has been paid
+           for and not yet shown is the one press in here that could lose
+           something, and once the takeover is up this backdrop is not the
+           thing anybody is pressing anyway. */
+        onClick={() => !covered && onClose()}
       >
-        <header className="gacha-head">
-          <h2 id="gacha-head" ref={heading} tabIndex={-1}>
-            The gacha
-          </h2>
-          <p className="gacha-what">
-            {ROLL_COST} GP pulls one waifu at random out of {all.length} of them,
-            across {series} series. She is yours for keeps and she lands in The
-            Polycule.
-          </p>
-          {/* The duplicate rule, said before the pull rather than after it.
-              It is the one term of this deal somebody could feel cheated by,
-              and a refund explained only once it has happened reads as an
-              apology. */}
-          <p className="gacha-terms">
-            Pull somebody you already have and she costs {DUPLICATE_REFUND} GP
-            less. Chests spend this same GP.
-          </p>
-          <p className="gacha-balance">
-            <b>{spendable.toLocaleString()}</b> GP
-            <span className="gacha-worth">
-              {purse.ready > 0
-                ? ` = ${purse.ready} ${purse.ready === 1 ? "pull" : "pulls"}`
-                : `, ${purse.toNext} to your next pull`}
-            </span>
-            <span className="gacha-have">
-              {have > 0 ? ` · ${have} of ${all.length} yours` : ` · none yet`}
-            </span>
-          </p>
-        </header>
-
-        <div className={`gacha-stage${busy ? " roll-stage-spin" : ""}`}>
-          {phase.at === "pulled" && phase.result.pulled ? (
-            <Pulled result={phase.result} />
-          ) : phase.at === "pulled" ? (
-            /* A refusal is not nothing happening. The server can say no to a
-               press this dialog believed in, most often a balance spent in
-               another tab, and a press that appears to do nothing is read as a
-               broken button and pressed again. */
-            <p className="gacha-line" role="status">
-              {phase.result.refusal === "too-poor"
-                ? "Not enough to spend yet. Nothing was taken."
-                : "There is nobody left to pull right now."}
+        <div
+          className="gacha"
+          ref={box}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="gacha-head"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <header className="gacha-head">
+            <h2 id="gacha-head" ref={heading} tabIndex={-1}>
+              The gacha
+            </h2>
+            <p className="gacha-what">
+              {ROLL_COST} GP pulls one waifu at random out of {all.length} of them,
+              across {series} series. She is yours for keeps and she lands in The
+              Polycule.
             </p>
-          ) : (
-            <Face one={busy ? all[face % all.length] : cover(claimed, all)} spinning={busy} />
+            {/* The duplicate rule, said before the pull rather than after it.
+                It is the one term of this deal somebody could feel cheated by,
+                and a refund explained only once it has happened reads as an
+                apology. */}
+            <p className="gacha-terms">
+              Pull somebody you already have and she costs {DUPLICATE_REFUND} GP
+              less. Chests spend this same GP.
+            </p>
+            <p className="gacha-balance">
+              <b>{spendable.toLocaleString()}</b> GP
+              <span className="gacha-worth">
+                {purse.ready > 0
+                  ? ` = ${purse.ready} ${purse.ready === 1 ? "pull" : "pulls"}`
+                  : `, ${purse.toNext} to your next pull`}
+              </span>
+              <span className="gacha-have">
+                {have > 0 ? ` · ${have} of ${all.length} yours` : ` · none yet`}
+              </span>
+            </p>
+          </header>
+
+          {/* The face on the door. Once a hundred has been spent the takeover
+              is over the top of this, and what is left in here is only what
+              somebody comes back to. */}
+          <div className="gacha-stage">
+            <Face one={cover(claimed, all)} className="gacha-art" />
+          </div>
+
+          {phase.at === "failed" && (
+            <p className="gacha-error" role="status">
+              {phase.error === "no-account"
+                ? "You need an account for this. Make one from the menu."
+                : phase.error === "offline"
+                  ? "That did not reach the server."
+                  : "That did not work."}{" "}
+              {phase.error !== "no-account" && (
+                <button
+                  type="button"
+                  className="gacha-retry"
+                  onClick={() => void pull(phase.nonce)}
+                >
+                  Try again
+                </button>
+              )}
+            </p>
           )}
+
+          <div className="gacha-acts">
+            <button
+              type="button"
+              className="primary gacha-roll"
+              disabled={!affordable || busy}
+              onClick={() => void pull()}
+            >
+              {busy ? "Rolling..." : `Roll, ${ROLL_COST}`}
+            </button>
+            {/* The shelf, and it is deliberately quiet. Putting somebody on
+                show is arranging, and arranging is not what this dialog is
+                for. */}
+            <button type="button" className="gacha-shelf" onClick={onOpenPolycule} disabled={busy}>
+              The Polycule
+            </button>
+            <button type="button" className="gacha-close" onClick={onClose} disabled={busy}>
+              Done
+            </button>
+          </div>
+
+          {!affordable && <p className="gacha-short">{purse.toNext} GP away.</p>}
         </div>
-
-        {phase.at === "failed" && (
-          <p className="gacha-error" role="status">
-            {phase.error === "no-account"
-              ? "You need an account for this. Make one from the menu."
-              : phase.error === "offline"
-                ? "That did not reach the server."
-                : "That did not work."}{" "}
-            {phase.error !== "no-account" && (
-              <button type="button" className="gacha-retry" onClick={() => void pull(phase.nonce)}>
-                Try again
-              </button>
-            )}
-          </p>
-        )}
-
-        <div className="gacha-acts">
-          <button
-            type="button"
-            className="primary gacha-roll"
-            disabled={!affordable || busy}
-            onClick={() => void pull()}
-          >
-            {busy
-              ? "Rolling..."
-              : phase.at === "pulled" && phase.result.pulled
-                ? `Again, ${ROLL_COST}`
-                : `Roll, ${ROLL_COST}`}
-          </button>
-          {/* The shelf, and it is deliberately quiet. Putting somebody on show
-              is arranging, and arranging is not what this dialog is for. */}
-          <button type="button" className="gacha-shelf" onClick={onOpenPolycule} disabled={busy}>
-            The Polycule
-          </button>
-          <button type="button" className="gacha-close" onClick={onClose} disabled={busy}>
-            Done
-          </button>
-        </div>
-
-        {!affordable && phase.at !== "pulled" && (
-          <p className="gacha-short">{purse.toNext} GP away.</p>
-        )}
       </div>
-    </div>
+
+      {/* One mount for both beats, not one per beat. `RollTheatre` reads its
+          beat off a prop, so keeping it in a single slot lets React reuse the
+          element and the takeover goes from charging to landed without fading
+          itself out and taking focus twice. */}
+      {(phase.at === "spinning" || phase.at === "pulled") && (
+        <PullTheatre
+          phase={phase}
+          step={step}
+          still={still}
+          all={all}
+          affordable={affordable}
+          onAgain={() => void pull()}
+          onOpenPolycule={onOpenPolycule}
+          onClose={onClose}
+        />
+      )}
+    </>
   );
 }
 
 /**
- * What came out.
+ * The pull, from the first face to the way out.
  *
- * No "put her on show" here, and that is the split with the shelf: this dialog
- * is the pull and The Polycule is the arranging. A showcase control on a thing
- * that closes would be asking somebody to make a display decision while the
+ * No "put her on show" here, and that is the split with the shelf: this is the
+ * pull and The Polycule is the arranging. A showcase control on a thing that
+ * closes would be asking somebody to make a display decision while the
  * confetti is still up.
+ *
+ * A refusal takes the same layer with none of the theatre. The server can say
+ * no to a press this dialog believed in, most often a balance spent in another
+ * tab, and a press that appears to do nothing is read as a broken button and
+ * pressed again -- but a no that arrives with a burst of light is worse than
+ * the no.
  */
-function Pulled({ result }: { result: Rolled }) {
-  const one = result.pulled as Waifu;
+function PullTheatre({
+  phase,
+  step,
+  still,
+  all,
+  affordable,
+  onAgain,
+  onOpenPolycule,
+  onClose,
+}: {
+  phase: Spent;
+  step: number;
+  still: boolean;
+  all: readonly Waifu[];
+  affordable: boolean;
+  onAgain(): void;
+  onOpenPolycule(): void;
+  onClose(): void;
+}) {
+  if (phase.at === "spinning") {
+    return (
+      <RollTheatre
+        at="charging"
+        label="Rolling a waifu"
+        step={step}
+        /* No way out mid-pull. It has been paid for and not yet shown, which
+           is the one thing in this dialog somebody could actually lose. */
+        onDismiss={null}
+        art={
+          all.length > 0 ? (
+            <Face
+              one={all[spinFace(step, all.length)]}
+              className={`roll-hero roll-hero-tall${still ? "" : " roll-art-spin"}`}
+            />
+          ) : undefined
+        }
+      />
+    );
+  }
+
+  const result = phase.result;
+  const acts = (
+    <>
+      {affordable && (
+        <button type="button" className="primary" onClick={onAgain}>
+          Again, {ROLL_COST}
+        </button>
+      )}
+      <button type="button" onClick={onOpenPolycule}>
+        The Polycule
+      </button>
+      <button type="button" onClick={onClose}>
+        Done
+      </button>
+    </>
+  );
+
+  if (!result.pulled) {
+    return (
+      <RollTheatre
+        at="plain"
+        label="Nobody was pulled"
+        onDismiss={onClose}
+        lines={
+          <p className="gacha-name">
+            {result.refusal === "too-poor"
+              ? "Not enough to spend yet. Nothing was taken."
+              : "There is nobody left to pull right now."}
+          </p>
+        }
+        acts={acts}
+      />
+    );
+  }
+
+  const one = result.pulled;
   return (
-    /* The stagger is the chest's, to the millisecond, because it is `roll.css`
-       and there is only one of it: the panel, then the face with an overshoot,
-       then who she is, then the small print. It used to be one 320ms pop for
-       the whole block, so the picture the hundred bought arrived at the same
-       instant as its own footnotes. */
-    <div className="gacha-pull roll-panel">
-      <div className="roll-land">
-        <Face one={one} spinning={false} />
-      </div>
-      <p className="gacha-name roll-say">{one.name}</p>
-      <p className="gacha-series roll-say">{one.series}</p>
-      {result.duplicate && (
-        <p className="gacha-note roll-say-late">
-          Already yours, so she cost {result.paid} GP instead of {ROLL_COST}.
-        </p>
-      )}
-      {result.repeat && !result.duplicate && (
-        <p className="gacha-note roll-say-late">You had already pulled this one.</p>
-      )}
-      <p className="gacha-note gacha-landed roll-say-late">She is in The Polycule.</p>
-    </div>
+    <RollTheatre
+      at="landed"
+      label={`You pulled ${one.name}`}
+      onDismiss={onClose}
+      art={<Face one={one} className="roll-hero roll-hero-tall" />}
+      lines={
+        /* The stagger is the chest's, to the millisecond, because it is
+           `roll.css` and there is only one of it: the name, then the small
+           print. It used to be one 320ms pop for the whole block, so the
+           picture the hundred bought arrived at the same instant as its own
+           footnotes. */
+        <>
+          <p className="gacha-name roll-say">{one.name}</p>
+          <p className="gacha-series roll-say">{one.series}</p>
+          {result.duplicate && (
+            <p className="gacha-note roll-say-late">
+              Already yours, so she cost {result.paid} GP instead of {ROLL_COST}.
+            </p>
+          )}
+          {result.repeat && !result.duplicate && (
+            <p className="gacha-note roll-say-late">You had already pulled this one.</p>
+          )}
+          <p className="gacha-note gacha-landed roll-say-late">She is in The Polycule.</p>
+        </>
+      }
+      acts={acts}
+    />
   );
 }
 
 /**
- * One portrait, spinning or still.
+ * One portrait.
  *
  * `alt` is empty throughout. During the spin the faces are noise and naming
  * them would be a screen reader reading twenty names nobody asked for; on the
  * reveal the name is the line immediately under it.
+ *
+ * The class is the caller's, because the two places this is drawn are sized by
+ * different things: the door's face is a fixed 9rem inside a fixed stage, and
+ * the takeover's is a fraction of the viewport. `gacha.css` is imported after
+ * `roll.css`, so a single element wearing both would take the 9rem and the
+ * takeover would show a thumbnail.
  */
-function Face({ one, spinning }: { one: Waifu | undefined; spinning: boolean }) {
-  if (!one?.image) return <div className="gacha-art" aria-hidden="true" />;
-  return (
-    <img
-      className={`gacha-art${spinning ? " roll-art-spin" : ""}`}
-      src={one.image}
-      alt=""
-      decoding="async"
-    />
-  );
+function Face({ one, className }: { one: Waifu | undefined; className: string }) {
+  if (!one?.image) return <div className={className} aria-hidden="true" />;
+  return <img className={className} src={one.image} alt="" decoding="async" />;
 }
 
 /**

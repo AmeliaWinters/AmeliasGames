@@ -11,12 +11,15 @@
    jump on every tick and take the buttons under it with it. One height, and
    the image is `object-fit: cover` inside it.
 
-   **The movement is not in this file.** A pull and a chest are the same
-   hundred GP spent on the same press, and they used to move like two different
-   apps -- this one blurred and stopped dead, the chest cycled nothing and
-   staged its reveal over three steps. Both take their spin and their reveal
-   from `roll.css` now, and their timing from `roll.ts`. What is left here is
-   this dialog's layout. */
+   **The movement is not in this file, and neither is the pull.** A pull and a
+   chest are the same hundred GP spent on the same press, and they used to move
+   like two different apps -- this one blurred and stopped dead, the chest
+   cycled nothing and staged its reveal over three steps. Both take their spin
+   and their reveal from `roll.css`, their timing from `roll.ts`, and the
+   blackout they happen in from `RollTheatre.tsx`. What is left here is the
+   dialog that asks: what this is, what is in it, what it costs. Its type
+   classes are still worn by the lines inside the takeover, because the words
+   are the gacha's even when the box is not. */
 
 .gacha-back {
   position: fixed;
@@ -82,8 +85,11 @@
   font-size: 0.8rem;
 }
 
-/* The one fixed box on the screen. See the note at the top: without a height
-   here every tick of the spin resizes the dialog. */
+/* The one fixed box on the screen. It held the spin once, which is why it has
+   a height at all: the pictures come off a third-party CDN at whatever size
+   that CDN feels like, and a stage sized by its contents jumped on every tick.
+   The spin has moved to the takeover and the height stays, because what is in
+   here now is one portrait off the same CDN with the same problem. */
 .gacha-stage {
   display: grid;
   place-items: center;
@@ -104,23 +110,16 @@
   background: var(--rule);
 }
 
-/* The spin and the busy ring are `roll-art-spin` and `roll-stage-spin`, worn
-   by the markup. The face swap itself is the ticker in `WaifuRoll.tsx`, which
-   is the one JavaScript timeline in this app and cannot be anything else:
-   cycling three hundred portraits is a change of `src`, and CSS cannot walk a
-   list. Its pacing is `roll.ts`, shared with the chest.
+/* The face swap is the ticker in `WaifuRoll.tsx`, which is the one JavaScript
+   timeline in this app and cannot be anything else: cycling three hundred
+   portraits is a change of `src`, and CSS cannot walk a list. Its pacing is
+   `roll.ts`, shared with the chest, and the blur and tilt it wears while it
+   runs are `roll-art-spin`.
 
-   The reveal is `roll-panel` on this box and `roll-land` / `roll-say` /
-   `roll-say-late` on what is inside it. It used to be one 320ms pop for the
-   whole block, which put the name and the series on screen at the same instant
-   as the face -- so the picture the hundred bought had nothing of its own, and
-   the chest, which cost the same, gave its drop a beat to itself. */
-.gacha-pull {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: center;
-}
-
+   `.gacha-pull` was the box the reveal was drawn in, and it went with the
+   reveal: what came out is `.roll-show` in the takeover now. These three are
+   what survived it, because they are how the gacha *says* things and the
+   takeover has no opinion about that. */
 .gacha-name {
   margin: 0;
   font-family: var(--display);

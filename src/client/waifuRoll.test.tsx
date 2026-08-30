@@ -130,29 +130,34 @@ describe('the pull dialog', () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     expect(rolled).toHaveBeenCalledTimes(1);
-    expect(host.querySelector('.roll-stage-spin')).not.toBeNull();
-    expect(host.textContent).not.toContain(pulled.name);
+    /* The takeover is `position: fixed` over the whole page, so it is on
+       `document` rather than inside the dialog's host. It is the same layer
+       the chest lands in; see `chests.test.tsx`. */
+    const stage = () => document.querySelector('.roll-theatre');
+    expect(stage()?.getAttribute('data-at')).toBe('charging');
+    expect(document.body.textContent).not.toContain(pulled.name);
     // And it is actually cycling faces. The spin is the one JavaScript
     // timeline in this app -- CSS cannot walk a list of portraits -- so it is
     // the one thing here no stylesheet test could hold.
-    const face = host.querySelector('img')?.getAttribute('src');
+    const face = stage()?.querySelector('img')?.getAttribute('src');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
-    expect(host.querySelector('img')?.getAttribute('src')).not.toBe(face);
+    expect(stage()?.querySelector('img')?.getAttribute('src')).not.toBe(face);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(host.querySelector('.roll-stage-spin')).toBeNull();
-    expect(host.textContent).toContain(pulled.name);
-    expect(host.textContent).toContain(pulled.series);
+    expect(stage()?.getAttribute('data-at')).toBe('landed');
+    expect(document.body.textContent).toContain(pulled.name);
+    expect(document.body.textContent).toContain(pulled.series);
     /* And the reveal wears the shared stagger rather than one of its own. The
        chest on the shop's grid is the same hundred GP and wears these exact
        classes; the two used to be paced separately, and separately is how they
        drifted. */
-    expect(host.querySelector('.gacha-pull.roll-panel')).not.toBeNull();
-    expect(host.querySelector('.roll-land')).not.toBeNull();
+    expect(stage()!.querySelector('.roll-show.roll-panel')).not.toBeNull();
+    expect(stage()!.querySelector('.roll-figure.roll-land')).not.toBeNull();
+    expect(stage()!.querySelector('.gacha-name.roll-say')).not.toBeNull();
     // The caches upstream are fed by this and nothing else on this screen.
     expect(kept).toHaveBeenCalledWith(answer);
   });

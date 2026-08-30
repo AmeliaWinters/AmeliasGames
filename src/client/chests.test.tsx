@@ -7,9 +7,9 @@
  * being the cheap-feeling half of a pair of hundred-GP spends. The pull dialog
  * has `waifuRoll.test.tsx` for exactly this, and this file is its twin.
  *
- * Three things, and none of them is the picture:
+ * Four things, and none of them is the picture:
  *
- *  1. The press spins, in the slot the answer is about to take. A chest that
+ *  1. The press spins, in the layer the answer is about to take. A chest that
  *     answers in 5ms used to show a border pulse for one frame.
  *  2. The spin cycles. It walks parts of the set being opened, so the wait is
  *     an answer to "what is in here" -- and it is the one part of this that no
@@ -17,6 +17,11 @@
  *  3. The answer replaces it, wearing the shared stagger. `roll-panel` and
  *     `roll-land` are the classes the gacha's reveal wears too, and the two
  *     drifting apart is the bug this whole change is about.
+ *  4. The takeover offers the next chest without coming down. That is the
+ *     answer to the one real objection to a blackout, which this file's
+ *     subject used to make in a comment: opening several in a row is the
+ *     ordinary case, and a layer that has to be dismissed between them would
+ *     cost a press every time.
  *
  * Timers are fake because the spin is a real 1.7 seconds. `chestApi` is
  * stubbed rather than `fetch`: the signing needs an account, and this file is
@@ -122,9 +127,15 @@ describe('opening a chest', () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(opened).toHaveBeenCalledTimes(1);
-    const spin = where.querySelector('.chest-spin');
-    expect(spin, 'the press produced no spin').not.toBeNull();
+    /* The takeover, and it is on `document` rather than inside the host: it is
+       `position: fixed` over the whole screen, which is the point of it. */
+    const spin = document.querySelector('.roll-theatre[data-at="charging"]');
+    expect(spin, 'the press produced no takeover').not.toBeNull();
     expect(spin!.querySelector('.roll-art-spin'), 'the spin does not move').not.toBeNull();
+    /* And there is no way out of it. A chest that has been paid for and not
+       yet shown is the one press on this screen that could lose something, so
+       the layer offers nothing to press and nothing to dismiss. */
+    expect(spin!.querySelector('button'), 'a paid-for chest can be dismissed').toBeNull();
 
     // And it is cycling. This is the half no stylesheet test can hold: the
     // pictures are a change of markup, and CSS cannot walk a list.
@@ -132,7 +143,7 @@ describe('opening a chest', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    expect(where.querySelector('.chest-spin')!.innerHTML).not.toBe(first);
+    expect(document.querySelector('.roll-theatre')!.innerHTML).not.toBe(first);
   });
 
   it('replaces the spin with the reveal, in the stagger the gacha uses', async () => {
@@ -145,14 +156,53 @@ describe('opening a chest', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(where.querySelector('.chest-spin'), 'the spin outlived the answer').toBeNull();
+    const stage = document.querySelector('.roll-theatre');
+    expect(stage, 'the takeover came down with the answer').not.toBeNull();
+    expect(stage!.getAttribute('data-at'), 'the spin outlived the answer').toBe('landed');
     /* The classes are `roll.css`'s, and they are the ones `waifuRoll.test.tsx`
        asserts on the pull. Two hundred-GP presses paced by one file is the
        whole point; asserting the class names is how that survives somebody
        tidying one of the two screens. */
-    expect(where.querySelector('.chest-reveal.roll-panel')).not.toBeNull();
-    expect(where.querySelector('.chest-drop-art.roll-land')).not.toBeNull();
-    expect(where.querySelector('.chest-drop-name.roll-say')).not.toBeNull();
+    expect(stage!.querySelector('.roll-show.roll-panel')).not.toBeNull();
+    expect(stage!.querySelector('.roll-figure.roll-land')).not.toBeNull();
+    expect(stage!.querySelector('.chest-drop-name.roll-say')).not.toBeNull();
+    // The light, which is the half of this that is only decoration and is
+    // therefore the half a tidy-up would take first.
+    expect(stage!.querySelector('.roll-burst .roll-flash')).not.toBeNull();
+    expect(stage!.querySelectorAll('.roll-spark').length).toBeGreaterThan(0);
+  });
+
+  it('offers the next chest without coming down', async () => {
+    /*
+      The objection to a blackout, answered. `Chests.tsx` used to argue for a
+      panel on the card because a modal has to be dismissed and opening several
+      in a row is the ordinary case; the fix is that the second chest starts
+      from inside the first one's reveal, so the layer never comes down and the
+      dismissal is never paid.
+    */
+    vi.useFakeTimers();
+    opened.mockResolvedValue({ ok: true, result: answer });
+
+    const where = draw();
+    openFirstChest(where);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(opened).toHaveBeenCalledTimes(1);
+
+    const again = [...document.querySelectorAll<HTMLButtonElement>('.roll-theatre button')].find(
+      (button) => (button.textContent ?? '').startsWith('Open another'),
+    );
+    expect(again, 'the reveal has no way on to the next chest').toBeDefined();
+    act(() => again!.click());
+
+    // Straight back to charging, on the same layer, without an idle frame in
+    // between: the takeover is one element that changes its beat.
+    expect(document.querySelector('.roll-theatre')?.getAttribute('data-at')).toBe('charging');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(opened).toHaveBeenCalledTimes(2);
   });
 
   it('says a refusal at once, with none of the theatre', async () => {
@@ -171,7 +221,10 @@ describe('opening a chest', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(where.textContent).toContain('Nothing was taken');
-    expect(where.querySelector('.chest-reveal.roll-panel'), 'a refusal is staged').toBeNull();
+    expect(document.body.textContent).toContain('Nothing was taken');
+    const stage = document.querySelector('.roll-theatre');
+    expect(stage?.getAttribute('data-at'), 'a refusal is staged').toBe('plain');
+    expect(stage!.querySelector('.roll-panel'), 'a refusal is staged').toBeNull();
+    expect(stage!.querySelector('.roll-burst'), 'a refusal comes with light').toBeNull();
   });
 });

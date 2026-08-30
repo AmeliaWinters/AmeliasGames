@@ -175,12 +175,27 @@ const LOADERS: { [K in GameId]: () => Promise<{ default: Board<K> }> } = {
 
 /**
  * The same fifteen, wrapped for rendering. Built from `LOADERS` rather than
- * written out a second time, so there is one list and the mapped type above is
- * the only place the pairing has to hold.
+ * written out a second time, so there is one list of games in this file and
+ * the mapped type above is the only place the pairing has to hold.
+ *
+ * The cast inside the loop is the price of that, and it is a narrow one.
+ * `Object.keys` hands back a union of all fifteen ids, so at this point
+ * TypeScript has lost the fact that `LOADERS[id]` and `out[id]` are indexed by
+ * the *same* `K`: it sees a union of fifteen loaders against a union of
+ * fifteen slots and correctly refuses to believe they line up. They do, by
+ * construction -- it is the same `id` on both sides of the assignment -- and
+ * the thing that would actually be worth catching here, a board paired with
+ * another game's state, is caught on `LOADERS` above, where the key is still
+ * concrete. Writing the fifteen out again would satisfy the compiler and put a
+ * second list of games in this file for a new game to be forgotten from.
  */
-const BOARDS = Object.fromEntries(
-  Object.entries(LOADERS).map(([id, load]) => [id, lazy(load)]),
-) as { [K in GameId]: LazyBoard<K> };
+const BOARDS = (() => {
+  const out = {} as Record<GameId, LazyBoard<GameId>>;
+  for (const id of Object.keys(LOADERS) as GameId[]) {
+    out[id] = lazy(LOADERS[id] as () => Promise<{ default: Board<GameId> }>);
+  }
+  return out as { [K in GameId]: LazyBoard<K> };
+})();
 
 /**
  * Fetch a board's chunk without rendering it.

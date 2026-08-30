@@ -1,5 +1,12 @@
 /**
- * The dice, heard and felt.
+ * The dice, heard and felt, and everything else this app has to synthesise.
+ *
+ * It started as the dice alone and the name is from then. What has joined them
+ * is `chime`, `ratchet` and `fanfare`, and all three are here for one reason:
+ * **a recording cannot take an argument.** A chime that has to rise with the
+ * payment, a spin notch that has to climb as the spin slows, a reward that has
+ * to land on the frame the picture does. `sfx.ts` holds the cues that are the
+ * same every time, which is most of them.
  *
  * Two channels, and the split is deliberate:
  *
@@ -189,6 +196,97 @@ export function chime(xp: number): void {
     tone.connect(shape).connect(ac.destination);
     tone.start(at);
     tone.stop(at + 0.18);
+  });
+}
+
+/**
+ * One notch of a spin, pitched by how far through it is.
+ *
+ * The third thing in this file that is synthesised rather than recorded, and
+ * it is `chime`'s reason rather than `clatter`'s: it has to differ *by a
+ * number*. `roll.ts` spaces its fourteen faces on an ease-out, so the whole
+ * point of the noise is that it slows and climbs together with them, and
+ * fourteen recordings at fourteen pitches would be fourteen files to ship and
+ * one index to get wrong.
+ *
+ * A square wave, which is exactly what `chime` refuses. That comment stands:
+ * a square reads as an arcade, and beside wooden dice an arcade is wrong. This
+ * is a gacha, so an arcade is the point.
+ *
+ * Not routed through `sfx.ts`'s `play`, and the reason is its 90ms floor: the
+ * first two faces of a spin land about 60ms apart, so half the acceleration --
+ * the half that sells it as speed -- would be dropped as a repeat.
+ */
+export function ratchet(through: number): void {
+  const ac = sharedAudio();
+  if (!ac) return;
+  const now = ac.currentTime;
+  // A fifth and a bit over the length of a spin. Rising rather than falling
+  // because a slot machine slowing down still climbs; a pitch that fell as the
+  // gaps opened would sound like the thing was running out of power.
+  const hz = 430 * (1 + clamp(through, 0, 1) * 0.55);
+
+  const tone = ac.createOscillator();
+  const shape = ac.createGain();
+  tone.type = "square";
+  tone.frequency.setValueAtTime(hz, now);
+  // 50ms, and quiet. Fourteen of these land inside two seconds and the last
+  // thing this should be is fourteen things to sit through.
+  shape.gain.setValueAtTime(0.0001, now);
+  shape.gain.exponentialRampToValueAtTime(0.045, now + 0.004);
+  shape.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+  tone.connect(shape).connect(ac.destination);
+  tone.start(now);
+  tone.stop(now + 0.06);
+}
+
+/**
+ * The moment the hundred bought.
+ *
+ * A thump and then a major triad up, which is the shape every gacha uses
+ * because it is the shape of an arrival: something lands, and then it is
+ * named. The thump carries the burst on screen and the notes carry the item
+ * that slams in behind it, so the delay below is `roll-land`'s 160ms and not a
+ * taste -- move one and the sound comes off the picture.
+ *
+ * Flat, deliberately. There is no rarity in this app (see `chest.ts`), so
+ * there is nothing for a second, grander version of this to be honest about.
+ */
+export function fanfare(): void {
+  const ac = sharedAudio();
+  if (!ac) return;
+  const now = ac.currentTime;
+
+  // The impact. A sine swept down is a drum, and it is the one voice in here
+  // low enough to be felt on a phone speaker rather than merely heard.
+  const thump = ac.createOscillator();
+  const body = ac.createGain();
+  thump.type = "sine";
+  thump.frequency.setValueAtTime(190, now);
+  thump.frequency.exponentialRampToValueAtTime(48, now + 0.24);
+  body.gain.setValueAtTime(0.0001, now);
+  body.gain.exponentialRampToValueAtTime(0.3, now + 0.012);
+  body.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+  thump.connect(body).connect(ac.destination);
+  thump.start(now);
+  thump.stop(now + 0.34);
+
+  // Root, third, fifth, octave. Triangle rather than square: the ratchet is
+  // the arcade and this is the reward, and two square voices in a row is a
+  // ringtone.
+  [0, 4, 7, 12].forEach((semitone, i) => {
+    const at = now + 0.16 + i * 0.065;
+    const hz = 523.25 * 2 ** (semitone / 12);
+    const tone = ac.createOscillator();
+    const shape = ac.createGain();
+    tone.type = "triangle";
+    tone.frequency.setValueAtTime(hz, at);
+    shape.gain.setValueAtTime(0.0001, at);
+    shape.gain.exponentialRampToValueAtTime(0.11, at + 0.01);
+    shape.gain.exponentialRampToValueAtTime(0.0001, at + 0.34);
+    tone.connect(shape).connect(ac.destination);
+    tone.start(at);
+    tone.stop(at + 0.36);
   });
 }
 
