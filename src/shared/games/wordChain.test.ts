@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHAIN_DEFAULT_LEVEL,
+  HINT_AT,
   LANG_NAME,
   LIST_SIZE,
   MIN_ANSWERS,
@@ -10,19 +12,23 @@ import {
   TURN_STEP_WORDS,
   canAct,
   chainStats,
-  LOCK_FREE,
-  LOCK_FULL,
+  THIN_START,
   MAX_LOCK,
   lockTurns,
   lockedFor,
   missFor,
   usedKeys,
+  chainHintSteps,
+  hintsFor,
+  levelOf,
+  maskWord,
   scoreFor,
   targetScore,
   turnMsFor,
   wordPoints,
   wordChain,
   type ChainLang,
+  type ChainLevel,
   type WcMove,
   type WcState,
 } from './wordChain.js';
@@ -49,6 +55,28 @@ function playing(a: ChainLang, b: ChainLang, now = 1_000): WcState {
   let state = opened(now);
   for (const [seat, lang] of [[0, a], [1, b]] as const) {
     const result = wordChain.applyMove(state, { type: 'lang', lang }, seat, rng, now);
+    if (!result.ok) throw new Error(result.error);
+    state = result.state;
+  }
+  return state;
+}
+
+/** Both players said what they were, then chose a language. */
+function levelled(levels: [ChainLevel, ChainLevel], langs: [ChainLang, ChainLang]): WcState {
+  let state = opened();
+  for (const seat of [0, 1] as const) {
+    const result = wordChain.applyMove(
+      state,
+      { type: 'level', level: levels[seat] },
+      seat,
+      rng,
+      1_000,
+    );
+    if (!result.ok) throw new Error(result.error);
+    state = result.state;
+  }
+  for (const seat of [0, 1] as const) {
+    const result = wordChain.applyMove(state, { type: 'lang', lang: langs[seat] }, seat, rng, 1_000);
     if (!result.ok) throw new Error(result.error);
     state = result.state;
   }
@@ -1021,16 +1049,17 @@ describe('the shrinking minute', () => {
  * both look perfectly reasonable on the screen.
  */
 /**
- * Ending on a letter puts it out of that seat's reach, priced by how thin the
- * ending is: see `lockTurns`.
+ * Handing a letter over puts it out of that seat's reach when the seat who has
+ * to answer it has hardly anything to answer with: see `lockTurns`.
  *
  * The parts worth pinning are the ones a "simplification" would quietly move:
- * the price comes from the pool of words still ending on that letter and not
- * from the seat's history with it, the wait is counted in the seat's own turns,
- * a free ending stores nothing at all, and the pool is the one the game's mode
+ * the price comes from the pool of words still *starting* with that letter in
+ * the *answering* seat's language, not from the ending's own pool and not from
+ * the seat's history with it, the wait is counted in the seat's own turns, a
+ * free ending stores nothing at all, and the pool is the one the game's mode
  * links on.
  */
-describe('a thin ending', () => {
+describe('a thin hand-off', () => {
   /** The letters the seat on the clock may not end on, and for how long. */
   const locks = (state: WcState): Record<string, number> =>
     Object.fromEntries(lockedFor(state, state.at).map((cool) => [cool.letter, cool.turns]));
@@ -1046,78 +1075,88 @@ describe('a thin ending', () => {
   const chain = (a: ChainLang, b: ChainLang, ...words: string[]): WcState =>
     on(playing(a, b), ...words);
 
-  it('prices the lock off the pool and nothing else', () => {
-    // The two ends of the line and the middle of it. Held here rather than
-    // only in the reducer because these three numbers are the rule: a slope
-    // fitted the other way round would still be linear and still be wrong.
-    expect(lockTurns(LOCK_FREE)).toBe(0);
-    expect(lockTurns(LOCK_FREE + 5_000)).toBe(0);
-    expect(lockTurns(LOCK_FULL)).toBe(MAX_LOCK);
+  it('is a cliff at the bar and nothing either side of it', () => {
+    // Flat, not a ramp. Held here rather than only in the reducer because a
+    // slope through these points would satisfy the two ends and be a different
+    // rule: the player is promised five turns, not "up to" five.
+    expect(lockTurns(THIN_START)).toBe(0);
+    expect(lockTurns(THIN_START + 5_000)).toBe(0);
+    expect(lockTurns(THIN_START - 1)).toBe(MAX_LOCK);
     expect(lockTurns(0)).toBe(MAX_LOCK);
-    expect(lockTurns((LOCK_FREE + LOCK_FULL) / 2)).toBe(MAX_LOCK / 2 + 0.5);
   });
 
-  it('leaves a fat ending free, however often it is used', () => {
-    // Six thousand English words end in E, so E is not a habit anybody needs
-    // protecting from. Under the old ladder this second E was refused.
-    let state = chain('en', 'en', 'apple', 'every', 'yale');
+  it('leaves a roomy letter free, however often it is handed over', () => {
+    // Eighteen hundred English words start with E, so leaving somebody on an E
+    // is not a thing anybody needs protecting from.
+    const state = chain('en', 'en', 'apple', 'east', 'take', 'end', 'dark');
     expect(locks(state)).toEqual({});
+    // Seat 0 has handed over an E twice and paid nothing either time.
+    expect(wait(state, 0, 'e')).toBe(0);
     // And nothing is written down either: a row saying "this letter is fine"
     // is a row that can rot into a lock.
     expect(state.cooldowns[0]).toEqual([]);
-    state = on(state, 'east', 'take');
-    expect(wait(state, 0, 'e')).toBe(0);
   });
 
-  it('locks an ending the list is thin in', () => {
-    // A hundred and sixty-odd English words end in B, one of them the word
-    // that has just been said, which prices B at the full five turns.
-    let state = chain('en', 'en', 'club');
-    expect(wait(state, 0, 'b')).toBe(5);
+  it('locks a letter the next player is thin in', () => {
+    // The case the rule exists for. Only 228 English words start with Y, so
+    // ending on one leaves the other player almost nothing -- and under the
+    // count this used to be priced on, the four thousand words that *end* in Y
+    // made it free.
+    let state = chain('en', 'en', 'play');
+    expect(wait(state, 0, 'y')).toBe(5);
     expect(locks(state)).toEqual({});
 
-    // Seat 0 again, and `knob` starts with the required K. The lock is the
+    // Seat 0 again, and `sadly` starts with the required S. The lock is the
     // only thing refusing it, and it says how long.
-    state = on(state, 'bank');
-    expect(refuse(state, { type: 'say', word: 'knob' })).toContain('5 more of your turns');
+    state = on(state, 'yes');
+    expect(refuse(state, { type: 'say', word: 'sadly' })).toContain('5 more of your turns');
   });
 
   it('counts the wait in a seat own turns rather than the chain', () => {
     // Five of seat 0's turns is ten words of chain; a wait counted in chain
-    // words would hand B back halfway through.
-    let state = chain('en', 'en', 'club', 'bank');
-    expect(wait(state, 0, 'b')).toBe(5);
-    state = on(state, 'king', 'green');
-    expect(wait(state, 0, 'b')).toBe(4);
-    state = on(state, 'night', 'try', 'yes', 'save', 'end', 'dark');
-    expect(wait(state, 0, 'b')).toBe(1);
-    state = on(state, 'kind', 'dance');
-    expect(wait(state, 0, 'b')).toBe(0);
+    // words would hand Y back halfway through.
+    let state = chain('en', 'en', 'play', 'yes');
+    expect(wait(state, 0, 'y')).toBe(5);
+    state = on(state, 'sun', 'night');
+    expect(wait(state, 0, 'y')).toBe(4);
+    state = on(state, 'take', 'end', 'dark', 'king', 'green', 'note');
+    expect(wait(state, 0, 'y')).toBe(1);
+    state = on(state, 'east');
+    expect(wait(state, 0, 'y')).toBe(0);
   });
 
-  it('is only the seat that used it that pays', () => {
-    const state = chain('en', 'en', 'club');
-    // Seat 1's B is untouched by seat 0 spending theirs. The rule is a tax on
-    // your own ending, and taxing you for your opponent's would be arbitrary
-    // from the inside -- you cannot even see it.
+  it('is only the seat that handed it over that pays', () => {
+    const state = chain('en', 'en', 'play');
+    // Seat 1's Y is untouched by seat 0 spending theirs. The rule is a tax on
+    // what you did to them, and taxing you for what they did to you would be
+    // arbitrary from the inside -- you cannot even see it.
     expect(locks(state)).toEqual({});
-    expect(() => say(state, 'bulb')).not.toThrow();
-    expect(wait(say(state, 'bulb'), 1, 'b')).toBe(5);
+    expect(wait(on(state, 'yesterday'), 1, 'y')).toBe(5);
+  });
+
+  it('reads the pool of the player who has to answer, not the pool of the player who spoke', () => {
+    // A thousand English words start with W and only a hundred Japanese ones,
+    // so the same ending is free against an English opponent and the full five
+    // turns against a Japanese one. This is the whole correction: the harm is
+    // to whoever has to start on the letter, so it is their list that prices
+    // it.
+    expect(wait(chain('en', 'en', 'window'), 0, 'w')).toBe(0);
+    expect(wait(chain('en', 'ja', 'window'), 0, 'w')).toBe(5);
   });
 
   it('counts the pool the game links on', () => {
-    // `też` hands on a `ż` in a strict game, and a hundred and forty Polish
-    // words end on one, against two thousand ending in a plain `z`. Reading
-    // the loose pool here would price a strict ending off a letter the strict
-    // game does not have.
+    // `też` hands on a `ż` in a strict game and on a plain `z` in a loose one,
+    // and those are two different letters with two different pools in front of
+    // them. Both happen to be thin enough to charge, which is the point: what
+    // is pinned here is *which letter is written down*, since a strict game
+    // reading the folded key would put the lock on a letter it does not have.
     const strict = chain('pl', 'pl', 'też');
     expect(strict.strict).toBe(true);
     expect(lockedFor(strict, 0)).toEqual([{ letter: 'ż', turns: 5 }]);
 
-    // The same word in a mixed game folds to `z`, which is nobody's corner.
     const loose = chain('pl', 'en', 'też');
     expect(loose.strict).toBe(false);
-    expect(lockedFor(loose, 0)).toEqual([]);
+    expect(lockedFor(loose, 0)).toEqual([{ letter: 'z', turns: 5 }]);
   });
 
   it('goes out to the seat it belongs to and nobody else', () => {
@@ -1131,13 +1170,14 @@ describe('a thin ending', () => {
    * be a word the game would in fact have taken from them.
    */
   it('is respected by the word the loser is shown', () => {
-    const state = chain('en', 'en', 'club', 'bank');
-    // Seat 0 is on the clock, owes a K word, and cannot end on B -- and `knob`
-    // is exactly the word the reveal would otherwise be free to offer them.
-    expect(wait(state, 0, 'b')).toBe(5);
+    const state = chain('en', 'en', 'play', 'yes');
+    // Seat 0 is on the clock, owes an S word, and cannot end on Y -- which
+    // rules out most of the commonest answers (`simply`, `sorry`, `story`),
+    // exactly the words the reveal would otherwise be free to offer them.
+    expect(wait(state, 0, 'y')).toBe(5);
     const over = wordChain.expire?.(state, (state.deadline ?? 0) + 1);
     expect(missFor(over as WcState, 0)?.reveal).not.toBeNull();
-    expect(missFor(over as WcState, 0)?.reveal?.key.slice(-1)).not.toBe('b');
+    expect(missFor(over as WcState, 0)?.reveal?.key.slice(-1)).not.toBe('y');
   });
 });
 
@@ -1457,6 +1497,51 @@ describe('what it records', () => {
   });
 
   /**
+   * The bug this pins: a word the ladder spelled out banked as `produced`.
+   *
+   * It matters more than a wrong number on an end screen, because `answerFor`
+   * deliberately hints at a word the seat already owes a review on. Graded as
+   * production, the hint promotes exactly the card it was helping with, and
+   * the ledger comes to believe the player knows a word they have never once
+   * retrieved unaided. Vocab Race grades this `hinted`; both games write to
+   * one ledger, so both have to call it the same thing.
+   */
+  it('grades a word the hint handed over as hinted, however fast it was typed', () => {
+    const state = levelled(['new', 'new'], ['pl', 'pl']);
+    const began = (state.deadline as number) - TURN_MS;
+    const word = state.hint?.word as string;
+    expect(word).toBeTruthy();
+
+    // Both rungs are up: the meaning at twenty seconds, the shape at forty.
+    expect(hintsFor(state, state.at, began + 41_000)).toHaveLength(2);
+    const said = say(state, word, began + 41_000);
+    const link = said.chain[said.chain.length - 1];
+    expect(link.word).toBe(word);
+    expect(link.hinted).toBe(true);
+
+    const done = wordChain.applyMove(said, { type: 'give-up' }, 1 - said.chain[0].seat, rng, began + 42_000);
+    if (!done.ok) throw new Error(done.error);
+    const learned = wordChain
+      .record?.(done.state, 2)
+      ?.seats.find((s) => s.seat === link.seat)
+      ?.learned.find((l) => l.word === word);
+    expect(learned?.grade).toBe('hinted');
+  });
+
+  it('still calls it production when the word was said before any hint landed', () => {
+    const state = levelled(['new', 'new'], ['pl', 'pl']);
+    const began = (state.deadline as number) - TURN_MS;
+    const word = state.hint?.word as string;
+
+    // The same word, off the same ladder, typed before the first rung is due.
+    // Knowing it is knowing it: the flag is about what was on the screen, not
+    // about which word the game happened to pick.
+    expect(hintsFor(state, state.at, began + 19_000)).toEqual([]);
+    const said = say(state, word, began + 19_000);
+    expect(said.chain[said.chain.length - 1].hinted).toBe(false);
+  });
+
+  /**
    * The reveal, which is the point of the game: a minute of failing to think
    * of a word is when you are most likely to remember it, so the word goes
    * into the ledger for the person who could not find it.
@@ -1516,5 +1601,138 @@ describe('what it records', () => {
     // The client has no dictionary and never may, so every word has to arrive
     // carrying what the profile screen will draw.
     expect(typeof said?.gloss).toBe('string');
+  });
+});
+
+/**
+ * The hint ladder, which is the whole of what a level buys here. See
+ * `ChainLevel` and `HINT_AT`: the clock and the scoring are the same for
+ * everybody and stay that way, so every one of these is about *when* a word a
+ * player could have said arrives on their screen.
+ */
+describe('what a level buys', () => {
+  it('defaults both seats to the middle band, so an untouched control changes nothing', () => {
+    const state = playing('pl', 'en');
+    expect(levelOf(state, 0)).toBe(CHAIN_DEFAULT_LEVEL);
+    expect(levelOf(state, 1)).toBe(CHAIN_DEFAULT_LEVEL);
+  });
+
+  it('reads the default out of a state that predates the field', () => {
+    // A room restored from storage, where `levels` was never written. It has
+    // to play, not throw, and it has to play the band the setup screen would
+    // have defaulted it to.
+    const { levels, ...older } = playing('pl', 'en');
+    expect(levels).toBeDefined();
+    expect(levelOf(older as WcState, 0)).toBe(CHAIN_DEFAULT_LEVEL);
+  });
+
+  it('refuses a level that is not one of the three', () => {
+    const state = opened();
+    expect(refuse(state, { type: 'level', level: 'expert' } as unknown as WcMove, 0, 1_000)).toMatch(
+      /not one of the levels/,
+    );
+  });
+
+  it('settles the level before the language, and not after', () => {
+    let state = opened();
+    const first = wordChain.applyMove(state, { type: 'level', level: 'new' }, 0, rng, 1_000);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    state = first.state;
+    // Choosing a language is what ends this seat's setup, so the level control
+    // closes with it. `canAct` is the gate, which is what every control on the
+    // board is drawn from.
+    const chose = wordChain.applyMove(state, { type: 'lang', lang: 'pl' }, 0, rng, 1_000);
+    expect(chose.ok).toBe(true);
+    if (!chose.ok) return;
+    expect(canAct(chose.state, 0)).toBe(false);
+    expect(refuse(chose.state, { type: 'level', level: 'fluent' }, 0, 1_000)).toMatch(
+      /Not your move/,
+    );
+    // And it survived the language: the seat is playing at what it said.
+    expect(levelOf(chose.state, 0)).toBe('new');
+  });
+
+  it('walks a beginner towards the word at twenty seconds, and its shape at forty', () => {
+    const state = levelled(['new', 'new'], ['pl', 'en']);
+    expect(state.hint).not.toBeNull();
+    const began = (state.deadline as number) - TURN_MS;
+
+    expect(hintsFor(state, 0, began + 19_000)).toEqual([]);
+    const [first] = hintsFor(state, 0, began + 20_000);
+    expect(first?.kind).toBe('meaning');
+    expect(first?.text).toBe(state.hint?.gloss);
+
+    const both = hintsFor(state, 0, began + 40_000);
+    expect(both.map((step) => step.kind)).toEqual(['meaning', 'shape']);
+    // The masked word, and the promise the setup screen makes: first two
+    // letters, then a blank a letter.
+    expect(both[1]?.text).toBe(maskWord(state.hint?.word as string));
+  });
+
+  it('makes the middle band wait, and gives a fluent seat nothing at all', () => {
+    const middle = levelled(['some', 'some'], ['pl', 'pl']);
+    const began = (middle.deadline as number) - TURN_MS;
+    expect(hintsFor(middle, 0, began + 20_000)).toEqual([]);
+    expect(hintsFor(middle, 0, began + (HINT_AT.some[0] as number))).toHaveLength(1);
+
+    // Nothing is even computed for a seat that cannot be shown one: a hint for
+    // a fluent seat would be a scan of a whole language, every turn, for
+    // something nobody ever sees.
+    const fluent = levelled(['fluent', 'fluent'], ['pl', 'pl']);
+    expect(fluent.hint).toBeNull();
+    expect(hintsFor(fluent, 0, began + 59_000)).toEqual([]);
+  });
+
+  it('stops hinting once the turn is shorter than the ladder', () => {
+    // The clock shrinks a second a word, so deep in a chain there is no time
+    // to spend on a hint and none is given. See `turnMsFor`.
+    const state = levelled(['new', 'new'], ['pl', 'pl']);
+    const late: WcState = { ...state, chain: padded(80), deadline: 1_000 + MIN_TURN_MS };
+    expect(turnMsFor(80)).toBe(MIN_TURN_MS);
+    expect(hintsFor(late, late.at, 1_000 + MIN_TURN_MS)).toEqual([]);
+  });
+
+  it('hints at the very word it would have revealed', () => {
+    const state = levelled(['new', 'new'], ['pl', 'pl']);
+    const on = say(state, 'kot');
+    // The seat now on the clock is being walked towards a word; run their
+    // minute out and the reveal has to be that same word, or the game has
+    // changed its mind about the answer between hinting and revealing.
+    const hinted = on.hint?.word;
+    expect(hinted).toBeTruthy();
+    const gone = wordChain.expire?.(on, on.deadline as number);
+    expect(missFor(gone as WcState, on.at)?.reveal?.word).toBe(hinted);
+  });
+
+  it('never shows a seat the word its opponent is hunting for', () => {
+    const state = levelled(['new', 'new'], ['pl', 'pl']);
+    expect(state.hint?.seat).toBe(state.at);
+    // The waiting seat gets nothing: the hint is the answer to the turn in
+    // progress, and with it the letter that turn is about to hand back.
+    expect(wordChain.view?.(state, state.at)?.hint).not.toBeNull();
+    expect(wordChain.view?.(state, 1 - state.at)?.hint).toBeNull();
+    expect(hintsFor(state, 1 - state.at, (state.deadline as number))).toEqual([]);
+  });
+
+  it('gives English the shape and no meaning, the list having no glosses', () => {
+    const state = levelled(['new', 'new'], ['en', 'en']);
+    expect(state.hint?.gloss).toBe('');
+    // One rung rather than a first rung that says nothing, and it is the shape
+    // one, at the first of the two times. See `chainHintSteps`.
+    const steps = chainHintSteps(state.hint as NonNullable<typeof state.hint>);
+    expect(steps.map((step) => step.kind)).toEqual(['shape']);
+    const began = (state.deadline as number) - TURN_MS;
+    expect(hintsFor(state, 0, began + (HINT_AT.new[0] as number))).toHaveLength(1);
+    expect(hintsFor(state, 0, began + 59_000)).toHaveLength(1);
+  });
+
+  it('masks a word to its first two letters and a blank a letter', () => {
+    expect(maskWord('lozko')).toBe('lo___');
+    // Code points, not UTF-16 units, so an accented Polish word is not padded
+    // out with blanks it has not got.
+    expect(maskWord('\u0142\u00f3\u017cko')).toBe('\u0142\u00f3___');
+    expect([...maskWord('\u017c\u00f3\u0142ty')].length).toBe(5);
+    expect(maskWord('an')).toBe('an');
   });
 });

@@ -255,7 +255,28 @@ export const Dice3DTray = forwardRef<DiceTrayHandle, Dice3DTrayProps>(function D
   // per-page limit, and Liar's Dice plus a rematch is enough to reach it.
   useLayoutEffect(() => {
     if (!ready || !box.current || !kit.current) return;
-    const view = kit.current.scene.createScene(box.current, tray);
+    /*
+      A tray without a GPU draws nothing rather than taking the game down with
+      it. `createScene` builds a `WebGLRenderer`, and that constructor throws
+      outright when the canvas will not give up a context -- a device with
+      WebGL disabled or blocklisted, a browser that has run out of contexts, or
+      a headless environment. Thrown from a layout effect it reaches the app's
+      error boundary, so the whole table becomes the white screen, including
+      the Roll button that does not need a GPU and the score sheet that is the
+      actual game.
+
+      Every path below already checks `scene.current` for null, because that is
+      the state a tray is in for the moment before the modules land. This makes
+      that state permanent instead of fatal: the dice are not drawn, and
+      everything a player operates -- the roll, the keeps, the labels -- is
+      HTML that never went through WebGL in the first place.
+    */
+    let view;
+    try {
+      view = kit.current.scene.createScene(box.current, tray);
+    } catch {
+      return;
+    }
     scene.current = view;
     return () => {
       view.dispose();

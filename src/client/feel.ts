@@ -139,6 +139,60 @@ export function clatter(strength: number, wall: boolean, pitch = 1): void {
 }
 
 /**
+ * The reward for a right answer: two notes up, short, out of the way.
+ *
+ * Synthesised rather than a recording, which is the same call `clatter` makes
+ * and made for a different reason. The dice are synthesised because a throw is
+ * different every time; this is synthesised because it has to be *different by
+ * how much was earned*, and ten recordings of the same chime at ten pitches is
+ * ten files to ship and one number to get wrong. `sfx.ts` is for the discrete
+ * events -- a disc landing, a game ending -- and this is not one.
+ *
+ * The interval rises with the payment, and only a little: a fifth over the
+ * whole range of `xpFor`, from a first recognition to a five-week review. Big
+ * enough that a good answer sounds different from an ordinary one, small
+ * enough that the ordinary one never sounds like a consolation prize. A
+ * language app that sounds disappointed in you is one people stop opening.
+ *
+ * Goes through `sharedAudio`, so the sound switch is still the only switch --
+ * see the note at the top of `sfx.ts`, which is the rule this obeys rather
+ * than a second mute to forget about.
+ */
+export function chime(xp: number): void {
+  const ac = sharedAudio();
+  if (!ac) return;
+  const now = ac.currentTime;
+
+  // The range `xpFor` actually produces: 2 for a recognition, 19 for a
+  // produced answer on the top rung. Anything outside it is clamped rather
+  // than trusted, because this is fed from a client-side estimate.
+  const lift = clamp((xp - 2) / 17, 0, 1);
+  // A fourth up from the root, then a fifth, as the payment grows. Both notes
+  // move, so the interval opens rather than the whole thing simply getting
+  // higher, which is what stops a big answer sounding like a small one played
+  // on a smaller speaker.
+  const root = 587 * (1 + lift * 0.12);
+  const notes = [root, root * (1.335 + lift * 0.165)];
+
+  notes.forEach((hz, i) => {
+    const at = now + i * 0.075;
+    const tone = ac.createOscillator();
+    const shape = ac.createGain();
+    // Triangle, not sine: a sine this short reads as a system beep, and not
+    // square, which reads as an arcade. A triangle is the one that sounds like
+    // it belongs beside wooden dice.
+    tone.type = "triangle";
+    tone.frequency.setValueAtTime(hz, at);
+    shape.gain.setValueAtTime(0.0001, at);
+    shape.gain.exponentialRampToValueAtTime(0.12, at + 0.008);
+    shape.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+    tone.connect(shape).connect(ac.destination);
+    tone.start(at);
+    tone.stop(at + 0.18);
+  });
+}
+
+/**
  * A tick in the hand of whoever threw. Silent everywhere the Vibration API is
  * not, which is every iPhone and every desktop.
  *

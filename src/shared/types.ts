@@ -80,6 +80,25 @@ export interface GameDefinition<S = unknown, M = unknown> {
 
   isOver(state: S): boolean;
 
+  /**
+   * The one seat that won, or null when nobody did.
+   *
+   * Only ever asked of a state `isOver` says is finished, and only ever used
+   * to *decorate*: the end screen puts the winner's figure, name and
+   * characters where a status line used to be alone. Nothing is decided from
+   * it, which is why a wrong answer here is a wrong portrait rather than a
+   * wrong result, and why the room still reports `result: null` for the games
+   * whose `record()` says nothing (see `RoomEngine.record`).
+   *
+   * **Required, and null is a real answer.** It was very nearly optional, and
+   * that would have made the eleven games that never named a winner
+   * indistinguishable from the ones that forgot to. Null means a draw, a tie
+   * at the top, or a game with nobody to name -- Drill is played alone -- and
+   * the end screen falls back to the status sentence for all of them, which is
+   * the sentence that already explains *why* there is no name.
+   */
+  winner(state: S): number | null;
+
   /** One-line human-readable status, e.g. "Amelia's turn". */
   status(state: S, names: string[]): string;
 

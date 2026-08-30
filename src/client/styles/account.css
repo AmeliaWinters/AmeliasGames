@@ -1,0 +1,289 @@
+/* The account: the chip at the end of the bar, the menu it drops, and the page
+   that menu leads to.
+
+   The tail of the old `controls.css`, imported in its old position, so nothing
+   about the cascade moved. The same panel is drawn three ways in here -- in a
+   card, in a dropdown and as a full page at `/account` -- and the rules that
+   undo the card for the other two are the reason this is one file rather than
+   three. */
+
+/* The account control at the far end of the bar: one button, which is the
+   name chip. It was a two-line card -- the chip, and a link under it that
+   opened the account -- and the split was ours rather than anybody's
+   expectation: the thing that shows your name is the thing you press to get at
+   your account. The card stays as the wrapper because the cap it carries is
+   what actually holds the bar together at 320px, and it is pinned in
+   `css.test.ts`. */
+.account {
+  display: flex;
+  /* A row now, not a stack: the purse, the chest and the name chip, in that
+     order. `stretch` is what makes the chip and the chest the same height
+     without either of them naming one -- the chip's 44px floor sets it. */
+  flex-direction: row;
+  align-items: stretch;
+  gap: 7px;
+  margin-left: auto;
+  min-width: 0;
+  /* Never shrunk by the bar, and this is the fix for a bug that was visible
+     on a 1280 desktop with 800px of empty bar: the lockup is an image, and an
+     image's contribution to a flex base size is its *natural* width -- 1076px
+     for this file -- not the width its 3em height works out to. So the bar
+     thought it was overflowing, shrank both items in proportion, and handed
+     the chip 84px on a viewport with room for ten times that. The name came
+     out as "Am" with no ellipsis, because what clipped it was the column, not
+     the text.
+     `flex: none` takes the card out of that arithmetic entirely: the wordmark
+     is the one that gives, which is what its `min-width: 0` and hidden
+     overflow were written for, and the caps below are what stop this card
+     taking the bar at a phone width. */
+  flex: none;
+  /* The pair, not the chip: the chip's own 40vw cap is what the name
+     ellipsises against and it is pinned in `css.test.ts`, so the card has to
+     leave room for the purse and the chest beside it. The pixel half of the
+     cap is what a name is worth on a wide lobby -- about eighteen characters
+     before the ellipsis, where 62vw alone would let a twenty-character name
+     draw a 790px chip. */
+  max-width: min(62vw, 360px);
+  /* The anchor for the account menu, which drops from this card. */
+  position: relative;
+}
+/* The chip's own cap is pinned in `css.test.ts`; inside the card it is the
+   card that does the capping, and the auto margin has moved up a level. */
+.account .whoami {
+  margin-left: 0;
+  max-width: 100%;
+  /* Shrink-only, and never grow: the card holds two pills now, the purse is
+     fixed-width type, and the chip is the one that gives. `flex: 0 0 auto`
+     here pushed 173px of chip out of a 141px card at 320; `1 1 auto` fixed
+     that and broke the other end, because the wordmark grows and the chip
+     then shrank to its 18px minimum on a 1280 lobby with room to spare. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The card's phone cap, and it has to live here rather than beside the rest of
+   the phone rules four hundred lines up: `.account` is written below them and
+   at equal specificity the later block wins, which is how 44vw quietly lost to
+   62vw and put a 173px card into the 141 it had.
+
+   41vw is 131px at 320, and 131 is what the pair may have if the lockup is to
+   keep the 147 it needs to read "Rebellia" whole -- measured, not derived: at
+   44vw the brand clipped to "Rebell". The name is down to a letter and an
+   ellipsis at that width, which is the same trade the old rule made by hiding
+   it outright, and the ellipsis is the better half of it. Measured at 375 and
+   390 too, where the slack goes back to the name. */
+@media (max-width: 400px) {
+  .account {
+    /* The arithmetic, rather than a percentage that happens to match it at one
+       width: the bar has 16px of gutter either side, the lockup wants the 147
+       it takes to read "Rebellia" whole, and there is an 8px gap between them.
+       What is left is the card's, and it is 133 at 320, 188 at 375 and 203 at
+       390 -- where a flat 41vw handed it 131, 154 and 160 and threw the rest
+       away. Measured at all three; at 44vw the brand clipped to "Rebell". */
+    max-width: calc(100vw - 187px);
+    gap: 5px;
+  }
+}
+
+/* Under 360 the chip is the face and nothing else.
+
+   Three objects share the card now -- a purse, a chest and the chip -- and at
+   320 the card is 133px, of which the purse and the chest take 100. Thirty
+   pixels is an avatar and no name: not an ellipsis, not an initial, a column
+   0px wide with the text clipped out of it, which is what shipped as "Am" and
+   is worse than not drawing the name at all. So it is not drawn. The avatar is
+   the identity at this width, the name is on the button's accessible label and
+   on the first row of the panel it opens, and the chip becomes a 44px round
+   button beside the 44px round chest -- which is the shape a phone header
+   wants anyway. Above 360 the name is back, and it ellipsises. */
+@media (max-width: 359px) {
+  .whoami {
+    padding-right: 4px;
+  }
+  .whoami .whocol {
+    display: none;
+  }
+}
+
+/* Two columns on a wide lobby, one on a phone.
+
+   The aside is the width the join box already kept for itself, and the shelf
+   pays for it in cards a row: at 1280 it was five and is now three. That is
+   the trade, and it is worth taking, because it buys back the 1500px of page
+   the join box, the tagline and the reminder used to be stacked across above
+   the first card.
+
+   1040px, not the 900 the rest of the lobby switches at. Below it the shelf
+   left over is under the 642px three 206px cards and their gaps need, and
+   `auto-fill` answers that by stretching two cards to 298px each -- a card
+   twice its motif's width, which is the thing `base.css` sizes them to
+   avoid. At 1040 the shelf is 664px and takes three.
+
+   Guarded the same way `base.css` guards the lobby's width, and for the same
+   reason: `.app.setup` is worn by two recovery screens that have no shelf. */
+.lobby-cols {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lobby-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+@media (min-width: 1040px) {
+  .lobby-cols:has(.shelves) {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    align-items: start;
+    gap: 24px;
+  }
+}
+
+/* What an account is for, under the way in to one. Set in muted body type and
+   measured rather than full-bleed: it is a paragraph somebody reads once. */
+.acct-why {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-width: 42ch;
+}
+
+/* The account menu, dropped from the chip.
+
+   The menu is a menu again. It spent a while as the top of the `/account`
+   page and that was a real cost: six rows and a name is not a page, and
+   pressing the thing with your name on it and being *navigated somewhere* is
+   not what the same control does on YouTube, on Reddit or on Facebook. What
+   stayed a page is everything behind the rows -- the words, the stats, the
+   customiser with forty five items in one grid -- because those genuinely are
+   pages and were unreadable in a 360px column.
+
+   As big as it needs to be, which is the requirement: no height, no `78vh`
+   cap, `max-height` only as the floor under a menu taller than the viewport,
+   and `width: max-content` bounded rather than a fixed 360.
+
+   `absolute`, not `fixed`, and the same reasoning as `.panel-pop` two hundred
+   lines up: `.lobby-bar` is not sticky, the lobby is scrolled once, and an
+   absolute popover stays attached to its anchor with no scroll listener to
+   keep in step.
+
+   Right-aligned, and that is what makes the phone case free: the chip is at
+   the right-hand end of the bar, so the menu's right edge is pinned there and
+   `min(...)` keeps its left edge inside the gutter at 320. There is no second
+   layout for a phone -- it is the same dropdown, narrower. */
+.acct-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 6;
+  margin-top: 8px;
+  /* The floor and the ceiling. 260 is the narrowest the rows read at; 340 is
+     where a two-line row stops needing a second line. `calc(100vw - 24px)` is
+     the lobby's own gutter, doubled, so the card never touches an edge. */
+  width: max-content;
+  min-width: min(260px, calc(100vw - 24px));
+  max-width: min(340px, calc(100vw - 24px));
+  /* Only a menu that would otherwise run off the bottom of the screen scrolls,
+     and it scrolls itself rather than the page: the guest half of this menu is
+     a paragraph and a button, and the key half opened is four rows and a text
+     area, which is taller than a phone in landscape. */
+  max-height: min(80vh, 640px);
+  /* The card is the popover rather than the panel inside it, so the surface,
+     the edge and the corner are drawn here and the panel gives them up below.
+     Two cards nested 1px apart is the thing that reads as a rendering bug. */
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.24);
+}
+/* The panel inside is the same component the page draws, and on the page it
+   is a card in the flow. Here the popover is the card, so the panel gives up
+   its own edge rather than drawing a second one 1px inside it. */
+.acct-pop > .panel {
+  border: 0;
+  border-radius: inherit;
+}
+
+/* The account, as its own page at `/account`.
+
+   It was a popover: 360px wide, anchored under the chip, capped at 78vh. That
+   is the right shape for a menu and this stopped being one -- behind those
+   rows are the words, the stats, the chests and a customiser whose grid runs
+   to forty five items, and all four were being read down a column narrower
+   than a phone on a 1280px display, each with its own inner scroller inside
+   the popover's.
+
+   Then it was a `fixed` sheet over the lobby, which fixed the width and left
+   the rest: a page with no address, invisible to the back button. It is a
+   route now, so it is in the flow like any other page and scrolls with the
+   document rather than inside itself -- which is also what gets a phone its
+   URL bar back on the way down a long word list. `min-height` rather than
+   `height`, so a short screen still paints the ground to the bottom.
+
+   The top padding is room for the close button the sheet slides under; the
+   sides are the gutter the lobby keeps at 320px. */
+.acct-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--ground);
+  padding: 56px 12px 32px;
+  /* Left-aligned text inside what used to be a right-anchored chip: the
+     popover inherited the bar's alignment and nothing here wants it. */
+  text-align: left;
+}
+/* The chest screen over a room wears the same page, minus the close button it
+   has no room for: the way out of here is the screen's own Back, which puts
+   the board straight back. Without this the page keeps 56px of clearance for
+   a control that is not drawn. */
+.acct-page.room-chests {
+  padding-top: 16px;
+}
+
+
+/* The column the page is read down. Wide enough that the customiser grid gets
+   real columns and the stats sit side by side, and no wider, because the rows
+   in the menu are one line of type each and a 1280px row is a line somebody
+   has to track across. Full width on a phone, where the padding above is the
+   whole of the margin. */
+.acct-sheet {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* The panel inside drops the frame it drew as a card. On a page it is the
+   page, and a shadowed rounded box floating on its own background is the seam
+   the popover was hiding. The radius is left to `.panel`'s own
+   `--panel-radius`: the 12px here was the popover's corner, kept so the two
+   radii on the same box would agree, and there is no second box now. */
+.acct-page .panel {
+  margin: 0;
+  box-shadow: none;
+}
+
+/* Pinned to the page rather than scrolling with it: the screens in here are
+   long, and the way out has to be reachable from the bottom of a word list
+   without scrolling back up for it. Its own 44px box, because it is a single
+   glyph and a glyph is not a touch target. */
+.acct-close {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+}

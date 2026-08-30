@@ -17,8 +17,19 @@ import {
 import { verifyClaim } from '../shared/account.js';
 import { PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
 import { harvestKey } from '../shared/harvest.js';
-import { applyHarvest, loadProfile, viewOf, type HarvestPost } from '../shared/players.js';
-import { dueWords } from '../shared/profile.js';
+import {
+  applyChest,
+  applyHarvest,
+  applyRoll,
+  applyShowcase,
+  collectionOf,
+  loadProfile,
+  viewOf,
+  vocabOf,
+  wardrobeOf,
+  type HarvestPost,
+} from '../shared/players.js';
+import { LEARN_LANGS, dueWords } from '../shared/profile.js';
 import type { Profile, ProfileView } from '../shared/profile.js';
 import type { Refusal } from '../shared/session.js';
 
@@ -212,6 +223,17 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
     const result = room.engine.join(hello.playerId, hello.name, hello.accountId);
     if (!result.ok) return fail(socket, { kind: result.kind, error: result.error });
 
+    // Immediately after the join, because a rejoin rewrites the whole seat
+    // record and would otherwise drop the faces. Free here: the profile store
+    // is a `Map`. The worker pays a request for the same thing and says so.
+    if (hello.accountId) {
+      room.engine.setShowcase(result.seat, profileViewOf(hello.accountId).showcase);
+    }
+    // Not gated on an account: a guest who has built a figure still gets to be
+    // seen wearing it. It came in the `hello` rather than out of a profile
+    // because that is where an equipped loadout lives; see `setAvatar`.
+    room.engine.setAvatar(result.seat, hello.avatar);
+
     // A second tab for the same player takes over the seat rather than
     // leaving a zombie socket on updates. 4000 tells that client the close
     // was deliberate, so it stops retrying.
@@ -284,6 +306,16 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
       return;
     }
 
+    if (msg.t === 'vocab') {
+      // Same gate as `profile`: the socket's own account, or nothing. The
+      // language is echoed back so two requests in flight cannot be drawn
+      // under each other's heading.
+      if (!joined?.accountId) return;
+      if (!LEARN_LANGS.includes(msg.lang)) return;
+      send(socket, { t: 'vocab', lang: msg.lang, words: vocabOf(profileOf(joined.accountId), msg.lang) });
+      return;
+    }
+
     if (!joined) return fail(socket, { kind: 'rejected', error: 'Join a room first.' });
     const { room, seat } = joined;
 
@@ -348,6 +380,48 @@ function handleConnection(socket: WebSocket, routingCode: string | null): void {
 function serveLookup(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
   res.setHeader('access-control-allow-origin', '*');
+  // The preflight the chest POST triggers, since it carries a JSON body across
+  // origins in development. `peek` is a GET and never needed one.
+  if (req.method === 'OPTIONS') {
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.setHeader('access-control-allow-methods', 'POST, GET, OPTIONS');
+    res.writeHead(204).end();
+    return;
+  }
+  if (url.pathname === '/account/chest' && req.method === 'POST') {
+    serveChest(req, res);
+    return;
+  }
+  if (url.pathname === '/account/waifu' && req.method === 'POST') {
+    serveAccount(req, res, (profile, _body, nonce) => {
+      const result = applyRoll(profile, { nonce }, Math.random);
+      return {
+        profile: result.profile,
+        body: {
+          pulled: result.pulled,
+          duplicate: result.duplicate,
+          paid: result.paid,
+          refusal: result.refusal,
+          repeat: result.repeat,
+          claimed: collectionOf(result.profile),
+        },
+      };
+    });
+    return;
+  }
+  if (url.pathname === '/account/showcase' && req.method === 'POST') {
+    serveAccount(req, res, (profile, body) => {
+      const asked = Array.isArray(body?.showcase) ? body.showcase.slice(0, 8).map(String) : [];
+      return { profile: applyShowcase(profile, asked), body: {} };
+    });
+    return;
+  }
+  if (url.pathname === '/account/collection' && req.method === 'POST') {
+    // A POST for a read, matching the worker: the claim is signed over a nonce
+    // and a nonce does not belong in a URL a proxy may log.
+    serveAccount(req, res, (profile) => ({ profile, body: { claimed: collectionOf(profile) } }));
+    return;
+  }
   if (url.pathname !== '/peek') {
     res.writeHead(404).end('Not found');
     return;
@@ -359,6 +433,136 @@ function serveLookup(req: import('node:http').IncomingMessage, res: import('node
   }
   res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(peek(code, rooms.get(code)?.engine ?? null)));
+}
+
+/**
+ * Open a chest, the dev server's half. The worker's twin is in `worker/index.ts`.
+ *
+ * The decisions are all in `applyChest`, which is shared, so the two adapters
+ * cannot hand out different drops for the same profile. What differs is only
+ * the plumbing: a `Map` here, a stub there.
+ *
+ * `randomUUID` rather than a seeded generator, for the same reason the worker
+ * reaches for `crypto.getRandomValues`: this is the one number a player has an
+ * incentive to predict.
+ */
+function serveChest(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+): void {
+  let raw = '';
+  req.setEncoding('utf8');
+  // Capped, so a body that never ends cannot hold the dev server open.
+  req.on('data', (chunk: string) => {
+    raw += chunk;
+    if (raw.length > 4096) req.destroy();
+  });
+  req.on('end', () => {
+    void (async () => {
+      const body = (() => {
+        try {
+          return JSON.parse(raw) as { claim?: unknown; nonce?: unknown; set?: unknown };
+        } catch {
+          return null;
+        }
+      })();
+      const nonce = String(body?.nonce ?? '');
+      const set = String(body?.set ?? '');
+      if (!/^[A-Z0-9]{8,64}$/.test(nonce) || !set) {
+        res.writeHead(400).end('Bad chest request.');
+        return;
+      }
+      // Signed over the nonce rather than a room code, and under the `chest`
+      // scope rather than the room one, so a signature is pinned to the one
+      // request it was minted for and a hello signature can never be replayed
+      // here. See `ClaimScope` and the worker's route.
+      const accountId = await verifyClaim(body?.claim, nonce, 'chest');
+      if (!accountId) {
+        res.writeHead(401).end('Not your account.');
+        return;
+      }
+
+      const now = Date.now();
+      const before = profileOf(accountId, now);
+      const result = applyChest(before, { set, nonce }, Math.random);
+      if (result.profile !== before) profiles.set(accountId, result.profile);
+
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(
+        JSON.stringify({
+          drop: result.drop,
+          granted: result.granted,
+          refusal: result.refusal,
+          repeat: result.repeat,
+          owned: wardrobeOf(result.profile),
+          profile: viewOf(result.profile, now),
+        }),
+      );
+    })();
+  });
+}
+
+/**
+ * The gacha's routes, the dev server's half. The worker's twin is
+ * `forwardToPlayer` in `worker/index.ts`.
+ *
+ * Every decision is in `applyRoll` and `applyShowcase`, which are shared, so
+ * the two adapters cannot hand out different pulls for the same profile. What
+ * differs is only the plumbing: a `Map` here, a stub there.
+ *
+ * `serveChest` above is deliberately not folded into this. It is the route
+ * with the argument written into it, and turning it into a call would move the
+ * reasoning away from the thing it is about.
+ */
+function serveAccount(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+  act: (
+    profile: Profile,
+    body: Record<string, any> | null,
+    nonce: string,
+  ) => { profile: Profile; body: Record<string, unknown> },
+): void {
+  let raw = '';
+  req.setEncoding('utf8');
+  // Capped, so a body that never ends cannot hold the dev server open.
+  req.on('data', (chunk: string) => {
+    raw += chunk;
+    if (raw.length > 4096) req.destroy();
+  });
+  req.on('end', () => {
+    void (async () => {
+      const body = (() => {
+        try {
+          return JSON.parse(raw) as Record<string, any>;
+        } catch {
+          return null;
+        }
+      })();
+      const nonce = String(body?.nonce ?? '');
+      if (!/^[A-Z0-9]{8,64}$/.test(nonce)) {
+        res.writeHead(400).end('Bad request.');
+        return;
+      }
+      // Signed over the nonce rather than a room code, so a signature is
+      // pinned to the one request it was minted for. See the worker's route.
+      const accountId = await verifyClaim(body?.claim, nonce);
+      if (!accountId) {
+        res.writeHead(401).end('Not your account.');
+        return;
+      }
+
+      const now = Date.now();
+      const before = profileOf(accountId, now);
+      const result = act(before, body, nonce);
+      // Same skip as the chest: a refusal, a repeat and an unchanged showcase
+      // all hand back the very object that went in, so none of them writes.
+      if (result.profile !== before) profiles.set(accountId, result.profile);
+
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ ...result.body, profile: viewOf(result.profile, now) }));
+    })();
+  });
 }
 
 export function startServer(port: number = PORT): WebSocketServer {

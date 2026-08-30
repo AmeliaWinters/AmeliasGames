@@ -12,7 +12,7 @@
     text-underline-offset: 3px;
   }
 
-  .code:hover {
+  .bigcode:hover {
     color: var(--ink);
     border-color: var(--ink);
   }
@@ -20,10 +20,6 @@
   .swap:hover {
     color: var(--ink);
     text-decoration-color: currentColor;
-  }
-
-  .mute:hover {
-    color: var(--ink);
   }
 
   .column:hover:not(:disabled) .ghost {

@@ -28,3 +28,12 @@ android/app/src/main/assets/capacitor.plugins.json
 # Cloudflare
 .wrangler/
 .dev.vars
+
+# Picrew and Character Kit exports: 219MB of 600x600 PNGs, and the *input* to
+# scripts/extract-picrew.ts rather than anything that ships. The build never
+# reads this; `vite build` globs the derived art under
+# src/client/avatar/sets/**/webp/, which is committed. Same bargain as .cache/
+# above: the export is the source, the repo holds the derived copy, and a new
+# drop of art is a rerun of extract:picrew. See sets/PROVENANCE.md for where
+# these came from -- they are not re-downloadable on demand, so keep a copy.
+CharacterCreator/

@@ -7,6 +7,7 @@ import {
   toBase64Url,
   verifyClaim,
   type AccountClaim,
+  type ClaimScope,
 } from './account.js';
 
 const ALGORITHM = { name: 'ECDSA', namedCurve: 'P-256' } as const;
@@ -28,8 +29,8 @@ async function makeAccount() {
   return {
     id,
     key,
-    async claim(code: string): Promise<AccountClaim> {
-      const sig = await crypto.subtle.sign(SIGNING, pair.privateKey, payloadFor(id, code));
+    async claim(code: string, scope: ClaimScope = 'room'): Promise<AccountClaim> {
+      const sig = await crypto.subtle.sign(SIGNING, pair.privateKey, payloadFor(id, code, scope));
       return { id, key, sig: toBase64Url(sig) };
     },
   };
@@ -146,5 +147,45 @@ describe('base64url', () => {
     const b = await makeAccount();
     expect(a.id).not.toBe(b.id);
     expect(a.id).toHaveLength(22);
+  });
+});
+
+/**
+ * The scopes, which exist because the two things this key signs were once
+ * separated only by a coincidence of length.
+ *
+ * A room code is four characters and the chest nonce regex demands eight or
+ * more, so no room code could be presented as a nonce. That is an accident of
+ * two unrelated constants, not a property, and the day somebody widens
+ * `CODE_LENGTH` to eight it stops being true silently and every hello claim a
+ * server ever saw becomes a chest key. These tests are the thing that fails
+ * instead.
+ */
+describe('what a signature is for', () => {
+  it('refuses a room signature presented as a chest one', async () => {
+    const account = await makeAccount();
+    const forRoom = await account.claim('ABCDEFGH', 'room');
+    expect(await verifyClaim(forRoom, 'ABCDEFGH', 'room')).toBe(account.id);
+    // The same account, the same key, the same value, the same signature. Only
+    // the scope differs, and that is enough.
+    expect(await verifyClaim(forRoom, 'ABCDEFGH', 'chest')).toBeNull();
+  });
+
+  it('refuses a chest signature presented as a room one', async () => {
+    const account = await makeAccount();
+    const forChest = await account.claim('ABCDEFGH', 'chest');
+    expect(await verifyClaim(forChest, 'ABCDEFGH', 'chest')).toBe(account.id);
+    expect(await verifyClaim(forChest, 'ABCDEFGH', 'room')).toBeNull();
+  });
+
+  it('signs different bytes for the two scopes at the same value', () => {
+    const room = payloadFor('anid', 'ABCDEFGH', 'room');
+    const chest = payloadFor('anid', 'ABCDEFGH', 'chest');
+    expect(new TextDecoder().decode(chest)).not.toBe(new TextDecoder().decode(room));
+    // And the room scope is still the default, so every existing caller and
+    // every signature already minted keeps working.
+    expect(new TextDecoder().decode(payloadFor('anid', 'ABCDEFGH'))).toBe(
+      new TextDecoder().decode(room),
+    );
   });
 });

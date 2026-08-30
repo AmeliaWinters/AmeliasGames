@@ -305,35 +305,45 @@ export function slerp(a: Quat, b: Quat, t: number): Quat {
 /* The playback rate */
 
 /**
- * How fast the simulated clock runs against the wall clock, and why it is not
- * one.
+ * How fast the simulated clock runs against the wall clock, and why it is one.
  *
- * Read the note above about the slow moment first, because this looks like the
- * same mistake and is not. What went wrong there was that the throw *changed
- * speed partway through*: a viewer who has watched dice land in real life spots
- * that instantly and reads it as a dropped frame. This is a single constant
- * applied to every step of every throw, so nothing inside the throw accelerates
- * or decelerates relative to anything else. The throw stays one continuous
- * piece of motion; it is only the size of the thing being watched that changes.
+ * It was 0.5, and the argument for that is kept here because the arithmetic in
+ * it is the thing that was wrong, not the instinct.
  *
- * Which is the whole argument. `DIE_HALF` fixed the scale by making it real:
- * a 16 mm die under 981 cm/s^2, and it landed like a die instead of like a toy.
- * But a 16 mm die on screen is not being watched from where you watch a real
- * one. The tray fills a phone held a foot away, so the dice come to the eye
- * several times larger in angle than dice on a table do, and magnified real
- * motion looks fast: it is exactly why a filmed miniature has to be slowed to
- * read as full size, and the correction there is the square root of the
- * magnification. That puts this somewhere between 0.6 and 0.7 on a phone and
- * lower on a laptop, where the tray is bigger still.
+ * The argument ran: the tray fills a phone held a foot away, so the dice come
+ * to the eye several times larger in angle than dice on a table do, and
+ * magnified real motion looks fast, so slow it by the square root of the
+ * magnification the way a filmed miniature is slowed. Every step of that is
+ * sound except the premise. A 320px tray is about 8.5cm of glass; a die at
+ * 5.63/100 of it is 4.8mm, seen from about 35cm, which is 0.014 radians. A real
+ * 16mm die on a table at 50cm is 0.032. **The dice on screen are less than half
+ * the angular size of real ones, not several times more.** The correction, done
+ * honestly, points the other way.
  *
- * Half, then, which is a little slower than the arithmetic asks for and lands
- * a typical throw at about two seconds rather than one. It buys the second
- * thing a real throw has and a blink does not: time to watch a die come off a
- * wall and roll itself out.
+ * And uniform time-scaling was never the right tool anyway, which is the part
+ * worth keeping. A throw is not one speed. Fall goes as t^2 and velocity goes
+ * as t, so stretching the clock by two quarters the apparent gravity while only
+ * halving the spin, the release speed and the bounce off a wall: at 0.5 the
+ * dice were falling under 245 cm/s^2, a quarter g, while everything they did
+ * on the way down still ran at twice the rate that gravity implies. Players
+ * reported it as "double speed and the gravity is all wrong", and read as a
+ * ratio that is exactly what it was. There is no value of this constant that
+ * fixes it, because the error *is* the constant being anything but one.
+ *
+ * So the dice now fall at 981 cm/s^2 on screen as well as in the solver, and a
+ * typical throw runs 0.9 seconds rather than 1.8. Shorter, and every reference
+ * implementation worth reading says shorter is what players want from a roll
+ * they are about to make a decision on.
+ *
+ * If a longer throw is wanted, **it has to be bought with size rather than with
+ * time**: scale the die and the tray up by L and the throw lasts sqrt(L) times
+ * longer for free, with gravity still reading correctly, because that is a
+ * bigger die rather than a slowed small one. That is a real change with a
+ * `SNAPSHOT_VERSION` bump in it and it has not been made.
  *
  * **It changes nothing about what the dice do.** The steps are the same steps
  * in the same order, `PHYS.STEP` is untouched, and the faces and resting places
  * are the ones the throw was reported with. It costs no version bump for the
  * same reason the wind-up does not: see the top of this file.
  */
-export const PLAYBACK = 0.5;
+export const PLAYBACK = 1;

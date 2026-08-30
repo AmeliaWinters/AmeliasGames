@@ -22,6 +22,9 @@ import { useServerNow } from "../clock.js";
 import type { BoardProps } from "./boards.js";
 import { namer } from "./names.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/wordhunt.css";
+
 type Props = BoardProps<WhState, WhMove>;
 
 /** Under this much left, the clock starts shouting about it. */

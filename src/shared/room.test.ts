@@ -199,6 +199,54 @@ describe('view', () => {
     expect(view.players[0].connected).toBe(true);
     expect(view.players[1].connected).toBe(false);
   });
+
+  /**
+   * The end screen draws the winner's figure, name and characters, and it
+   * takes the seat from here. Two things are worth pinning and neither is the
+   * arithmetic: that nobody is named while the game is still running -- a
+   * portrait for the seat that happens to be ahead would be the app calling it
+   * early -- and that the seat is the one the reducer settled on, not the one
+   * whose turn it was.
+   */
+  it('names nobody until the game is finished', () => {
+    const room = newRoom();
+    room.join('a', 'Ann');
+    room.join('b', 'Bo');
+    expect(room.viewFor(0, new Set([0])).winner).toBeNull();
+    room.start(0);
+    room.move(0, { type: 'drop', col: 0 });
+    expect(room.viewFor(0, new Set([0])).winner).toBeNull();
+  });
+
+  it('names the seat that won once it has', () => {
+    const room = newRoom();
+    room.join('a', 'Ann');
+    room.join('b', 'Bo');
+    room.start(0);
+    // Seat 0 stacks one column while seat 1 stacks the next: four in a row
+    // vertically, and the fastest win Connect Four has.
+    for (let i = 0; i < 3; i++) {
+      room.move(0, { type: 'drop', col: 0 });
+      room.move(1, { type: 'drop', col: 1 });
+    }
+    room.move(0, { type: 'drop', col: 0 });
+    const view = room.viewFor(1, new Set([0, 1]));
+    expect(view.over).toBe(true);
+    expect(view.winner).toBe(0);
+  });
+
+  /**
+   * A draw is not a missing answer. Eleven of the fourteen games can end
+   * without naming anybody -- a tie at the top, or Drill, which is played
+   * alone -- and the end screen falls back to the status sentence for all of
+   * them. See `GameDefinition.winner`.
+   */
+  it('names nobody for a game that is played alone', () => {
+    const room = newRoom('SOLO', 'drill');
+    room.join('a', 'Ann');
+    room.start(0);
+    expect(room.viewFor(0, new Set([0])).winner).toBeNull();
+  });
 });
 
 describe('open seating', () => {

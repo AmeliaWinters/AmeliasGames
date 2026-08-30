@@ -184,7 +184,7 @@ export function schedule(box: number, grade: Grade, now: number): Placement | nu
  *
  * **Paid for words, and only incidentally for games.** The argument is not
  * really about arithmetic. Vocab Race spends two of its constants
- * (`LEVEL_SCALE`, `LEVEL_WINDOW_MS`) making sure a fluent speaker cannot farm
+ * (`LEVEL_ASKS`, `LEVEL_SCALE`) making sure a fluent speaker cannot farm
  * a learner, having found out the hard way that a race between the two is not
  * a race. An XP curve that paid for winning would reverse that decision from
  * outside the reducer, and would do it silently, while the reducer's comments
@@ -239,6 +239,57 @@ export const XP_PER_GAME = 5;
 export const XP_PER_WIN = 5;
 
 /**
+ * What one finished game pays into the purse, in goth points.
+ *
+ * Every game pays this, including the eleven that teach nothing. The purse
+ * used to be the non-English experience total, so a night of Backgammon bought
+ * nothing at all; see `Profile.points` for why that stopped being the rule.
+ */
+export const POINTS_PER_GAME = 20;
+
+/**
+ * What a game that taught a language pays instead: five times as much.
+ *
+ * Five rather than something gentler because this multiplier is the entire
+ * argument for opening Vocab Race instead of Connect Four, and a difference
+ * people have to do arithmetic to notice is not one that changes what they
+ * play.
+ */
+export const LANG_POINTS_MULTIPLIER = 5;
+
+/**
+ * The first game of any UTC day, on top of whatever that game paid.
+ *
+ * Large on purpose, and once. It is the number that makes coming back at all
+ * the highest-value thing on the screen -- fifteen ordinary games, or three
+ * language ones -- and it cannot be farmed by playing more, only by playing
+ * again tomorrow. Checked against `Profile.playedDay`, which is a day of
+ * *playing*: `streak` is a day of studying and deliberately does not move for
+ * a game that taught nothing.
+ */
+export const POINTS_FIRST_GAME_OF_DAY = 300;
+
+/**
+ * What one finished game pays, before the daily bonus.
+ *
+ * `wordXp` is what the game's words earned for the language they were in, and
+ * it is a **floor, not an addend**: a language game pays 100, or what its words
+ * were worth if that was more. Adding the two would have made the target
+ * meaningless -- 100 plus a good Vocab Race is nearer 160 -- and paying the
+ * flat number alone would have made a careful game worth exactly as much as
+ * one spent typing rubbish, which is the thing `xpFor` above refuses to do.
+ *
+ * `taught` is whether the game filed any word event at all, which is the same
+ * test `applyRecord` uses to decide where the flat experience bonus goes. It
+ * is per game rather than per player: watching an opponent's Polish go past is
+ * still an evening of Polish.
+ */
+export function pointsFor(taught: boolean, wordXp: number): number {
+  const base = taught ? POINTS_PER_GAME * LANG_POINTS_MULTIPLIER : POINTS_PER_GAME;
+  return Math.max(base, Math.round(wordXp));
+}
+
+/**
  * The level a total buys, counting from one.
  *
  * Quadratic, so each level costs a little more than the last and the curve
@@ -263,4 +314,43 @@ export function levelFor(xp: number): number {
 export function xpForLevel(level: number): number {
   const n = Math.max(1, Math.floor(level));
   return (LEVEL_STEP * n * (n - 1)) / 2;
+}
+
+/**
+ * Both ends of the bar for one total. What `profileView` is handed.
+ *
+ * It exists so that `profile.ts` can draw a level without importing this
+ * module -- see the note at the top of `profile.ts`, which is about eighty
+ * thousand Polish inflections and is not a style preference.
+ *
+ * The curve is unchanged by the move to per-language totals, which is a
+ * decision rather than an oversight. Splitting the pool does slow the early
+ * levels for somebody studying two languages at once, and the alternative was
+ * to shrink `LEVEL_STEP` to compensate -- but that would quietly inflate the
+ * levels of everybody studying one, which is nearly everybody, and levels that
+ * jumped on the deploy that split them would look exactly like the bug this
+ * was fixing.
+ */
+export function rankOf(xp: number): { level: number; levelAt: number; nextLevel: number } {
+  const level = levelFor(xp);
+  return { level, levelAt: xpForLevel(level), nextLevel: xpForLevel(level + 1) };
+}
+
+/**
+ * Whether an answer counts towards a word's consecutive-correct run.
+ *
+ * Wider than `isProduction` and narrower than "not a miss", and both edges are
+ * deliberate. A hinted answer counts, because the player retrieved the word
+ * and a hint is a first letter rather than the answer -- `HINTED_CEILING` above
+ * makes the same argument about the ladder. A recognised one counts too: the
+ * run is a claim about ten answers in a row spread over months, and one lucky
+ * pick out of four does not survive that, so excluding it would only punish
+ * the players using the easier mode honestly.
+ *
+ * `seen` is neither correct nor incorrect and must not touch the run, for the
+ * same reason it never creates a row: watching an opponent play a word is not
+ * an answer.
+ */
+export function isCorrect(grade: Grade): boolean {
+  return isProduction(grade) || grade === 'recognised';
 }

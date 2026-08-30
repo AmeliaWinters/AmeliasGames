@@ -1,0 +1,2626 @@
+diff --git a/src/client/games/VocabBoard.tsx b/src/client/games/VocabBoard.tsx
+index 68e22ab..effa528 100644
+--- a/src/client/games/VocabBoard.tsx
++++ b/src/client/games/VocabBoard.tsx
+@@ -20,20 +20,21 @@ import {
+   VOCAB_LEVELS,
+   VOCAB_MODES,
+   canAct as seatCanAct,
+   askIn,
+   autoHinted,
+   canHint as seatCanHint,
+   choosing,
+   clockCall,
+   firstRight,
+   formatClock,
++  gradeOf,
+   hintOf,
+   hintsLeft,
+   isPhrases,
+   msLeftFor,
+   rightTries,
+   tryOf,
+   vocabStats,
+   windowLeft,
+   windowMs,
+ } from "../../shared/games/vocabDisplay.js";
+@@ -42,20 +43,22 @@ import type {
+   VocabLang,
+   VocabLevel,
+   VocabMode,
+   VocabMove,
+   VocabRound,
+   VocabSeatStat,
+   VocabState,
+   VocabTry,
+ } from "../../shared/games/vocabDisplay.js";
+ import { useServerNow } from "../clock.js";
++import { loadProfileCache } from "../profileCache.js";
++import { XpPops, rowsFor, useXpPops, xpPreview } from "../xpPop.js";
+ import { hush, speak, useCanSpeak } from "../speech.js";
+ 
+ import type { BoardProps } from "./boards.js";
+ import { Choice, ChoiceGroup } from "./Choice.js";
+ import { namer } from "./names.js";
+ 
+ type Props = BoardProps<VocabState, VocabMove>;
+ 
+ /**
+  * The speaker on every button that says a word.
+@@ -629,20 +632,55 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
+   const left = state.deadline === null ? null : msLeftFor(state, clock);
+   const mine = seat !== null;
+   // Whether the room is answering with sentences. It changes the question's
+   // wording, how long the box is, and which characters it will take.
+   const phrasing = isPhrases(state.mode);
+   // How long this seat's own box stays open, ticking. The same thirty seconds
+   // for everybody now, but still read per seat: the round's own clock pulls in
+   // as people finish (see `roundDeadline`) and this one does not.
+   const myWindow = seat === null ? 0 : windowLeft(state, seat, clock);
+   const myTry = seat === null ? null : tryOf(state.round, seat);
++
++  /*
++    "+7 XP", once per round, at the reveal.
++
++    **At the reveal rather than at the submit**, which is a beat later than it
++    sounds like it should be and is the only moment the number can be right.
++    A `say` round holds the meaning on the client and the *word* only in the
++    answer, and a `pick` round redacts the clue outright -- so until the reveal
++    opens there is nothing on this client to look the word's rung up by, and a
++    pop fired on the submit would price every review as a first sighting. See
++    `xpPop.tsx` for what that lookup can and cannot promise.
++
++    It is also the moment the board already celebrates in words, so the number
++    lands on the beat rather than inventing a second one.
++
++    Keyed on `round.began`, which is unique per round and survives the
++    re-renders inside a reveal. A ref rather than state: it gates an effect and
++    is never drawn, so changing it must not repaint anything.
++  */
++  const { pops, pop } = useXpPops();
++  const popped = useRef(0);
++  const answered = state.round?.answer ?? null;
++  useEffect(() => {
++    if (seat === null || answered === null || myTry === null) return;
++    const round = state.round;
++    if (!round || popped.current === round.began) return;
++    popped.current = round.began;
++    // `timeout` is not a grade -- see `gradeOf` -- and nothing is paid for a
++    // miss, so both fall out of `xpPreview` as zero and `pop` stays silent.
++    if (myTry.how === "timeout") return;
++    const grade = gradeOf(myTry, askIn(round, seat), windowMs(state, seat));
++    const lang = state.lang;
++    if (lang === null) return;
++    pop(xpPreview(rowsFor(loadProfileCache(), lang), answered.word, grade, Date.now()));
++  }, [answered, myTry, seat, state, pop]);
+   /*
+     The one board here that does not gate on the `canAct` prop, and the reason
+     is the window. `RoomView.canAct` is the server's answer *as of the message
+     that carried it*, which is fine for every game whose permissions only
+     change when somebody moves. But a window closes on the clock, with no
+     message to announce it, so a seat whose fifteen seconds ran out would go on
+     being offered a box the server has already stopped taking answers from.
+ 
+     So the same predicate is run here against the ticking clock. It is the one
+     the server will consult when the guess arrives, imported from the display
+@@ -983,20 +1021,25 @@ export function VocabBoard({ state, seat, names, canAct, now, onMove }: Props) {
+   // slightly easier game rather than a broken one, and nothing about that
+   // reaches the server. See `HEAR_SCALE` for what it costs.
+   const hearing = !revealing && ask === "hear" && canSpeak;
+   // Everyone's result, in the order they finished, with the seats that never
+   // answered on the end. `settle` writes those in, so this is the whole table.
+   const payout = revealing && round ? round.tries : [];
+   const first = revealing && round ? firstRight(round) : null;
+ 
+   return (
+     <div className="board vr-board">
++      {/* Anchored to the board rather than to the answer, because the answer
++          block is not on screen for every kind of round and a reward that
++          sometimes has nowhere to appear is a reward people report as broken.
++          Positioned by `xp.css`, out of flow, so it moves nothing. */}
++      <XpPops pops={pops} />
+       <Scores state={state} seat={seat} nameFor={nameFor} />
+ 
+       <p className="vr-round">
+         Round {state.history.length + 1} - {VOCAB_LANG_NAME[lang]},{" "}
+         {MODE_LABEL[state.mode]}
+       </p>
+ 
+       {/*
+         Said out loud, because a word turning up twice with nothing to mark it
+         reads as the deck repeating itself rather than as a second chance. Drawn
+diff --git a/src/client/games/WordChainBoard.tsx b/src/client/games/WordChainBoard.tsx
+index 584a06f..09ee8c2 100644
+--- a/src/client/games/WordChainBoard.tsx
++++ b/src/client/games/WordChainBoard.tsx
+@@ -1,52 +1,113 @@
+ import { useEffect, useRef, useState } from "react";
+ // Values from wordChainDisplay.js, which imports nothing that reaches a
+ // reducer: the board must never pull the three word lists into the client
+ // bundle. The types below are type-only, so they erase entirely.
+ import {
++  CHAIN_LEVELS,
++  HINT_AT,
+   LANGS,
+   LANG_NAME,
++  LEVEL_NAME,
+   LIST_SIZE,
+   MIN_LENGTH,
+   TURN_MS,
+   chainStats,
+   clockCall,
+   formatClock,
++  hintsFor,
++  levelOf,
+   lockedFor,
+   msLeftFor,
+   scoreFor,
+   stoppedSeat,
+   targetScore,
+   turnMsFor,
+   wordPoints,
+ } from "../../shared/games/wordChainDisplay.js";
+ import type {
+   ActiveCooldown,
+   ChainHighlight,
++  ChainHintStep,
+   ChainLang,
++  ChainLevel,
+   ChainLink,
+   ChainMiss,
+   SeatStat,
+   WcMove,
+   WcState,
+ } from "../../shared/games/wordChainDisplay.js";
+ import { useServerNow } from "../clock.js";
+ 
+ import type { BoardProps } from "./boards.js";
+ import { Choice, ChoiceGroup } from "./Choice.js";
+ import { namer } from "./names.js";
+ 
+ type Props = BoardProps<WcState, WcMove>;
+ 
+ /** Under this much left, the clock starts shouting about it. */
+ const URGENT_MS = 15 * 1000;
+ 
++/**
++ * What each level buys, said as what happens rather than as what you are.
++ *
++ * The seconds are read out of `HINT_AT` rather than written down beside it, for
++ * the reason Vocab Race counts its own mix out of `LEVEL_ASKS`: a number typed
++ * into the copy is a number that goes stale the first time somebody retunes the
++ * ladder, and this is the one screen where the promise has to be exact.
++ */
++function levelBlurb(level: ChainLevel): string {
++  const at = HINT_AT[level];
++  if (at.length === 0) return "No help. The lost minute is the lesson.";
++  const [first, second] = at;
++  return `A nudge towards the word after ${Math.round((first as number) / 1000)} seconds, and its shape after ${Math.round((second as number) / 1000)}.`;
++}
++
++/**
++ * The hints this turn has earned, oldest first.
++ *
++ * Drawn only for the seat on the clock, and only the rungs the clock has
++ * reached: `hintsFor` is the whole rule and this draws whatever it hands back,
++ * so a level, a shrinking turn and a language with no glosses in it all arrive
++ * here as the same thing, a shorter list.
++ *
++ * A live region, because it appears under a player who is staring at the input
++ * and not at this: a hint nobody notices is a hint that was not given. Polite
++ * rather than assertive, the countdown beside it being the only thing on this
++ * screen entitled to interrupt.
++ */
++function Hints({ steps, lang }: { steps: ChainHintStep[]; lang: ChainLang | null }) {
++  if (steps.length === 0) return null;
++  return (
++    <div className="wc-hints" role="status" aria-live="polite">
++      {steps.map((step) => (
++        <p key={step.kind} className="wc-hint">
++          <span className="wc-hint-label">
++            {step.kind === "meaning" ? "A word that works means" : "It looks like"}
++          </span>
++          {/*
++            The masked word carries its own `lang` the way every other word on
++            this board does, and the meaning does not: the gloss is English
++            whatever the chain is playing in.
++          */}
++          <strong
++            className={step.kind === "shape" ? "wc-hint-shape" : undefined}
++            lang={step.kind === "shape" ? (lang ?? undefined) : undefined}
++          >
++            {step.text}
++          </strong>
++        </p>
++      ))}
++    </div>
++  );
++}
++
+ /**
+  * Where the clock starts shouting, on a turn that is only `had` long.
+  *
+  * Never more than half the turn, because the allowance shrinks as the chain
+  * grows (see `turnMsFor`) and a flat fifteen seconds would have the clock red
+  * from the moment a late turn started, which is a warning that has stopped
+  * being one. Half is the same shape of warning the opening minute gets at
+  * fifteen: enough time left to do something about it.
+  */
+ function urgentAt(had: number): number {
+@@ -590,20 +651,21 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
+   }, [state.chain.length]);
+ 
+   function submit() {
+     const word = draft.trim();
+     if (word.length < MIN_LENGTH) return;
+     onMove({ type: "say", word });
+   }
+ 
+   if (state.phase === "setup") {
+     const chosen = mine ? state.langs[seat] : null;
++    const myLevel = mine ? levelOf(state, seat) : null;
+     const others = state.langs.flatMap((lang, i) =>
+       i === seat ? [] : [{ i, lang }],
+     );
+ 
+     return (
+       <div className="board wc-board wc-setup">
+         <p className="wc-brief">
+           Pick the language you will play in. You each get your own, and the
+           chain crosses between them: a Polish word ending in A is answered by
+           an English or Japanese one beginning with A. Japanese is typed in
+@@ -632,20 +694,47 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
+           each other, so the chain stops flattening the accents, which in
+           Polish is most of the alphabet's character, and the difference
+           between being asked for an L and being asked for an Ł.
+         */}
+         <p className="wc-note">
+           Both pick the same language and the accents count: a word ending in{" "}
+           <strong lang="pl">ś</strong> then wants <strong lang="pl">świat</strong>,
+           not <em>sen</em>. You still never have to type them.
+         </p>
+ 
++        {/*
++          Before the language row rather than after it, because picking a
++          language is the move that ends setup: the second one to land starts
++          the game. A control below it would be one a player never reaches.
++          Said out loud in the note, because a disabled row with no explanation
++          reads as a bug.
++        */}
++        <ChoiceGroup label="How much of your language you have" narrow>
++          {CHAIN_LEVELS.map((level) => (
++            <Choice
++              key={level}
++              name={LEVEL_NAME[level]}
++              note={levelBlurb(level)}
++              chosen={myLevel === level}
++              disabled={!canAct}
++              onPick={() => onMove({ type: "level", level })}
++            />
++          ))}
++        </ChoiceGroup>
++        <p className="wc-note">
++          Everybody gets the same minute and the same points. What this changes
++          is whether the game helps you find a word while the clock is running:
++          first what it means, then its first two letters and how long it is,
++          like <strong>ło___</strong>. Set it before you choose a language, that
++          being the choice that starts the game.
++        </p>
++
+         <ChoiceGroup label="Choose your language" columns={3}>
+           {LANGS.map((lang) => (
+             <Choice
+               key={lang}
+               name={LANG_NAME[lang]}
+               note={LANG_NATIVE[lang]}
+               noteLang={lang}
+               chosen={chosen === lang}
+               disabled={!canAct}
+               onPick={() => onMove({ type: "lang", lang })}
+@@ -814,20 +903,28 @@ export function WordChainBoard({ state, seat, names, canAct, now, onMove }: Prop
+                   : `Open with any ${myLang ? LANG_NAME[myLang] : ""} word`
+                 : `Waiting for ${nameFor(state.at)}`}
+             </label>
+             {/*
+               Directly under the label, because the two are one instruction:
+               the label says what the word must start with and this says what
+               it may not end on. Split apart, a player reads the first, types a
+               word, and finds out about the second by being refused.
+             */}
+             <Cooling locks={lockedFor(state, seat)} />
++            {/*
++              With the label and the cooldowns rather than beside the chain,
++              because it is part of the same instruction: this is what to type,
++              this is what you may not end on, and this is the word the game is
++              pointing you at. Above the box so it is not hidden by a phone
++              keyboard.
++            */}
++            <Hints steps={hintsFor(state, seat, clock)} lang={myLang} />
+             <div className="wc-entry-row">
+               <input
+                 id="wc-word"
+                 ref={input}
+                 className="wc-input"
+                 value={draft}
+                 disabled={!myMove}
+                 maxLength={24}
+                 // Every one of these matters on a phone, where the default is a
+                 // capitalised, autocorrected, spell-checked mess fighting a
+diff --git a/src/shared/games/vocabDisplay.ts b/src/shared/games/vocabDisplay.ts
+index 3eacba3..9b856c9 100644
+--- a/src/shared/games/vocabDisplay.ts
++++ b/src/shared/games/vocabDisplay.ts
+@@ -15,20 +15,23 @@
+  * could resolve the clue itself, and the race would be over. The board is sent
+  * the clue and nothing else until the round is settled, see `view()` in the
+  * reducer.
+  *
+  * The only things it imports are `../clock.js`, which imports nothing itself.
+  */
+ 
+ export { clockCall, formatClock } from '../clock.js';
+ 
+ import type { StudyLists } from '../profile.js';
++// `review.js` is a leaf -- no dictionary on the path -- so a display module may
++// reach it. See `gradeOf` at the foot of this file.
++import { wasFast, type Grade } from '../review.js';
+ 
+ /**
+  * The two languages you can learn.
+  *
+  * English is missing on purpose and it is the one real cut in this game. The
+  * clue is an English meaning, so learning English would mean cluing an English
+  * word with an English description, and there are no English descriptions in
+  * the data. The frequency list is bare words. Worse, its top hundred is
+  * `you the and that what this for have your was not are don`: function words,
+  * inflections and the orphaned halves of contractions, which no dictionary
+@@ -63,21 +66,21 @@ export type VocabMode = 'normal' | 'hard' | 'phrases';
+ export const VOCAB_MODES: readonly VocabMode[] = ['normal', 'hard', 'phrases'];
+ 
+ /**
+  * How many phrases the phrase deck holds. See `vocabPhrases.ts`.
+  *
+  * Here rather than there because it is a cap on a deck dealt before the
+  * language is known, so the reducer needs it and the reducer may not reach the
+  * data. `vocab.test.ts` pins the two together, which is the only thing keeping
+  * this number honest.
+  */
+-export const PHRASE_COUNT = 45;
++export const PHRASE_COUNT = 130;
+ 
+ /**
+  * How deep into the list a mode reads. A rank cap, and for `phrases` a cap
+  * over a different list entirely.
+  *
+  * The one place the three modes stop being the same kind of thing: `normal`
+  * and `hard` are depths into one frequency-ordered corpus, where `phrases` is
+  * a corpus of its own with forty-five entries in it. Everything downstream
+  * still just filters the dealt deck against this number, which is why the
+  * third mode cost the reducer one parameter rather than a second code path.
+@@ -1355,10 +1358,40 @@ export function vocabStats(state: VocabState): VocabStats {
+       }
+     }
+   });
+ 
+   return {
+     seats,
+     quickest,
+     missedByAll: settled.filter((round) => !round.tries.some((a) => a.how === 'right')),
+   };
+ }
++
++/**
++ * One try, as a grade. See `record` in `vocab.ts` for the argument behind each
++ * row.
++ *
++ * `timeout` never reaches here: `record` drops it before asking, because the
++ * answer would have to be "nothing" and a grade that means "do not grade this"
++ * is a grade every caller has to remember to check for.
++ *
++ * **Here rather than in the reducer, and that is load-bearing.** The board
++ * prices its own answer for the "+7 XP" that rises off it, and it must use
++ * this function rather than a second opinion -- a client-side grader would
++ * drift the first time the hint rule changed, and the drift would show up as
++ * a number on the screen disagreeing with the number on the end screen. But a
++ * board cannot import `vocab.ts`: the reducer reaches the dictionary, and
++ * `bundle.test.ts` builds the real bundle and fails over exactly that. It
++ * caught this one on the way in. So the grader lives in the display module,
++ * which is the half both sides are allowed to hold, and the reducer imports it
++ * from here.
++ *
++ * See `xpPop.tsx` for the one thing the board still has to estimate, which is
++ * the rung and not the grade.
++ */
++export function gradeOf(attempt: VocabTry, ask: VocabAsk, window: number): Grade {
++  if (attempt.how === 'wrong') return 'wrong';
++  if (attempt.how === 'gave-up') return 'gave-up';
++  if (choosing(ask)) return 'recognised';
++  if (attempt.hinted) return 'hinted';
++  return wasFast(attempt.ms, window) ? 'produced-fast' : 'produced';
++}
+diff --git a/src/shared/games/vocabPhrases.ts b/src/shared/games/vocabPhrases.ts
+index 529f794..fe578f5 100644
+--- a/src/shared/games/vocabPhrases.ts
++++ b/src/shared/games/vocabPhrases.ts
+@@ -58,24 +58,29 @@ interface Phrase {
+   /** Polish, spelled properly. The accents are taught, never demanded. */
+   pl: string;
+   /** Japanese in romaji, which is what the box takes. */
+   ja: string;
+   /** The same, in kana and kanji: what a learner has to end up reading. */
+   script: string;
+   /**
+    * Everything else that is the same sentence, per language. Marked right,
+    * never shown.
+    *
+-   * Polish carries the other gender of any adjective in here, and that is not
+-   * a nicety: *jestem głodny* and *jestem głodna* are the same sentence said
+-   * by different people, and a game that marks half its players wrong for
+-   * describing themselves correctly is not teaching Polish. Japanese carries
++   * Polish carries **all three genders** of any adjective or past tense in
++   * here, and that is not a nicety: *jestem głodna*, *jestem głodny* and
++   * *jestem głodne* are one sentence said by different people, and a game that
++   * marks somebody wrong for describing themselves correctly is not teaching
++   * Polish, it is teaching them to lie about themselves in Polish. The neuter
++   * is in for the same reason the feminine is, and it is not decoration: this
++   * language conjugates the speaker's gender into the past tense of every verb,
++   * so *zaspałom* is the difference between a nonbinary learner being able to
++   * say they slept in and not. Japanese carries
+    * the casual form beside the polite one for the same reason -- *nemui* and
+    * *nemui desu* are both what somebody says -- plus the spellings romaji
+    * cannot agree on, though most of those `jaLoose` already forgives.
+    */
+   also?: { pl?: string[]; ja?: string[] };
+ }
+ 
+ /**
+  * The phrases, in the order they were written, which is also their rank.
+  *
+@@ -174,59 +179,77 @@ const PHRASES: readonly Phrase[] = [
+   },
+   {
+     en: 'No, thank you',
+     pl: 'nie, dziękuję',
+     ja: 'iie, kekkou desu',
+     script: 'いいえ、結構です',
+     also: { pl: ['nie, dzięki', 'dziękuję, nie'], ja: ['kekkou desu', 'iie kekko desu', 'daijoubu desu'] },
+   },
+   {
+     en: "I'm hungry",
+-    pl: 'jestem głodny',
++    pl: 'jestem głodna',
+     ja: 'onaka ga suita',
+     script: 'お腹が空いた',
+-    also: { pl: ['jestem głodna', 'głodny jestem', 'głodna jestem', 'chce mi się jeść'], ja: ['onaka suita', 'onaka ga sukimashita'] },
++    also: {
++      pl: ['jestem głodny', 'jestem głodne', 'głodna jestem', 'głodny jestem', 'głodne jestem', 'chce mi się jeść'],
++      ja: ['onaka suita', 'onaka ga sukimashita'],
++    },
+   },
+   {
+     en: 'Are you hungry?',
+-    pl: 'jesteś głodny?',
++    pl: 'jesteś głodna?',
+     ja: 'onaka suita?',
+     script: 'お腹すいた？',
+-    also: { pl: ['jesteś głodna?', 'głodny?', 'głodna?', 'czy jesteś głodny?'], ja: ['onaka ga suita ka', 'onaka sukimashita ka'] },
++    also: {
++      pl: ['jesteś głodny?', 'jesteś głodne?', 'głodna?', 'głodny?', 'głodne?', 'czy jesteś głodna?'],
++      ja: ['onaka ga suita ka', 'onaka sukimashita ka'],
++    },
+   },
+   {
+     en: "I'm thirsty",
+     pl: 'chce mi się pić',
+     ja: 'nodo ga kawaita',
+     script: '喉が渇いた',
+-    also: { pl: ['jestem spragniony', 'jestem spragniona', 'pić mi się chce'], ja: ['nodo kawaita'] },
++    also: {
++      pl: ['jestem spragniona', 'jestem spragniony', 'jestem spragnione', 'pić mi się chce'],
++      ja: ['nodo kawaita'],
++    },
+   },
+   {
+     en: "I'm sleepy",
+-    pl: 'jestem śpiący',
++    pl: 'jestem śpiąca',
+     ja: 'nemui',
+     script: '眠い',
+-    also: { pl: ['jestem śpiąca', 'chce mi się spać', 'śpiący jestem', 'śpiąca jestem', 'spać mi się chce'], ja: ['nemui desu'] },
++    also: {
++      pl: ['jestem śpiący', 'jestem śpiące', 'śpiąca jestem', 'śpiący jestem', 'śpiące jestem', 'chce mi się spać', 'spać mi się chce'],
++      ja: ['nemui desu'],
++    },
+   },
+   {
+     en: 'Are you sleepy?',
+-    pl: 'jesteś śpiący?',
++    pl: 'jesteś śpiąca?',
+     ja: 'nemui desu ka',
+     script: '眠いですか',
+-    also: { pl: ['jesteś śpiąca?', 'śpiący?', 'śpiąca?', 'chce ci się spać?'], ja: ['nemui?', 'nemui no'] },
++    also: {
++      pl: ['jesteś śpiący?', 'jesteś śpiące?', 'śpiąca?', 'śpiący?', 'śpiące?', 'chce ci się spać?'],
++      ja: ['nemui?', 'nemui no'],
++    },
+   },
+   {
+     en: "I'm tired",
+-    pl: 'jestem zmęczony',
++    pl: 'jestem zmęczona',
+     ja: 'tsukareta',
+     script: '疲れた',
+-    also: { pl: ['jestem zmęczona', 'zmęczony jestem', 'zmęczona jestem'], ja: ['tsukaremashita', 'tsukareta yo'] },
++    also: {
++      pl: ['jestem zmęczony', 'jestem zmęczone', 'zmęczona jestem', 'zmęczony jestem', 'zmęczone jestem'],
++      ja: ['tsukaremashita', 'tsukareta yo'],
++    },
+   },
+   {
+     en: "I'm cold",
+     pl: 'jest mi zimno',
+     ja: 'samui',
+     script: '寒い',
+     also: { pl: ['zimno mi', 'jest zimno', 'marznę'], ja: ['samui desu'] },
+   },
+   {
+     en: "I'm hot",
+@@ -367,21 +390,24 @@ const PHRASES: readonly Phrase[] = [
+     pl: 'chodźmy',
+     ja: 'ikimashou',
+     script: '行きましょう',
+     also: { pl: ['idziemy', 'chodź', 'ruszamy', 'idźmy'], ja: ['ikou', 'ikimasho'] },
+   },
+   {
+     en: "I don't understand",
+     pl: 'nie rozumiem',
+     ja: 'wakarimasen',
+     script: 'わかりません',
+-    also: { pl: ['nie rozumiem cię', 'nie zrozumiałem', 'nie zrozumiałam'], ja: ['wakaranai', 'wakannai'] },
++    also: {
++      pl: ['nie rozumiem cię', 'nie zrozumiałam', 'nie zrozumiałem', 'nie zrozumiałom'],
++      ja: ['wakaranai', 'wakannai'],
++    },
+   },
+   {
+     en: "I don't know",
+     pl: 'nie wiem',
+     ja: 'shirimasen',
+     script: '知りません',
+     also: { pl: ['nie mam pojęcia'], ja: ['shiranai', 'wakarimasen'] },
+   },
+   {
+     en: 'Say that again, please',
+@@ -414,20 +440,883 @@ const PHRASES: readonly Phrase[] = [
+       ja: ['tanjoubi omedetou', 'otanjoubi omedetou gozaimasu'],
+     },
+   },
+   {
+     en: 'I love you',
+     pl: 'kocham cię',
+     ja: 'aishiteru',
+     script: '愛してる',
+     also: { pl: ['ja cię kocham'], ja: ['aishiteimasu', 'daisuki'] },
+   },
++  // Everything from here down is the household block: the sentences two people
++  // living together actually say to each other, in a kitchen, a hallway or a
++  // doorway. The forty-five above it are a phrasebook -- greetings, the shop,
++  // the restaurant -- and a phrasebook is what you need for a week in Kraków,
++  // not for a Tuesday in your own flat. These are picked against that: almost
++  // nothing here is said to a stranger, and most of it is said to the same
++  // person every day.
++  //
++  // Three things they teach beyond the sentences themselves, and they are the
++  // reason these particular sixty rather than sixty others.
++  //
++  // **Genitive under a negative or a quantity**: *nie mogę znaleźć telefonu*,
++  // *potrzebujemy mleka*, *nie zapomnij kluczy*, *chcesz jeszcze?*. It is the
++  // case a learner meets on day one and is still getting wrong in year two,
++  // and it cannot be taught by a word list, because the word list files
++  // *telefon*. It has to arrive inside a sentence somebody says.
++  //
++  // **Gendered past tenses and adjectives**: *zaspałam* / *zaspałem* /
++  // *zaspałom*, *tęskniłam* / *tęskniłem* / *tęskniłom*, *dumna* / *dumny* /
++  // *dumne*. All three go in `also`, which is the bargain `Phrase.also` states:
++  // whoever is speaking is right about themselves.
++  //
++  // The **feminine is the canonical one**, here and in the forty-five above it,
++  // which is a change from how this list started. The reason is that the
++  // canonical form is the one the reveal teaches, a phrasebook that teaches only
++  // *jestem głodny* is a phrasebook written for somebody else, and the person
++  // this deck is for says *jestem głodna*. Second person goes the same way --
++  // *dobrze spałaś?*, *jesteś gotowa?* -- because these are sentences said to a
++  // wife.
++  //
++  // **Aspect, in the frame it lives in**: *zamknij drzwi* with *zamykaj drzwi*
++  // beside it, *zrobię pranie* against *robię pranie*. The perfective is the
++  // canonical one throughout, because somebody asking for a thing to be done
++  // once, now, is what a household request nearly always is.
++  {
++    en: 'Dinner is ready',
++    pl: 'kolacja gotowa',
++    ja: 'gohan ga dekita yo',
++    script: 'ご飯ができたよ',
++    also: {
++      pl: ['kolacja jest gotowa', 'jedzenie gotowe', 'obiad gotowy', 'obiad jest gotowy'],
++      ja: ['gohan dekita', 'gohan ga dekimashita'],
++    },
++  },
++  {
++    en: "What's for dinner?",
++    pl: 'co na kolację?',
++    ja: 'ban gohan wa nani',
++    script: '晩ご飯は何',
++    also: {
++      pl: ['co jemy na kolację?', 'co dziś na kolację?', 'co na obiad?'],
++      ja: ['ban gohan nani', 'yuushoku wa nan desu ka'],
++    },
++  },
++  {
++    en: "I'll cook tonight",
++    pl: 'dziś ja gotuję',
++    ja: 'kyou wa watashi ga tsukuru',
++    script: '今日は私が作る',
++    also: {
++      pl: ['dzisiaj ja gotuję', 'ja dziś gotuję', 'dziś ja ugotuję'],
++      ja: ['kyou wa boku ga tsukuru', 'kyou wa watashi ga tsukurimasu'],
++    },
++  },
++  {
++    en: 'Can you do the dishes?',
++    pl: 'pozmywasz naczynia?',
++    ja: 'osara o aratte kuremasu ka',
++    script: 'お皿を洗ってくれますか',
++    also: {
++      pl: ['możesz pozmywać?', 'umyjesz naczynia?', 'pozmywaj naczynia', 'możesz umyć naczynia?'],
++      ja: ['osara aratte kureru', 'osara o aratte'],
++    },
++  },
++  {
++    en: 'The kettle has boiled',
++    pl: 'woda się zagotowała',
++    ja: 'oyu ga waita',
++    script: 'お湯が沸いた',
++    also: {
++      pl: ['woda zagotowana', 'czajnik się zagotował', 'woda się zagotowała już'],
++      ja: ['oyu waita', 'oyu ga wakimashita'],
++    },
++  },
++  {
++    en: 'Do you want some more?',
++    pl: 'chcesz jeszcze?',
++    ja: 'mou sukoshi iru',
++    script: 'もう少しいる',
++    also: {
++      pl: ['chcesz więcej?', 'jeszcze trochę?', 'dokładka?', 'chcesz dokładkę?'],
++      ja: ['mou sukoshi taberu', 'okawari iru'],
++    },
++  },
++  {
++    en: "I'm full",
++    pl: 'najadłam się',
++    ja: 'onaka ippai',
++    script: 'お腹いっぱい',
++    also: {
++      pl: ['najadłem się', 'najadłom się', 'jestem najedzona', 'jestem najedzony', 'jestem najedzone', 'już nie mogę'],
++      ja: ['onaka ippai desu', 'mou onaka ippai'],
++    },
++  },
++  {
++    en: 'We need milk',
++    pl: 'potrzebujemy mleka',
++    ja: 'gyuunyuu ga hitsuyou',
++    script: '牛乳が必要',
++    also: {
++      pl: ['brakuje nam mleka', 'trzeba kupić mleko', 'nie mamy mleka'],
++      ja: ['gyuunyuu ga nai', 'gyuunyuu kawanai to'],
++    },
++  },
++  {
++    en: 'Is there anything to eat?',
++    pl: 'jest coś do jedzenia?',
++    ja: 'nanika taberu mono aru',
++    script: '何か食べる物ある',
++    also: {
++      pl: ['mamy coś do jedzenia?', 'czy jest coś do jedzenia?', 'co jest do jedzenia?'],
++      ja: ['nanka taberu mono aru', 'taberu mono aru'],
++    },
++  },
++  {
++    en: 'Put it in the fridge',
++    pl: 'włóż to do lodówki',
++    ja: 'reizouko ni irete',
++    script: '冷蔵庫に入れて',
++    also: {
++      pl: ['schowaj to do lodówki', 'wsadź to do lodówki', 'włóż do lodówki'],
++      ja: ['reizouko ni irete kudasai', 'reizouko ni shimatte'],
++    },
++  },
++  {
++    en: "It's burning",
++    pl: 'przypala się',
++    ja: 'kogeteru',
++    script: '焦げてる',
++    also: { pl: ['coś się przypala', 'przypaliło się'], ja: ['kogeteru yo', 'kogechatta'] },
++  },
++  {
++    en: "Let's order takeaway",
++    pl: 'zamówmy jedzenie',
++    ja: 'demae o tanomou',
++    script: '出前を頼もう',
++    also: {
++      pl: ['może zamówimy jedzenie?', 'zamówmy coś', 'zamawiamy coś?'],
++      ja: ['demae tanomou', 'deribarii tanomou'],
++    },
++  },
++  {
++    en: 'Can you take out the rubbish?',
++    pl: 'wyniesiesz śmieci?',
++    ja: 'gomi o dashite kuremasu ka',
++    script: 'ゴミを出してくれますか',
++    also: {
++      pl: ['możesz wynieść śmieci?', 'wynieś śmieci', 'wyrzuć śmieci'],
++      ja: ['gomi dashite kureru', 'gomi o sutete'],
++    },
++  },
++  {
++    en: "I'll do the laundry",
++    pl: 'zrobię pranie',
++    ja: 'sentaku suru ne',
++    script: '洗濯するね',
++    also: {
++      pl: ['nastawię pranie', 'zrobię dziś pranie', 'wrzucę pranie', 'robię pranie'],
++      ja: ['sentaku shimasu', 'sentaku suru'],
++    },
++  },
++  {
++    en: 'The washing machine has finished',
++    pl: 'pralka skończyła',
++    ja: 'sentakuki ga owatta',
++    script: '洗濯機が終わった',
++    also: {
++      pl: ['pranie skończone', 'pralka się skończyła', 'pranie się skończyło'],
++      ja: ['sentaku ga owatta', 'sentakuki owatta yo'],
++    },
++  },
++  {
++    en: 'Where are my keys?',
++    pl: 'gdzie są moje klucze?',
++    ja: 'kagi wa doko',
++    script: '鍵はどこ',
++    also: {
++      pl: ['gdzie moje klucze?', 'gdzie są klucze?', 'nie widziałeś moich kluczy?'],
++      ja: ['kagi wa doko desu ka', 'watashi no kagi wa doko'],
++    },
++  },
++  {
++    en: "I can't find my phone",
++    pl: 'nie mogę znaleźć telefonu',
++    ja: 'keitai ga mitsukaranai',
++    script: '携帯が見つからない',
++    also: {
++      pl: ['nie mogę znaleźć swojego telefonu', 'zgubiłam telefon', 'zgubiłem telefon', 'zgubiłom telefon'],
++      ja: ['sumaho ga mitsukaranai', 'keitai mitsukaranai'],
++    },
++  },
++  {
++    en: 'Have you seen my glasses?',
++    pl: 'widziałaś moje okulary?',
++    ja: 'megane mita',
++    script: '眼鏡見た',
++    also: {
++      pl: ['widziałeś moje okulary?', 'widziałoś moje okulary?', 'nie widziałaś moich okularów?', 'gdzie są moje okulary?'],
++      ja: ['megane mimashita ka', 'watashi no megane mita'],
++    },
++  },
++  {
++    en: 'Close the window, please',
++    pl: 'zamknij okno proszę',
++    ja: 'mado o shimete',
++    script: '窓を閉めて',
++    also: {
++      pl: ['zamkniesz okno?', 'proszę zamknij okno', 'możesz zamknąć okno?'],
++      ja: ['mado shimete', 'mado o shimete kudasai'],
++    },
++  },
++  {
++    en: 'Open the window',
++    pl: 'otwórz okno',
++    ja: 'mado o akete',
++    script: '窓を開けて',
++    also: {
++      pl: ['otworzysz okno?', 'możesz otworzyć okno?', 'proszę otwórz okno'],
++      ja: ['mado akete', 'mado o akete kudasai'],
++    },
++  },
++  {
++    en: "It's cold in here",
++    pl: 'jest tu zimno',
++    ja: 'koko samui',
++    script: 'ここ寒い',
++    also: {
++      pl: ['ale tu zimno', 'zimno tutaj', 'jest tutaj zimno'],
++      ja: ['koko wa samui', 'koko samui ne'],
++    },
++  },
++  {
++    en: 'Can you turn the music down?',
++    pl: 'ściszysz muzykę?',
++    ja: 'ongaku o chiisaku shite kuremasu ka',
++    script: '音楽を小さくしてくれますか',
++    also: {
++      pl: ['możesz ściszyć muzykę?', 'ścisz muzykę', 'możesz ściszyć?'],
++      ja: ['ongaku chiisaku shite', 'oto o chiisaku shite'],
++    },
++  },
++  {
++    en: 'Lock the door',
++    pl: 'zamknij drzwi na klucz',
++    ja: 'kagi o kakete',
++    script: '鍵をかけて',
++    also: {
++      pl: ['zamknij drzwi', 'zamkniesz drzwi na klucz?', 'zamykaj drzwi'],
++      ja: ['kagi kakete', 'kagi o kakete kudasai'],
++    },
++  },
++  {
++    en: "Someone's at the door",
++    pl: 'ktoś jest przy drzwiach',
++    ja: 'dareka kita yo',
++    script: '誰か来たよ',
++    also: {
++      pl: ['ktoś przyszedł', 'ktoś dzwoni do drzwi', 'ktoś puka'],
++      ja: ['dareka kiteru', 'dareka kimashita'],
++    },
++  },
++  {
++    en: "I'm going to the shop",
++    pl: 'idę do sklepu',
++    ja: 'mise ni iku',
++    script: '店に行く',
++    also: {
++      pl: ['wychodzę do sklepu', 'skoczę do sklepu', 'idę na zakupy'],
++      ja: ['kaimono ni iku', 'mise ni ikimasu'],
++    },
++  },
++  {
++    en: 'Do you need anything?',
++    pl: 'potrzebujesz czegoś?',
++    ja: 'nanika iru',
++    script: '何かいる',
++    also: {
++      pl: ['czy czegoś potrzebujesz?', 'coś ci potrzeba?', 'przynieść ci coś?'],
++      ja: ['nanka iru', 'nanika irimasu ka'],
++    },
++  },
++  {
++    en: "I'll be back in a minute",
++    pl: 'zaraz wracam',
++    ja: 'sugu modoru',
++    script: 'すぐ戻る',
++    also: {
++      pl: ['zaraz wrócę', 'wracam za chwilę', 'za chwilę wracam'],
++      ja: ['sugu modorimasu', 'sugu kaeru'],
++    },
++  },
++  {
++    en: 'Did you sleep well?',
++    pl: 'dobrze spałaś?',
++    ja: 'yoku nemureta',
++    script: 'よく眠れた',
++    also: {
++      pl: ['dobrze spałeś?', 'dobrze spałoś?', 'wyspałaś się?', 'wyspałeś się?', 'wyspałoś się?', 'jak spałaś?'],
++      ja: ['yoku nemuremashita ka', 'yoku neta'],
++    },
++  },
++  {
++    en: "I'm going to bed",
++    pl: 'idę spać',
++    ja: 'mou neru',
++    script: 'もう寝る',
++    also: {
++      pl: ['kładę się spać', 'idę już spać', 'idę do łóżka'],
++      ja: ['neru ne', 'mou nemasu'],
++    },
++  },
++  {
++    en: 'Wake me up at seven',
++    pl: 'obudź mnie o siódmej',
++    ja: 'shichiji ni okoshite',
++    script: '七時に起こして',
++    also: {
++      pl: ['obudzisz mnie o siódmej?', 'możesz mnie obudzić o siódmej?'],
++      ja: ['shichiji ni okoshite kudasai', 'nanaji ni okoshite'],
++    },
++  },
++  {
++    en: 'Five more minutes',
++    pl: 'jeszcze pięć minut',
++    ja: 'ato gofun',
++    script: 'あと五分',
++    also: { pl: ['jeszcze pięć minutek', 'pięć minut jeszcze'], ja: ['ato gofun dake', 'mou gofun'] },
++  },
++  {
++    en: 'Sweet dreams',
++    pl: 'słodkich snów',
++    ja: 'ii yume o',
++    script: 'いい夢を',
++    also: { pl: ['kolorowych snów', 'śpij dobrze'], ja: ['ii yume o mite ne', 'yoi yume o'] },
++  },
++  {
++    en: 'I overslept',
++    pl: 'zaspałam',
++    ja: 'neboushita',
++    script: '寝坊した',
++    also: {
++      pl: ['zaspałem', 'zaspałom', 'zaspałyśmy', 'zaspaliśmy'],
++      ja: ['neboushimashita', 'nebou shichatta'],
++    },
++  },
++  {
++    en: 'I missed you',
++    pl: 'tęskniłam za tobą',
++    ja: 'aitakatta',
++    script: '会いたかった',
++    also: {
++      pl: ['tęskniłem za tobą', 'tęskniłom za tobą', 'tęskniłam', 'tęskniłem', 'tęskniłom'],
++      ja: ['aitakatta yo', 'samishikatta'],
++    },
++  },
++  {
++    en: 'Give me a hug',
++    pl: 'przytul mnie',
++    ja: 'gyutto shite',
++    script: 'ぎゅっとして',
++    also: { pl: ['przytulisz mnie?', 'chodź się przytulić'], ja: ['hagu shite', 'gyuu shite'] },
++  },
++  {
++    en: 'You look lovely today',
++    pl: 'ładnie dziś wyglądasz',
++    ja: 'kyou suteki da ne',
++    script: '今日素敵だね',
++    also: {
++      pl: ['pięknie dziś wyglądasz', 'ślicznie wyglądasz', 'dobrze wyglądasz'],
++      ja: ['kyou suteki desu ne', 'kyou kirei da ne'],
++    },
++  },
++  {
++    en: 'I love you too',
++    pl: 'ja ciebie też kocham',
++    ja: 'watashi mo aishiteru',
++    script: '私も愛してる',
++    also: { pl: ['też cię kocham', 'ja też cię kocham'], ja: ['boku mo aishiteru', 'watashi mo daisuki'] },
++  },
++  {
++    en: "Don't worry",
++    pl: 'nie martw się',
++    ja: 'shinpai shinaide',
++    script: '心配しないで',
++    also: {
++      pl: ['spokojnie', 'nie przejmuj się', 'bez obaw'],
++      ja: ['shinpai nai yo', 'shinpai shinakute ii'],
++    },
++  },
++  {
++    en: "I'm proud of you",
++    pl: 'jestem z ciebie dumna',
++    ja: 'hokori ni omou yo',
++    script: '誇りに思うよ',
++    also: {
++      pl: ['jestem z ciebie dumny', 'jestem z ciebie dumne', 'dumna jestem', 'dumny jestem', 'dumne jestem'],
++      ja: ['hokori ni omoimasu', 'sugoi to omou yo'],
++    },
++  },
++  {
++    en: "What's wrong?",
++    pl: 'co się stało?',
++    ja: 'dou shita no',
++    script: 'どうしたの',
++    also: { pl: ['co jest?', 'coś nie tak?', 'co ci jest?'], ja: ['dou shita', 'doushitan desu ka'] },
++  },
++  {
++    en: "It's my fault",
++    pl: 'to moja wina',
++    ja: 'watashi no sei',
++    script: '私のせい',
++    also: { pl: ['moja wina', 'to była moja wina'], ja: ['boku no sei', 'watashi no sei desu'] },
++  },
++  {
++    en: 'Are you okay?',
++    pl: 'nic ci nie jest?',
++    ja: 'daijoubu?',
++    script: '大丈夫？',
++    also: {
++      pl: ['wszystko okej?', 'czy nic ci nie jest?', 'nic się nie stało?'],
++      ja: ['daijoubu ka', 'daijoubu kana'],
++    },
++  },
++  {
++    en: 'What time will you be home?',
++    pl: 'o której będziesz w domu?',
++    ja: 'nanji ni kaeru',
++    script: '何時に帰る',
++    also: {
++      pl: ['o której wracasz?', 'kiedy będziesz w domu?', 'o której wrócisz?'],
++      ja: ['nanji ni kaerimasu ka', 'nanji ni kaeru no'],
++    },
++  },
++  {
++    en: "I'm on my way home",
++    pl: 'wracam do domu',
++    ja: 'ima kaeru tokoro',
++    script: '今帰るところ',
++    also: {
++      pl: ['jestem w drodze do domu', 'już wracam', 'jadę do domu'],
++      ja: ['ima kaetteru', 'kaeru tochuu'],
++    },
++  },
++  {
++    en: "I'll be late",
++    pl: 'spóźnię się',
++    ja: 'okureru',
++    script: '遅れる',
++    also: {
++      pl: ['trochę się spóźnię', 'spóźnię się dziś', 'będę później'],
++      ja: ['okuremasu', 'chotto okureru'],
++    },
++  },
++  {
++    en: 'Are you ready?',
++    pl: 'jesteś gotowa?',
++    ja: 'junbi dekita',
++    script: '準備できた',
++    also: {
++      pl: ['jesteś gotowy?', 'jesteś gotowe?', 'gotowa?', 'gotowy?', 'gotowe?', 'możemy iść?'],
++      ja: ['junbi dekimashita ka', 'junbi dekita no'],
++    },
++  },
++  {
++    en: "Let's watch a film",
++    pl: 'obejrzyjmy film',
++    ja: 'eiga o miyou',
++    script: '映画を見よう',
++    also: {
++      pl: ['może film?', 'obejrzymy film?', 'oglądniemy jakiś film?'],
++      ja: ['eiga miyou', 'eiga o mimashou'],
++    },
++  },
++  {
++    en: 'What do you want to do today?',
++    pl: 'co chcesz dziś robić?',
++    ja: 'kyou nani shitai',
++    script: '今日何したい',
++    also: {
++      pl: ['co robimy dzisiaj?', 'co chcesz dzisiaj robić?', 'na co masz ochotę?'],
++      ja: ['kyou wa nani shitai', 'kyou nani suru'],
++    },
++  },
++  {
++    en: "Let's go for a walk",
++    pl: 'chodźmy na spacer',
++    ja: 'sanpo ni ikou',
++    script: '散歩に行こう',
++    also: {
++      pl: ['idziemy na spacer?', 'może spacer?', 'pójdziemy na spacer?'],
++      ja: ['sanpo shiyou', 'sanpo ni ikimashou'],
++    },
++  },
++  {
++    en: "It's raining",
++    pl: 'pada deszcz',
++    ja: 'ame ga futteru',
++    script: '雨が降ってる',
++    also: { pl: ['pada', 'leje', 'deszcz pada'], ja: ['ame futteru', 'ame ga futte imasu'] },
++  },
++  {
++    en: 'The weather is beautiful',
++    pl: 'jest piękna pogoda',
++    ja: 'ii tenki da ne',
++    script: 'いい天気だね',
++    also: {
++      pl: ['piękna pogoda', 'ładna pogoda', 'jaka piękna pogoda'],
++      ja: ['ii tenki desu ne', 'tenki ga ii'],
++    },
++  },
++  {
++    en: 'Have a good day',
++    pl: 'miłego dnia',
++    ja: 'itterasshai',
++    script: 'いってらっしゃい',
++    also: { pl: ['udanego dnia', 'życzę miłego dnia'], ja: ['ii ichinichi o', 'itte rasshai'] },
++  },
++  {
++    en: 'Call me',
++    pl: 'zadzwoń do mnie',
++    ja: 'denwa shite',
++    script: '電話して',
++    also: { pl: ['zadzwoń', 'odezwij się'], ja: ['denwa shite ne', 'denwa choudai'] },
++  },
++  {
++    en: 'Can you pass me that?',
++    pl: 'podasz mi to?',
++    ja: 'sore totte kuremasu ka',
++    script: 'それ取ってくれますか',
++    also: {
++      pl: ['możesz mi to podać?', 'podaj mi to', 'podasz mi tamto?'],
++      ja: ['sore totte', 'sore o totte kudasai'],
++    },
++  },
++  {
++    en: 'Come here',
++    pl: 'chodź tutaj',
++    ja: 'kocchi kite',
++    script: 'こっち来て',
++    also: { pl: ['chodź tu', 'podejdź tutaj'], ja: ['kocchi ni kite', 'koko ni kite'] },
++  },
++  {
++    en: "I'm coming",
++    pl: 'już idę',
++    ja: 'ima iku',
++    script: '今行く',
++    also: { pl: ['idę', 'zaraz będę', 'już biegnę'], ja: ['ima ikimasu', 'sugu iku'] },
++  },
++  {
++    en: 'Sit down',
++    pl: 'usiądź',
++    ja: 'suwatte',
++    script: '座って',
++    also: { pl: ['siadaj', 'usiądź proszę', 'proszę usiąść'], ja: ['suwatte kudasai', 'koshikakete'] },
++  },
++  {
++    en: "Don't forget your keys",
++    pl: 'nie zapomnij kluczy',
++    ja: 'kagi wasurenaide',
++    script: '鍵忘れないで',
++    also: {
++      pl: ['pamiętaj o kluczach', 'nie zapomnij o kluczach'],
++      ja: ['kagi o wasurenaide', 'kagi wasurenai de ne'],
++    },
++  },
++  {
++    en: 'Good luck',
++    pl: 'powodzenia',
++    ja: 'ganbatte',
++    script: '頑張って',
++    also: { pl: ['trzymam kciuki', 'połamania nóg'], ja: ['ganbatte ne', 'ganbare'] },
++  },
++  {
++    en: 'Thank you for everything',
++    pl: 'dziękuję za wszystko',
++    ja: 'iroiro arigatou',
++    script: '色々ありがとう',
++    also: {
++      pl: ['dzięki za wszystko', 'dziękuję ci za wszystko'],
++      ja: ['iroiro arigatou gozaimasu', 'iroiro doumo'],
++    },
++  },
++  // The last eleven are the household saying who lives in it.
++  //
++  // A phrasebook's idea of a couple is *mój mąż* and nothing else, and a
++  // learner whose wife is a wife spends the first year translating around the
++  // book they paid for. *To moja żona* is one word different and it is the
++  // difference between a sentence you can use and a sentence you have to fix
++  // every time. The accusative in *kocham moją żonę* is the same free lesson
++  // the genitive block above gets: nobody learns a case from a paradigm, they
++  // learn it from a sentence they say twice a week.
++  //
++  // *Moje zaimki to ono* is here for the same reason the neuter forms are in
++  // `also` throughout: Polish makes you declare a gender in the past tense of
++  // every verb, so a language that will not conjugate you is a language you
++  // cannot say Tuesday in. The neuter (*zaspałom*, *jestem zmęczone*) is the
++  // form nonbinary Polish speakers have actually settled on, which is why it is
++  // the one taught here rather than the invented pronoun sets; those exist and
++  // are real to the people who use them, but a game cannot mark six competing
++  // systems right and this one is the one a learner will hear.
++  {
++    en: 'This is my wife',
++    pl: 'to moja żona',
++    ja: 'tsuma desu',
++    script: '妻です',
++    also: {
++      pl: ['to jest moja żona', 'moja żona', 'poznaj moją żonę'],
++      ja: ['watashi no tsuma desu', 'tsuma da yo'],
++    },
++  },
++  {
++    en: 'I love my wife',
++    pl: 'kocham moją żonę',
++    ja: 'tsuma o aishiteru',
++    script: '妻を愛してる',
++    also: {
++      pl: ['kocham swoją żonę', 'bardzo kocham moją żonę'],
++      ja: ['tsuma ga daisuki', 'tsuma o aishiteimasu'],
++    },
++  },
++  {
++    en: "She's my partner",
++    pl: 'to moja partnerka',
++    ja: 'paatonaa desu',
++    script: 'パートナーです',
++    also: {
++      pl: ['to jest moja partnerka', 'moja partnerka', 'to moja dziewczyna'],
++      ja: ['watashi no paatonaa desu', 'paatonaa da yo'],
++    },
++  },
++  {
++    en: "I'm going out with my girlfriend",
++    pl: 'wychodzę z dziewczyną',
++    ja: 'kanojo to dekakeru',
++    script: '彼女と出かける',
++    also: {
++      pl: ['wychodzę ze swoją dziewczyną', 'idę z dziewczyną', 'umówiłam się z dziewczyną'],
++      ja: ['kanojo to dekakemasu', 'kanojo to asobi ni iku'],
++    },
++  },
++  {
++    en: 'Will you marry me?',
++    pl: 'wyjdziesz za mnie?',
++    ja: 'kekkon shite kuremasu ka',
++    script: '結婚してくれますか',
++    also: {
++      pl: ['poślubisz mnie?', 'weźmiesz ze mną ślub?', 'czy wyjdziesz za mnie?'],
++      ja: ['kekkon shite kureru', 'kekkon shiyou'],
++    },
++  },
++  {
++    en: "We're getting married",
++    pl: 'bierzemy ślub',
++    ja: 'kekkon suru yo',
++    script: '結婚するよ',
++    also: {
++      pl: ['pobieramy się', 'będziemy brać ślub', 'zaręczyłyśmy się'],
++      ja: ['kekkon shimasu', 'kekkon suru n da'],
++    },
++  },
++  {
++    en: 'Happy anniversary',
++    pl: 'szczęśliwej rocznicy',
++    ja: 'kekkon kinenbi omedetou',
++    script: '結婚記念日おめでとう',
++    also: {
++      pl: ['wszystkiego najlepszego w rocznicę', 'gratulacje z okazji rocznicy'],
++      ja: ['kinenbi omedetou', 'kekkon kinenbi omedetou gozaimasu'],
++    },
++  },
++  {
++    en: 'Kiss me',
++    pl: 'pocałuj mnie',
++    ja: 'kisu shite',
++    script: 'キスして',
++    also: { pl: ['całuj mnie', 'daj buziaka'], ja: ['kisu shite ne', 'chuu shite'] },
++  },
++  {
++    en: 'My pronouns are ono',
++    pl: 'moje zaimki to ono',
++    ja: 'daimeishi wa they desu',
++    script: '代名詞はtheyです',
++    also: {
++      pl: ['używam zaimków ono', 'mówcie do mnie ono', 'moje zaimki to ono ich jemu'],
++      ja: ['daimeishi wa they them desu', 'watashi no daimeishi wa they desu'],
++    },
++  },
++  {
++    en: "I'm nonbinary",
++    pl: 'jestem osobą niebinarną',
++    ja: 'nonbainarii desu',
++    script: 'ノンバイナリーです',
++    also: {
++      pl: ['jestem niebinarna', 'jestem niebinarne', 'jestem niebinarny'],
++      ja: ['nonbainarii da yo', 'watashi wa nonbainarii desu'],
++    },
++  },
++  {
++    en: 'Are you coming to Pride with me?',
++    pl: 'idziesz ze mną na paradę równości?',
++    ja: 'puraido ni issho ni iku',
++    script: 'プライドに一緒に行く',
++    also: {
++      pl: ['pójdziesz ze mną na paradę?', 'idziesz na paradę równości?', 'idziemy na paradę?'],
++      ja: ['puraido ni issho ni ikimasu ka', 'puraido ikou'],
++    },
++  },
++  // The wedding block. The ones above are about being with somebody; these are
++  // about the six months where that turns into a event with a guest list, and
++  // they are the sentences that get said daily in that stretch and then never
++  // again. Polish declares the speaker's gender in every past tense here too,
++  // so *zaraczy*-shaped verbs carry all three in `also` for the same reason
++  // the rest of the list does.
++  {
++    en: 'This is my fiancee',
++    pl: 'to moja narzeczona',
++    ja: 'konyakusha desu',
++    script: '婚約者です',
++    also: {
++      pl: ['to jest moja narzeczona', 'moja narzeczona', 'to mój narzeczony'],
++      ja: ['watashi no konyakusha desu', 'konyakusha da yo', 'fianse desu'],
++    },
++  },
++  {
++    en: 'We got engaged',
++    pl: 'zaręczyłyśmy się',
++    ja: 'konyaku shita',
++    script: '婚約した',
++    also: {
++      pl: ['zaręczyliśmy się', 'jesteśmy zaręczone', 'jesteśmy zaręczeni'],
++      ja: ['konyaku shimashita', 'konyaku shita yo'],
++    },
++  },
++  {
++    en: 'Do you like the ring?',
++    pl: 'podoba ci się pierścionek?',
++    ja: 'yubiwa kiniitta',
++    script: '指輪気に入った',
++    also: {
++      pl: ['podoba ci się ten pierścionek?', 'jak ci się podoba pierścionek?'],
++      ja: ['yubiwa kiniitta', 'yubiwa ki ni irimashita ka'],
++    },
++  },
++  {
++    en: 'When is the wedding?',
++    pl: 'kiedy jest ślub?',
++    ja: 'kekkonshiki wa itsu',
++    script: '結婚式はいつ',
++    also: {
++      pl: ['kiedy macie ślub?', 'kiedy bierzecie ślub?'],
++      ja: ['kekkonshiki wa itsu desu ka', 'shiki wa itsu'],
++    },
++  },
++  {
++    en: 'The wedding is in June',
++    pl: 'ślub jest w czerwcu',
++    ja: 'kekkonshiki wa rokugatsu desu',
++    script: '結婚式は六月です',
++    also: {
++      pl: ['bierzemy ślub w czerwcu', 'ślub w czerwcu'],
++      ja: ['kekkonshiki wa rokugatsu', 'rokugatsu ni kekkon shimasu'],
++    },
++  },
++  {
++    en: "I'm looking for a wedding dress",
++    pl: 'szukam sukni ślubnej',
++    ja: 'uedingu doresu o sagashiteru',
++    script: 'ウェディングドレスを探してる',
++    also: {
++      pl: ['szukam sukienki ślubnej', 'szukam garnituru na ślub'],
++      ja: ['uedingu doresu o sagashiteimasu', 'doresu o sagashiteru'],
++    },
++  },
++  {
++    en: 'Will you be my bridesmaid?',
++    pl: 'będziesz moją druhną?',
++    ja: 'buraidzumeido ni natte kureru',
++    script: 'ブライズメイドになってくれる',
++    also: {
++      pl: ['czy będziesz moją druhną?', 'będziesz świadkową?', 'będziesz moim świadkiem?'],
++      ja: ['buraidzumeido ni natte kuremasu ka', 'hanayome no tsukisoi o onegai'],
++    },
++  },
++  {
++    en: 'Have you sent the invitations?',
++    pl: 'wysłałaś zaproszenia?',
++    ja: 'shoutaijou wa okutta',
++    script: '招待状は送った',
++    also: {
++      pl: ['wysłałeś zaproszenia?', 'wysłałoś zaproszenia?', 'zaproszenia wysłane?'],
++      ja: ['shoutaijou wa okurimashita ka', 'shoutaijou okutta'],
++    },
++  },
++  {
++    en: "We're inviting fifty guests",
++    pl: 'zapraszamy pięćdziesięciu gości',
++    ja: 'gojuunin shoutai suru',
++    script: '五十人招待する',
++    also: {
++      pl: ['będzie pięćdziesięciu gości', 'zapraszamy pięćdziesiąt osób'],
++      ja: ['gojuunin shoutai shimasu', 'gojuunin kuru yo'],
++    },
++  },
++  {
++    en: 'Save me the first dance',
++    pl: 'zatańcz ze mną pierwszy taniec',
++    ja: 'saisho no dansu wa boku to',
++    script: '最初のダンスは僕と',
++    also: {
++      pl: ['pierwszy taniec jest mój', 'zatańczymy pierwszy taniec?'],
++      ja: ['saisho no dansu wa watashi to', 'faasuto dansu wa issho ni'],
++    },
++  },
++  {
++    en: "I can't wait to marry you",
++    pl: 'nie mogę się doczekać ślubu z tobą',
++    ja: 'hayaku kekkon shitai',
++    script: '早く結婚したい',
++    also: {
++      pl: ['nie mogę się doczekać naszego ślubu', 'już nie mogę się doczekać ślubu'],
++      ja: ['hayaku kekkon shitai na', 'kekkon suru no ga machidooshii'],
++    },
++  },
++  {
++    en: 'Congratulations to the newlyweds',
++    pl: 'gratulacje dla nowożeńców',
++    ja: 'gokekkon omedetou',
++    script: 'ご結婚おめでとう',
++    also: {
++      pl: ['wszystkiego najlepszego dla młodej pary', 'gratulacje dla młodej pary'],
++      ja: ['gokekkon omedetou gozaimasu', 'kekkon omedetou'],
++    },
++  },
++  {
++    en: "We're on our honeymoon",
++    pl: 'jesteśmy w podróży poślubnej',
++    ja: 'shinkon ryokou chuu desu',
++    script: '新婚旅行中です',
++    also: {
++      pl: ['mamy podróż poślubną', 'jedziemy w podróż poślubną'],
++      ja: ['shinkon ryokou chuu', 'hanemuun chuu desu'],
++    },
++  },
++  {
++    en: 'I will love you always',
++    pl: 'będę cię kochać zawsze',
++    ja: 'zutto aishiteru',
++    script: 'ずっと愛してる',
++    also: {
++      pl: ['zawsze będę cię kochać', 'kocham cię na zawsze'],
++      ja: ['zutto aishiteru yo', 'itsumademo aishiteimasu'],
++    },
++  },
+ ];
+ 
+ /** How many there are. `PHRASE_COUNT` in the display module has to match. */
+ export const phraseCount = (): number => PHRASES.length;
+ 
+ /**
+  * What a phrase, or a typed attempt at one, is reduced to before they meet.
+  *
+  * Three keys rather than one, because a phrase can be typed in three
+  * alphabets' worth of ways and all of them are the same sentence:
+diff --git a/src/shared/games/wordChainDisplay.ts b/src/shared/games/wordChainDisplay.ts
+index 27efaed..64420b9 100644
+--- a/src/shared/games/wordChainDisplay.ts
++++ b/src/shared/games/wordChainDisplay.ts
+@@ -184,20 +184,174 @@ export const MIN_TURN_MS = 5 * 1000;
+  * is the first one to feel it.
+  *
+  * Setup does not use this; the language menu always gets the full minute. See
+  * `TURN_MS`.
+  */
+ export function turnMsFor(said: number): number {
+   const steps = Math.floor(Math.max(0, said) / TURN_STEP_WORDS);
+   return Math.max(MIN_TURN_MS, TURN_MS - steps * TURN_STEP_MS);
+ }
+ 
++/**
++ * How much of the language a seat says they have, chosen once during setup.
++ *
++ * Word Chain's clock is the same for everybody and stays that way: a level
++ * here buys **help finding a word**, not time and not points. A minute of
++ * failing to think of anything is what this game is built around (see the note
++ * at the top of `wordChain.ts`), and that minute teaches a fluent player
++ * something and teaches somebody three weeks in nothing at all: they are not
++ * failing to retrieve a word, they have not got one to retrieve. So a beginner
++ * is walked towards the word the reveal was going to show them anyway, a step
++ * at a time, while there is still a turn left to use it in.
++ *
++ * Three bands rather than a slider, and the same three the vocabulary game
++ * asks for, worded the same way, because a player who has answered this
++ * question on one setup screen should recognise it on the other. They are
++ * separate types on purpose: this one decides a hint ladder and `VocabLevel`
++ * decides which way a question is asked, and a shared union would be one
++ * import away from a change to one game quietly retuning the other.
++ */
++export type ChainLevel = 'new' | 'some' | 'fluent';
++
++export const CHAIN_LEVELS: readonly ChainLevel[] = ['new', 'some', 'fluent'];
++
++export const LEVEL_NAME: Record<ChainLevel, string> = {
++  new: 'Just starting',
++  some: 'Getting there',
++  fluent: 'I speak it',
++};
++
++/**
++ * The level a seat plays at when nobody said otherwise.
++ *
++ * The middle band, so a seat that never touched the control, and a game
++ * restored from before this existed, play the game much as it played before:
++ * the `some` ladder does not open until thirty-five seconds, by which point
++ * most turns are over.
++ */
++export const CHAIN_DEFAULT_LEVEL: ChainLevel = 'some';
++
++/**
++ * When each hint arrives, in milliseconds from the start of the seat's turn.
++ *
++ * Twenty and forty for a beginner. Twenty is long enough that anybody who had
++ * the word has already typed it, and it leaves forty seconds of a full minute
++ * to use what the hint hands over, which is the whole point: a hint that lands
++ * with three seconds left is a spoiler, not a hint. The second rung exists
++ * because a meaning on its own is often not enough in a language you cannot
++ * yet spell in.
++ *
++ * Thirty-five and fifty for the middle band: the same ladder, late enough that
++ * it only ever fires on a turn that was already going badly. Nothing at all
++ * for a fluent seat, who came for the reveal, and for whom an answer at twenty
++ * seconds would be the game playing the turn for them.
++ *
++ * Read against the allowance *that turn* had rather than against the minute,
++ * so the ladder simply stops firing as the chain grows and the clock shrinks
++ * past it (see `turnMsFor`). A five-second turn near the end of a long chain
++ * gets no hints at any level, which is right: there is no time to spend on one.
++ */
++export const HINT_AT: Record<ChainLevel, readonly number[]> = {
++  new: [20 * 1000, 40 * 1000],
++  some: [35 * 1000, 50 * 1000],
++  fluent: [],
++};
++
++/** What `seat` said they were, defaulting for a seat that never said. */
++export function levelOf(state: WcState, seat: number): ChainLevel {
++  return state.levels?.[seat] ?? CHAIN_DEFAULT_LEVEL;
++}
++
++/**
++ * The word the seat on the clock is being walked towards, and nothing about
++ * how far along they are: see `hintsFor` for that.
++ *
++ * The *same* word `revealFor` would show them had the minute gone: same
++ * language, same cooldowns, same review list. That is deliberate. The hint and
++ * the reveal are one claim, "this is what you could have said", and a game that
++ * hinted at one word and then revealed another would read as the game changing
++ * its mind about the answer.
++ *
++ * Recomputed by the server whenever a seat is handed the clock, and blanked for
++ * the other seat by `view`. Null for a fluent seat, for a seat whose language
++ * has nothing behind the letter, and throughout setup.
++ */
++export interface ChainHint {
++  /** Whose turn this belongs to. Never anybody else's, see `view`. */
++  seat: number;
++  /** The word itself, as written. Never sent whole to the screen: see `chainHintSteps`. */
++  word: string;
++  /** Its meaning, or '' where the list has none. English has none at all. */
++  gloss: string;
++}
++
++/** One rung of the ladder: what it says, and what kind of help it is. */
++export interface ChainHintStep {
++  kind: 'meaning' | 'shape';
++  text: string;
++}
++
++/**
++ * A word with everything but its first two letters taken out: `lozko` as
++ * `lo___`, and the accented `lozko` as it is written, `lo` plus three blanks.
++ *
++ * Two letters rather than one because one of them is the letter the chain just
++ * asked for, which the player is already staring at: a hint that repeats the
++ * question is not a hint. The blanks are the other half of it, length being the
++ * cue that most often finishes the retrieval on its own.
++ *
++ * Counted in code points, like `wordPoints`, so a five-letter Polish word masks
++ * to three blanks and not to five.
++ */
++export function maskWord(word: string): string {
++  const letters = [...word];
++  return letters.slice(0, 2).join('') + '_'.repeat(Math.max(0, letters.length - 2));
++}
++
++/**
++ * The rungs of the ladder for a hint, in the order they are handed over.
++ *
++ * Meaning first, shape second: the meaning is the cue that lets a player
++ * produce the word themselves, which is the retrieval worth having, and the
++ * shape is the fallback for when it did not.
++ *
++ * A rung with nothing to say is not offered rather than padded out, which in
++ * practice means **English gets one hint and it is the shape one**: the English
++ * list carries no glosses (see `commonestStarting`), so there is no meaning to
++ * show. Better than a first rung that says nothing, and better than pushing the
++ * shape hint out to forty seconds for the player the ladder exists to help.
++ */
++export function chainHintSteps(hint: ChainHint): ChainHintStep[] {
++  const steps: ChainHintStep[] = [];
++  if (hint.gloss) steps.push({ kind: 'meaning', text: hint.gloss });
++  steps.push({ kind: 'shape', text: maskWord(hint.word) });
++  return steps;
++}
++
++/**
++ * Which rungs `seat` has earned as of `now`, oldest first.
++ *
++ * Empty for everybody but the seat on the clock, which is also the only seat
++ * holding a hint at all. Time is read back off the deadline rather than kept as
++ * a start time, the same bargain `tookUntil` makes in the reducer: the deadline
++ * is the number the whole game already agrees on, and a second field recording
++ * when the turn began could drift from it.
++ */
++export function hintsFor(state: WcState, seat: number, now: number): ChainHintStep[] {
++  const hint = state.hint;
++  if (!hint || hint.seat !== seat || state.deadline === null) return [];
++  if (state.phase !== 'playing' && state.phase !== 'chase') return [];
++  const gone = turnMsFor(state.chain.length) - Math.max(0, state.deadline - now);
++  const at = HINT_AT[levelOf(state, seat)];
++  return chainHintSteps(hint).filter((_step, i) => at[i] !== undefined && gone >= at[i]);
++}
++
+ /**
+  * What a word is worth: a point a letter.
+  *
+  * The one rule the players can do arithmetic on mid-turn, which is the whole
+  * reason it is not a curve. A seven-letter word is worth seven, a three-letter
+  * word is worth three, and a player who is four points behind knows exactly
+  * what they are looking for. Anything superlinear, letters squared or a bonus
+  * past six, says the same thing about which words are better and says it in a
+  * number nobody can check while a five-second clock is running.
+  *
+@@ -497,20 +651,30 @@ export function hasBeaten(state: WcState, seat: number): boolean {
+  * rather than importing this one: a display module may not reach a reducer,
+  * a profile outlives the games that fill it, and the two lists are held
+  * against each other by `profile.test.ts`.
+  */
+ export type ChainStudy = Partial<Record<ChainLang, string[]>>;
+ 
+ export interface WcState {
+   phase: WcPhase;
+   /** Each seat's language, or null while they are still choosing. */
+   langs: (ChainLang | null)[];
++  /**
++   * How much of the language each seat says they have, in seat order. See
++   * `ChainLevel`, and `HINT_AT` for the whole of what it buys.
++   *
++   * Public, like `langs`: it decides when hints land on somebody's screen and
++   * a player is entitled to know why their opponent got one. Optional on the
++   * type for one reason only, a room stored before this field existed, which
++   * `levelOf` reads as the default band.
++   */
++  levels?: ChainLevel[];
+   /**
+    * How the chain links, decided once when play begins and never after: two
+    * players who chose the same language get `strict`, everyone else `loose`.
+    *
+    * Derivable from `langs`, and stored anyway, because the board has to say
+    * which game it is before the first word is played and the two must never
+    * disagree about it mid-chain. `false` throughout setup.
+    */
+   strict: boolean;
+   /** Oldest first. The last link is the one being answered. */
+@@ -558,20 +722,32 @@ export interface WcState {
+    * How many words the seat on the clock could still legally say: unsaid words
+    * in their language starting with `required`, or the whole of their language
+    * before the first word. Null while nobody is on the clock.
+    *
+    * The server counts it because only the server has the lists. The board shows
+    * the number and never derives it, the same bargain as `required`. Symmetric
+    * information: both players see the same count, and it is the count for
+    * whoever is thinking, not for whoever is reading it.
+    */
+   available: number | null;
++  /**
++   * The word the seat on the clock is being walked towards, or null when
++   * nobody is being walked anywhere. See `ChainHint`.
++   *
++   * Recomputed by the server every time the clock changes hands, because it is
++   * an answer to *this* letter and stale by the next word. Sent only to the
++   * seat it belongs to (`view` blanks it), which is a stronger rule than the
++   * one on `cooldowns`: this is the answer to the turn in progress, and an
++   * opponent who could read it would know the letter their rival was about to
++   * hand back.
++   */
++  hint: ChainHint | null;
+   /** When the current minute runs out, or null before the game is on a clock. */
+   deadline: number | null;
+   /**
+    * The seat that lost, or null until the game is over.
+    *
+    * Which is later than it used to be. Losing a minute puts a seat out of the
+    * chain and into `misses`; losing the *game* takes the chase as well, so
+    * this stays null right through it. Set once, when `phase` becomes `over`,
+    * and always the seat with the lower score. See `ChainMiss` for the tie.
+    */
+@@ -583,20 +759,22 @@ export interface WcState {
+    * Both are kept, and both are shown, because each carries the word its owner
+    * could have said and that reveal is the reason the lists are ordered by
+    * frequency at all. A player who lost a minute has a word to learn out of
+    * it, whether or not they went on to win the game.
+    */
+   misses: ChainMiss[];
+ }
+ 
+ export type WcMove =
+   | { type: 'lang'; lang: ChainLang }
++  /** Setup only, and in practice before `lang`: see the reducer's `level` branch. */
++  | { type: 'level'; level: ChainLevel }
+   | { type: 'say'; word: string }
+   /** Only from the seat on the clock, and only once play has started. */
+   | { type: 'give-up' };
+ 
+ export function isFinished(state: WcState): boolean {
+   return state.phase === 'over';
+ }
+ 
+ /**
+  * The miss belonging to `seat`, if they lost a minute at some point.
+diff --git a/src/shared/harvest.ts b/src/shared/harvest.ts
+index 44a3a2f..3a72efa 100644
+--- a/src/shared/harvest.ts
++++ b/src/shared/harvest.ts
+@@ -13,22 +13,22 @@
+  *
+  * The temptation to watch for is folding. `Learned.key` is a folded lemma, and
+  * the obvious place to fold it looks like right here — but `fold()` lives in
+  * `chainDictionary.ts`, eighty thousand lines of word list follow it, and
+  * `bundle.test.ts` fails the build over exactly that. So the key arrives
+  * **already folded**, from the reducer, which is the last place in the system
+  * holding both the dictionary and the play.
+  */
+ import type { LearnLang, Profile, Known, GameTally, TallyResult } from './profile.js';
+ import type { Grade } from './review.js';
+-import { APPLIED_MEMORY, FORM, bumpStreak } from './profile.js';
+-import { XP_PER_GAME, XP_PER_WIN, isMiss, isProduction, schedule, xpFor } from './review.js';
++import { APPLIED_MEMORY, FORM, LEARNED_RUN, bumpStreak } from './profile.js';
++import { XP_PER_GAME, XP_PER_WIN, isCorrect, isMiss, isProduction, schedule, xpFor } from './review.js';
+ 
+ /**
+  * How a seat finished.
+  *
+  * `drew` is not a fourth state nobody reaches: Vocab Race leaves `winner` null
+  * when a game runs out of deck with the lead shared, and Word Duel had to grow
+  * a tie-break to stop having them. A record that could only say won or lost
+  * would have to call one of those a loss for everybody.
+  */
+ /**
+@@ -164,44 +164,57 @@ function blankRow(event: Learned, now: number): Known {
+     lemma: event.lemma,
+     gloss: event.gloss,
+     rank: event.rank,
+     seen: 0,
+     got: 0,
+     missed: 0,
+     lastAt: now,
+     dueAt: now,
+     box: 0,
+     fastestMs: 0,
++    run: 0,
++    learnedAt: 0,
+   };
+ }
+ 
+ /** One word event, applied. Returns the new row and what it earned. */
+ function applyGrade(row: Known, event: Learned, now: number): { row: Known; xp: number } {
+   const merged = mergeWord(row, event);
+   const placement = schedule(merged.box, event.grade, now);
+ 
++  // A sighting leaves the run exactly where it was -- neither advancing it nor
++  // breaking it -- which is the same answer `schedule` gives for the same
++  // reason. Anything that is not a correct answer and not a sighting is a
++  // miss, and a miss is the whole of what zeroes a run.
++  const run = event.grade === 'seen' ? merged.run : isCorrect(event.grade) ? merged.run + 1 : 0;
++
+   const next: Known = {
+     ...merged,
+     seen: merged.seen + 1,
+     got: merged.got + (isProduction(event.grade) ? 1 : 0),
+     missed: merged.missed + (isMiss(event.grade) ? 1 : 0),
+     // A sighting must not move the schedule. `schedule` returns null for it
+     // rather than "stays where it is", because an evening of watching an
+     // opponent's words would otherwise push every review the player had
+     // actually earned out by however long their current rung is.
+     lastAt: placement === null ? merged.lastAt : now,
+     dueAt: placement?.dueAt ?? merged.dueAt,
+     box: placement?.box ?? merged.box,
+     fastestMs:
+       isProduction(event.grade) && event.ms > 0 && (merged.fastestMs === 0 || event.ms < merged.fastestMs)
+         ? event.ms
+         : merged.fastestMs,
++    run,
++    // Latches on the way up and is never cleared. See `Known.learnedAt`: a
++    // list you can be demoted from is a list nobody trusts, and the ladder is
++    // where a miss is already paid for.
++    learnedAt: merged.learnedAt || (run >= LEARNED_RUN ? now : 0),
+   };
+ 
+   // Paid on the rung reached, so the review that comes back after five weeks
+   // is worth more than the one that comes back tomorrow. See `xpFor`.
+   return { row: next, xp: xpFor(event.grade, next.box) };
+ }
+ 
+ /**
+  * One more game on a tally.
+  *
+@@ -254,49 +267,88 @@ export function applyRecord(
+   if (!outcome) return profile;
+ 
+   const words = [...profile.words];
+   // An index over the rows, built for the duration of one harvest. Thirty
+   // events against a few thousand rows is not worth a different data
+   // structure on the persisted object, but it is very much worth not being
+   // quadratic here: a long Word Chain plus its reveals is a hundred events.
+   const at = new Map<string, number>();
+   words.forEach((row, i) => at.set(`${row.lang}:${row.key}`, i));
+ 
+-  let earned = 0;
++  // Experience is banked per language now, so it is a bucket rather than a
++  // running total. See `Profile.xp`.
++  const earned: Partial<Record<LearnLang, number>> = {};
++  // How many word events each language contributed, which is how the flat
++  // game bonus finds a language to be paid into. See below.
++  const events: Partial<Record<LearnLang, number>> = {};
+   let reviewed = false;
+ 
+   for (const event of outcome.learned) {
+     if (!event.key) continue;
+     const id = `${event.lang}:${event.key}`;
+     const found = at.get(id);
+ 
+     if (found === undefined) {
+       // A word only watched go past never creates a row. Counting every word
+       // an opponent said as a word you have met would inflate every number on
+       // the profile, and the profile's only job is to be worth trusting.
+-      if (event.grade === 'seen') continue;
++      //
++      // It does still name the language, though, and that is all `events` is
++      // for: an evening of Word Chain in Polish where every word was somebody
++      // else's is a game of Polish, and the flat game bonus has to land
++      // somewhere. See below.
++      if (event.grade === 'seen') {
++        events[event.lang] = (events[event.lang] ?? 0) + 1;
++        continue;
++      }
+       const { row, xp } = applyGrade(blankRow(event, now), event, now);
+       at.set(id, words.length);
+       words.push(row);
+-      earned += xp;
++      earned[event.lang] = (earned[event.lang] ?? 0) + xp;
++      events[event.lang] = (events[event.lang] ?? 0) + 1;
+       reviewed = true;
+       continue;
+     }
+ 
+     const { row, xp } = applyGrade(words[found], event, now);
+     words[found] = row;
+-    earned += xp;
++    earned[event.lang] = (earned[event.lang] ?? 0) + xp;
++    // A sighting counts here even though it counts nowhere else, and the
++    // difference is deliberate. `events` only decides **which language** the
++    // flat game bonus belongs to, and a word watched go past in Word Chain
++    // says which language the game was in just as well as one produced. It is
++    // still not study, so it still does not touch `reviewed` and still cannot
++    // hold up a streak.
++    events[event.lang] = (events[event.lang] ?? 0) + 1;
+     if (event.grade !== 'seen') reviewed = true;
+   }
+ 
++  // The flat game bonus goes to the language the game actually taught in, and
++  // nowhere at all when it taught nothing. Eleven of the thirteen games are in
++  // that second case, so a night of Backgammon moves no bar -- which is the
++  // honest answer to "how much Polish did that teach you", and the games panel
++  // is where a night of Backgammon is supposed to show up. See `Profile.xp`.
++  //
++  // A game that somehow taught two languages pays the bonus once, to whichever
++  // contributed more events, rather than twice: it is one game.
++  const taught = (Object.keys(events) as LearnLang[]).sort((a, b) => (events[b] ?? 0) - (events[a] ?? 0))[0];
++  if (taught) {
++    earned[taught] = (earned[taught] ?? 0) + XP_PER_GAME + (outcome.result === 'won' ? XP_PER_WIN : 0);
++  }
++
++  const xp = { ...profile.xp };
++  for (const lang of Object.keys(earned) as LearnLang[]) {
++    xp[lang] = (xp[lang] || 0) + (earned[lang] ?? 0);
++  }
++
+   return {
+     ...profile,
+-    xp: profile.xp + earned + XP_PER_GAME + (outcome.result === 'won' ? XP_PER_WIN : 0),
++    xp,
+     // A day counts when a word was actually graded. Finishing a game of
+     // Connect Four is not a day of study and must not hold a streak up, or the
+     // streak stops being a claim about learning anything.
+     streak: reviewed ? bumpStreak(profile.streak, now) : profile.streak,
+     games: bumpTally(profile.games, record.gameId, outcome.result, now),
+     words,
+     applied: [...profile.applied, key].slice(-APPLIED_MEMORY),
+   };
+ }
+diff --git a/src/shared/profile.ts b/src/shared/profile.ts
+index cd1c874..f6f0e1a 100644
+--- a/src/shared/profile.ts
++++ b/src/shared/profile.ts
+@@ -30,22 +30,30 @@
+  * ladder of one step per version and it runs on every read. Adding a version
+  * means adding a rung and a fixture; `profile.test.ts` walks a stored profile
+  * from every historical version to the current one and fails if a rung is
+  * missing.
+  *
+  * 1: the first shape.
+  * 2: `GameTally` grew `lost` and `last`, so the games panel can show a record
+  *    rather than two numbers. Neither is recoverable from a version 1 profile
+  *    -- a loss was never written down and the individual games are gone -- so
+  *    the rung fills them empty and the counts carry on from where they were.
++ * 3: experience went **per language**, and `Known` grew `run` and `learnedAt`
++ *    so the ledger can say which words are learned rather than only met.
++ *    Neither of the new word fields is recoverable: a consecutive-correct run
++ *    was never written down, and reconstructing one from `got` and `missed`
++ *    would credit somebody who got ten right and ten wrong with a run of ten.
++ *    So every existing row restarts at a run of zero on its next answer, and
++ *    the rung says so out loud rather than guessing. The old scalar `xp` is
++ *    split across languages by word count; see `splitXp`.
+  */
+-export const PROFILE_VERSION = 2;
++export const PROFILE_VERSION = 3;
+ 
+ /**
+  * The languages the ledger can hold a word in.
+  *
+  * The same three Word Chain plays, spelled out here rather than imported from
+  * `wordChainDisplay.ts`, because importing it would tie the persisted shape of
+  * a profile to a game's display module: dropping a language from the game
+  * would then change what a stored profile is allowed to contain, and the words
+  * already in it would stop type-checking. A profile outlives the games that
+  * filled it. `profile.test.ts` holds the two lists against each other so they
+@@ -101,20 +109,65 @@ export interface Known {
+    * `LetterCooldown.until` is: nothing has to remember to decrement it, and a
+    * profile restored from storage cannot come back with a tick already spent.
+    * It is also the single number the whole feature is for — "18 words due" on
+    * the lobby is a count over this field.
+    */
+   dueAt: number;
+   /** Rung on the ladder. See `BOXES` in `review.ts`. */
+   box: number;
+   /** The quickest you have ever produced it, in ms. Zero until you have. */
+   fastestMs: number;
++
++  /**
++   * How many times in a row it has been answered correctly. Any miss zeroes it.
++   *
++   * A separate count from `box` because the two answer different questions and
++   * conflating them was the first version of this. `box` is *when to ask
++   * again*, and it is deliberately forgiving: a hinted answer climbs, a
++   * recognised one holds, and `gave-up` only falls to rung one. `run` is
++   * *whether we are sure*, and it is deliberately not forgiving, because it is
++   * the claim the Vocabulary screen makes on the player's behalf. A word can
++   * sit on the top rung with a run of one, and that is not a contradiction: it
++   * means we will not ask for ninety days, and we are not yet willing to say
++   * they know it.
++   */
++  run: number;
++
++  /**
++   * When the run first reached `LEARNED_RUN`, or zero. See `isLearned`.
++   *
++   * **It latches.** Once a word is learned it stays learned, and a later miss
++   * drops it back down the ladder for review without taking it out of the
++   * Vocabulary list. The alternative was tried on paper and it is worse: a list
++   * you can be demoted from is a list you check nervously, and one bad answer
++   * on a Tuesday deleting a word you spent two months on reads as the app
++   * having taken something away. The ladder is where a miss is supposed to
++   * hurt, and it already does.
++   */
++  learnedAt: number;
++}
++
++/**
++ * Correct answers in a row before the ledger will say somebody knows a word.
++ *
++ * Ten, and the number is doing less work than it looks like: because a word is
++ * only asked when it comes back round, ten in a row is spread across the whole
++ * ladder and is closer to "right every time for three months" than to ten
++ * turns in an evening. That is the bar the word *learned* has to clear to be
++ * worth printing, and a lower one would fill the screen with words somebody
++ * would fail if you asked them tomorrow.
++ */
++export const LEARNED_RUN = 10;
++
++/** Whether the ledger is willing to say this word is known. See `learnedAt`. */
++export function isLearned(word: Known): boolean {
++  return word.learnedAt > 0;
+ }
+ 
+ /**
+  * How many of a game's results one tally remembers individually.
+  *
+  * Ten is a strip of pips somebody can read at a glance without counting, and
+  * it is the number that answers the question a total cannot: whether the last
+  * few went the way the lifetime record says they should. Longer would be a
+  * chart, and a chart of Connect Four is not what anybody opened this panel
+  * for. Thirteen games at ten results is under a kilobyte on the profile.
+@@ -184,31 +237,47 @@ export interface Streak {
+ }
+ 
+ export interface Profile {
+   version: number;
+   /** The account id. See `account.ts`; opaque here on purpose. */
+   id: string;
+   name: string;
+   createdAt: number;
+ 
+   /**
+-   * Experience, and the one number on this object that is a scoreboard rather
+-   * than a measurement.
++   * Experience, per language, and the one field on this object that is a
++   * scoreboard rather than a measurement.
+    *
+    * It is paid for words and only incidentally for games. See `xpFor` in
+    * `review.ts` for the whole argument, which is not really about arithmetic:
+    * Vocab Race already halves a fluent speaker's points so that a learner is
+    * not farmed, and an XP curve that paid for wins would reverse that decision
+    * from outside the reducer while the reducer's comments still claimed
+    * otherwise.
++   *
++   * **Per language, because a level is a claim about a language.** One pooled
++   * total told somebody halfway through their first month of Japanese that
++   * they were level nine, which was true about the account and false about the
++   * only thing they wanted to know. Splitting it costs one migration rung and
++   * makes the number mean what people already read it as meaning.
++   *
++   * The consequence to be honest about: a game that taught no words pays
++   * nothing here. `XP_PER_GAME` is credited to the language a game's words
++   * were in, and eleven of the thirteen games have none, so a night of
++   * Backgammon moves no bar. That is the correct answer to "how much Polish
++   * did that teach you" and the games panel is where a night of Backgammon is
++   * supposed to show up.
++   *
++   * A plain object rather than a Map, like everything else here: it is
++   * persisted, exported and migrated, and it has to survive `JSON.parse`.
+    */
+-  xp: number;
++  xp: Record<LearnLang, number>;
+   streak: Streak;
+   games: GameTally[];
+ 
+   /**
+    * Every word met, in no particular order.
+    *
+    * An array rather than a keyed object because it is persisted, exported and
+    * migrated, and an array of records is the shape all three of those are
+    * easiest to reason about. Lookups build a Map for the duration of one
+    * harvest, which touches thirty rows out of a few thousand and is not worth
+@@ -236,28 +305,98 @@ export interface Profile {
+ 
+ /**
+  * How many harvest keys a profile remembers.
+  *
+  * A hundred is roughly a fortnight of heavy play, and duplicates arrive inside
+  * a second. The number only has to be larger than the number of games a player
+  * can finish between a failed write and its retry, which is one.
+  */
+ export const APPLIED_MEMORY = 100;
+ 
++/** A zeroed experience total for every language. */
++export function zeroXp(): Record<LearnLang, number> {
++  return { en: 0, pl: 0, ja: 0 };
++}
++
++/**
++ * Repair a stored experience total, whatever shape it turns up in.
++ *
++ * Three cases, and the middle one is the migration: a version 3 object is
++ * cleaned key by key, a version 1 or 2 *number* is split by `splitXp`, and
++ * anything else zeroes. Missing languages fill with zero rather than failing,
++ * because this is on the read path of the one object that must never fail to
++ * load.
++ */
++export function xpShape(raw: unknown, words: Known[]): Record<LearnLang, number> {
++  if (typeof raw === 'number') return splitXp(raw, words);
++  const out = zeroXp();
++  if (typeof raw === 'object' && raw !== null) {
++    for (const lang of LEARN_LANGS) {
++      out[lang] = Math.max(0, Number((raw as Record<string, unknown>)[lang]) || 0);
++    }
++  }
++  return out;
++}
++
++/**
++ * Split one pooled experience total across languages, by word count.
++ *
++ * The pool genuinely does not record where it came from, so any split is a
++ * guess and the job is to pick the guess that is least likely to insult
++ * somebody. By word count, because that is the closest surviving proxy for
++ * where the studying went, and the remainder goes to the language with the
++ * most words so the arithmetic still adds up to what the player had.
++ *
++ * A profile with no words at all keeps the whole pool under `en`. It was
++ * earned playing games rather than learning anything, splitting it three ways
++ * would invent two levels nobody worked for, and one is the least wrong.
++ */
++export function splitXp(total: number, words: Known[]): Record<LearnLang, number> {
++  const out = zeroXp();
++  const pool = Math.max(0, Math.floor(total));
++  if (pool === 0) return out;
++
++  const counts = zeroXp();
++  for (const word of words) {
++    if (LEARN_LANGS.includes(word.lang)) counts[word.lang] += 1;
++  }
++  const all = LEARN_LANGS.reduce((n, lang) => n + counts[lang], 0);
++  if (all === 0) {
++    out.en = pool;
++    return out;
++  }
++
++  let given = 0;
++  for (const lang of LEARN_LANGS) {
++    out[lang] = Math.floor((pool * counts[lang]) / all);
++    given += out[lang];
++  }
++  // The remainder, to whichever language has the most words. Never dropped:
++  // this is somebody's total and it has to come out the other side intact.
++  const biggest = LEARN_LANGS.reduce((best, lang) => (counts[lang] > counts[best] ? lang : best), LEARN_LANGS[0]);
++  out[biggest] += pool - given;
++  return out;
++}
++
++/** Every language's experience added up. For an export, never for a level. */
++export function totalXp(profile: Profile): number {
++  return LEARN_LANGS.reduce((n, lang) => n + (profile.xp[lang] || 0), 0);
++}
++
+ /** A fresh profile, for an account that has just been made. */
+ export function newProfile(id: string, name: string, now: number): Profile {
+   return {
+     version: PROFILE_VERSION,
+     id,
+     name,
+     createdAt: now,
+-    xp: 0,
++    xp: zeroXp(),
+     streak: { days: 0, lastDay: 0, rests: 0 },
+     games: [],
+     words: [],
+     applied: [],
+   };
+ }
+ 
+ /** The UTC day a moment falls in. See `Streak`. */
+ export function dayOf(now: number): number {
+   return Math.floor(now / 86_400_000);
+@@ -361,20 +500,35 @@ export function dueWords(profile: Profile, now: number, cap: number = STUDY_CAP)
+       // Soonest first, and the commoner word ahead of the rarer one on a tie,
+       // which is the order the cap should cut from the bottom of.
+       .sort((a, b) => a.dueAt - b.dueAt || a.rank - b.rank)
+       .slice(0, cap)
+       .map((word) => word.key);
+     if (keys.length > 0) out[lang] = keys;
+   }
+   return out;
+ }
+ 
++/**
++ * How many words the ledger is willing to say are known, per language.
++ *
++ * The headline figure on the Vocabulary screen, and the one deliberately not
++ * called "words". `wordCount` is words *met*, which is a much larger number
++ * and a much weaker claim; showing the two side by side is the whole point of
++ * the screen, so they have to be two functions with two names.
++ */
++export function learnedCount(profile: Profile, lang?: LearnLang): number {
++  return profile.words.reduce(
++    (n, word) => (isLearned(word) && (lang === undefined || word.lang === lang) ? n + 1 : n),
++    0,
++  );
++}
++
+ /** How many words are in the ledger at all, per language. */
+ export function wordCount(profile: Profile, lang?: LearnLang): number {
+   return lang === undefined
+     ? profile.words.length
+     : profile.words.reduce((n, word) => (word.lang === lang ? n + 1 : n), 0);
+ }
+ 
+ /**
+  * The tally for one game, or a fresh zeroed one. Never mutates.
+  *
+@@ -424,124 +578,214 @@ function tallyShape(raw: Partial<GameTally> | null | undefined): GameTally {
+  *
+  * The denominator for anything expressed as a rate, and never `played`: a game
+  * that does not name a winner still counts as played, so dividing by `played`
+  * would give somebody who plays Connect Four a win rate that falls the more
+  * they win. See `GameTally`.
+  */
+ export function decided(tally: GameTally): number {
+   return tally.won + tally.lost + tally.drew;
+ }
+ 
++/**
++ * One stored word row, brought up to the current shape. See `PROFILE_VERSION`.
++ *
++ * A version 1 or 2 row has no `run` and no `learnedAt`, and **neither is
++ * recoverable**. The row knows `got` and `missed` as lifetime totals with no
++ * order between them, so a player who answered right ten times and wrong ten
++ * times is indistinguishable from one on a run of ten, and filling `run` from
++ * `got` would hand the second player's badge to the first. The whole value of
++ * the Vocabulary screen is that its claim is true.
++ *
++ * So every existing row starts from zero and earns its way up from the next
++ * answer, which costs a long-standing player some weeks of re-proving words
++ * they do know. That is the price of the list meaning something, and it is
++ * paid once.
++ */
++function wordShape(raw: Partial<Known> | null | undefined): Known {
++  const row = (raw ?? {}) as Partial<Known>;
++  return {
++    lang: (LEARN_LANGS as readonly string[]).includes(String(row.lang)) ? (row.lang as LearnLang) : 'en',
++    key: String(row.key ?? ''),
++    word: String(row.word ?? ''),
++    script: String(row.script ?? ''),
++    lemma: String(row.lemma ?? ''),
++    gloss: String(row.gloss ?? ''),
++    rank: Number(row.rank) || 0,
++    seen: Number(row.seen) || 0,
++    got: Number(row.got) || 0,
++    missed: Number(row.missed) || 0,
++    lastAt: Number(row.lastAt) || 0,
++    dueAt: Number(row.dueAt) || 0,
++    box: Number(row.box) || 0,
++    fastestMs: Number(row.fastestMs) || 0,
++    run: Number(row.run) || 0,
++    learnedAt: Number(row.learnedAt) || 0,
++  };
++}
++
+ /**
+  * Bring a stored profile up to the current shape.
+  *
+  * One rung per version, each doing exactly one step, applied in order from
+  * whatever the stored version says. **Never returns null.** A profile that
+  * cannot be read is still somebody's vocabulary, so the worst case here is a
+  * shape that has been repaired conservatively, not a shape that has been
+  * deleted. That is the whole difference between this and `RoomEngine.restore`.
+  *
+  * Unknown or missing fields are filled from `newProfile`, so a profile written
+  * by a *newer* build (a player who used a second device before this one was
+  * redeployed) loses nothing it does not have to: the fields this build does not
+  * know about ride along untouched.
+  */
+ export function migrate(stored: unknown, now: number): Profile {
+   const raw = (typeof stored === 'object' && stored !== null ? stored : {}) as Partial<Profile>;
+   const base = newProfile(String(raw.id ?? ''), String(raw.name ?? ''), Number(raw.createdAt) || now);
++  const words = Array.isArray(raw.words) ? raw.words.map(wordShape) : [];
+ 
+   const profile: Profile = {
+     ...base,
+     ...raw,
+     // Spread first, then repair: the fields below are the ones an older or
+     // damaged profile can be missing outright, and a `.reduce` over undefined
+     // is a crash on the read path of the one object that must never fail to
+     // load.
+     id: base.id,
+     name: base.name,
+     createdAt: base.createdAt,
+-    xp: Number(raw.xp) || 0,
++    words,
++    // After `words`, because a version 1 or 2 profile stores one pooled number
++    // and the only way to split it is by counting the rows. See `splitXp`.
++    xp: xpShape(raw.xp, words),
+     streak: {
+       days: Number(raw.streak?.days) || 0,
+       lastDay: Number(raw.streak?.lastDay) || 0,
+       rests: Number(raw.streak?.rests) || 0,
+     },
+     games: Array.isArray(raw.games) ? raw.games.map(tallyShape) : [],
+-    words: Array.isArray(raw.words) ? raw.words : [],
+     applied: Array.isArray(raw.applied) ? raw.applied : [],
+     version: PROFILE_VERSION,
+   };
+ 
+   // Rungs go here as the shape changes, keyed off `raw.version`. Version 2's
+-  // is `tallyShape` above, applied unconditionally rather than under a version
+-  // check: it is idempotent, and a tally missing `lost` is exactly as broken
+-  // whether the profile claims to be version 1 or has simply been hand-edited.
++  // is `tallyShape` above and version 3's is `wordShape` and `xpShape`, all
++  // three applied unconditionally rather than under a version check: they are
++  // idempotent, and a tally missing `lost` is exactly as broken whether the
++  // profile claims to be version 1 or has simply been hand-edited.
+   return profile;
+ }
+ 
+ /**
+  * What a client is told about its own profile.
+  *
+  * **Not the profile.** Five thousand words is around 600KB and it would go out
+  * on every hello, on a phone, over whatever connection the player has. So this
+  * is the shape the lobby and the profile screen can be drawn from — counts, a
+  * level, a streak, the number due, and enough recent words to fill a panel —
+  * and anything deeper is a second request made when somebody actually opens
+  * the ledger.
+  *
+  * `due` is the number the whole feature turns on. It is the one figure that
+  * brings a player back, it goes on a screen they already open, and it is worth
+  * more than the experience points and the level put together, because it is the
+  * only one of the three that is about the words.
+  */
+-export interface ProfileView {
+-  id: string;
+-  name: string;
++/**
++ * One language, as the profile screen draws it.
++ *
++ * The level lives here rather than on the summary because that is what going
++ * per-language means: there is no account level any more, and there is
++ * deliberately no field for one. Somebody who wants a single number can add up
++ * `xp`, and `totalXp` is the function for it, but it must not be given a
++ * level — a level over three languages is the number the split was made to
++ * stop showing.
++ */
++export interface LangView {
++  lang: LearnLang;
++  /** Words met. The weak claim. */
++  words: number;
++  /** Words the ledger will say are known. See `LEARNED_RUN`. */
++  learned: number;
++  due: number;
+   xp: number;
+   level: number;
+   /** Total at which the next level begins, so a bar has something to fill. */
+   nextLevel: number;
++  /** Total at which this level began. The bar's other end. */
++  levelAt: number;
++}
++
++export interface ProfileView {
++  id: string;
++  name: string;
+   streak: Streak;
+-  /** Words in the ledger, and how many have come back round. */
++  /** Words in the ledger, how many are known, and how many have come round. */
+   words: number;
++  learned: number;
+   due: number;
+-  /** Per language, in the order `LEARN_LANGS` gives, skipping empty ones. */
+-  byLang: Array<{ lang: LearnLang; words: number; due: number }>;
++  /**
++   * Per language, in the order `LEARN_LANGS` gives.
++   *
++   * A language with no words *and* no experience is left out entirely: three
++   * rows of zeroes would be most of the panel for somebody who has only ever
++   * played Polish. A language with experience but no words left in the ledger
++   * stays, because deleting somebody's level is worse than an odd-looking row.
++   */
++  byLang: LangView[];
+   games: GameTally[];
+   /** The most recently touched words, newest first. See `RECENT`. */
+   recent: Known[];
+ }
+ 
++/**
++ * Where one experience total sits on the curve.
++ *
++ * Passed in rather than computed, because this module imports **nothing** and
++ * the curve lives in `review.ts`. See the note at the top of the file: the one
++ * convenience import here is the one that puts a dictionary on a phone.
++ */
++export interface Rank {
++  level: number;
++  levelAt: number;
++  nextLevel: number;
++}
++
+ /**
+  * How many words ride along on the summary.
+  *
+  * Enough to fill the panel on the profile screen and the one on a game's end
+  * screen, and few enough that the message stays small. Twenty rows is about
+  * 2KB, against 600KB for the whole ledger.
+  */
+ export const RECENT = 20;
+ 
+-export function profileView(profile: Profile, now: number, level: number, nextLevel: number): ProfileView {
+-  const byLang = LEARN_LANGS.flatMap((lang) => {
++export function profileView(profile: Profile, now: number, rank: (xp: number) => Rank): ProfileView {
++  const byLang = LEARN_LANGS.flatMap<LangView>((lang) => {
+     const words = profile.words.filter((word) => word.lang === lang);
+-    // A language nobody has played is not a row of zeroes on the screen, it is
+-    // a language that is not there. Three empty rows would be most of the
+-    // panel for somebody who has only ever played Polish.
+-    return words.length === 0
+-      ? []
+-      : [{ lang, words: words.length, due: words.reduce((n, w) => (w.dueAt <= now ? n + 1 : n), 0) }];
++    const xp = profile.xp[lang] || 0;
++    if (words.length === 0 && xp === 0) return [];
++    const { level, levelAt, nextLevel } = rank(xp);
++    return [
++      {
++        lang,
++        words: words.length,
++        learned: words.reduce((n, w) => (isLearned(w) ? n + 1 : n), 0),
++        due: words.reduce((n, w) => (w.dueAt <= now ? n + 1 : n), 0),
++        xp,
++        level,
++        levelAt,
++        nextLevel,
++      },
++    ];
+   });
+ 
+   return {
+     id: profile.id,
+     name: profile.name,
+-    xp: profile.xp,
+-    level,
+-    nextLevel,
+     streak: profile.streak,
+     words: profile.words.length,
++    learned: learnedCount(profile),
+     due: dueCount(profile, now),
+     byLang,
+     games: profile.games,
+     recent: [...profile.words].sort((a, b) => b.lastAt - a.lastAt).slice(0, RECENT),
+   };
+ }
+diff --git a/src/shared/protocol.ts b/src/shared/protocol.ts
+index bd8055e..4e23195 100644
+--- a/src/shared/protocol.ts
++++ b/src/shared/protocol.ts
+@@ -1,12 +1,12 @@
+ /** Wire format shared by client and server. */
+-import type { ProfileView } from './profile.js';
++import type { Known, LearnLang, ProfileView } from './profile.js';
+ 
+ /**
+  * Bumped whenever a message shape changes incompatibly. A tab left open across
+  * a deploy reconnects with whatever shape it was built with, so the server
+  * checks this and asks that client to refresh rather than misreading it.
+  *
+  * Meaning counts, not just shape. `spin.velocity` kept its type and units at
+  * 6 and changed what they *buy* (the wheel gained `FLICK_GAIN` and the speed
+  * floor became a gate), and a stale bundle would have gone on timing the
+  * animation off its own constants, drawing a journey a quarter longer than the
+@@ -18,22 +18,29 @@ import type { ProfileView } from './profile.js';
+  * wire changed type; a board built before it simply reads the field it always
+  * read, finds it empty, and draws a text box under a question that is not there.
+  * A tab left open across the deploy has to refresh rather than play that.
+  *
+  * 8 adds accounts. `hello` may carry a signed claim to one, and the server may
+  * send a `profile` back. Neither is required and a room where nobody has an
+  * account plays exactly as it always has — but the version still moves, because
+  * an older client cannot be told about a profile it has no field for, and a
+  * newer client that quietly went unrecognised would sit there having earned
+  * nothing and never find out why.
++ *
++ * 9 splits experience per language and adds `vocab`, which fetches the actual
++ * word rows for one language rather than the summary. The summary's shape
++ * changed with it -- `xp`, `level` and `nextLevel` came off the top level and
++ * went onto `byLang` -- and that is the part that forces the bump: an older
++ * client reads `profile.xp`, finds nothing, and draws a level bar full of
++ * `NaN` over somebody's vocabulary. See `LangView`.
+  */
+-export const PROTOCOL_VERSION = 8;
++export const PROTOCOL_VERSION = 9;
+ 
+ /**
+  * Why a request failed, so the client can choose its own framing. The message
+  * is still the thing shown; this only decides how it is introduced.
+  */
+ export type ErrorKind =
+   /** No room with that code: expired, swept, or never existed. */
+   | 'no-room'
+   /** The room exists but every seat at its table is taken. */
+   | 'full'
+@@ -174,21 +181,35 @@ export type ClientMessage =
+    */
+   | { t: 'switch'; gameId: string }
+   /**
+    * What have I got?
+    *
+    * Answered only for a socket that arrived with a claim that verified, so it
+    * cannot be used to read somebody else's: there is no id on it to name one.
+    * The client asks on joining, and the server also pushes an unasked-for
+    * answer when a game it played has just been filed — see `profile` below.
+    */
+-  | { t: 'profile' };
++  | { t: 'profile' }
++  /**
++   * Show me the actual words, for one language.
++   *
++   * The second request `ProfileView` says would be needed "when somebody
++   * actually opens the ledger", and this is it. Per language rather than the
++   * whole ledger, because the whole ledger is the 600KB the summary exists to
++   * avoid and because the screen that asks is already showing one language at
++   * a time.
++   *
++   * Answered only for a socket whose account claim verified, exactly like
++   * `profile`, and for the same reason: there is no id on it, so it can only
++   * ever name your own.
++   */
++  | { t: 'vocab'; lang: LearnLang };
+ 
+ export type ServerMessage =
+   | { t: 'welcome'; seat: number; room: RoomView }
+   | { t: 'room'; room: RoomView }
+   | { t: 'error'; message: string; kind: ErrorKind }
+   /**
+    * Yes. See `ping`.
+    *
+    * In production the runtime answers this rather than any code here (see
+    * `setWebSocketAutoResponse` in the worker), so a heartbeat on an idle room
+@@ -201,21 +222,34 @@ export type ServerMessage =
+    *
+    * Sent in answer to `profile`, and again unasked-for the moment a finished
+    * game has been filed, which is the moment worth showing somebody what they
+    * earned. Pushed rather than requested because the alternative is the client
+    * polling for a change it cannot predict, and because a player who was
+    * looking at the end screen when the write landed should see the number move.
+    *
+    * A **summary**, never the ledger: five thousand words is around 600KB and
+    * this would carry it on every join. See `ProfileView`.
+    */
+-  | { t: 'profile'; profile: ProfileView };
++  | { t: 'profile'; profile: ProfileView }
++  /**
++   * The words themselves, for one language. Answer to `vocab`.
++   *
++   * Never pushed. The summary is pushed because a number moving at the end of
++   * a game is worth seeing; a list of two thousand rows arriving unasked-for
++   * on a phone is not, and the screen that wants it is a screen somebody had
++   * to open on purpose.
++   *
++   * `lang` is echoed rather than assumed, because a player who switches
++   * language twice quickly has two requests in flight and the second answer
++   * must not be drawn under the first heading.
++   */
++  | { t: 'vocab'; lang: LearnLang; words: Known[] };
+ 
+ /**
+  * The heartbeat frames as bytes, because Cloudflare's auto-responder matches
+  * the request frame *exactly*: by string, not by shape. If the client built its
+  * ping independently and a key order or a space ever differed, the match would
+  * silently fail, every heartbeat would wake the room, and the bill would be the
+  * first thing to notice. So neither side writes its own.
+  */
+ export const PING_FRAME = JSON.stringify({ t: 'ping' } satisfies ClientMessage);
+ export const PONG_FRAME = JSON.stringify({ t: 'pong' } satisfies ServerMessage);
+diff --git a/src/shared/review.ts b/src/shared/review.ts
+index 4f40abb..0b9507d 100644
+--- a/src/shared/review.ts
++++ b/src/shared/review.ts
+@@ -257,10 +257,49 @@ export const LEVEL_STEP = 60;
+ export function levelFor(xp: number): number {
+   // n such that STEP * n * (n - 1) / 2 <= xp, solved and floored.
+   return Math.max(1, Math.floor((1 + Math.sqrt(1 + (8 * Math.max(0, xp)) / LEVEL_STEP)) / 2));
+ }
+ 
+ /** The total at which `level` begins. `levelFor(xpForLevel(n)) === n`. */
+ export function xpForLevel(level: number): number {
+   const n = Math.max(1, Math.floor(level));
+   return (LEVEL_STEP * n * (n - 1)) / 2;
+ }
++
++/**
++ * Both ends of the bar for one total. What `profileView` is handed.
++ *
++ * It exists so that `profile.ts` can draw a level without importing this
++ * module -- see the note at the top of `profile.ts`, which is about eighty
++ * thousand Polish inflections and is not a style preference.
++ *
++ * The curve is unchanged by the move to per-language totals, which is a
++ * decision rather than an oversight. Splitting the pool does slow the early
++ * levels for somebody studying two languages at once, and the alternative was
++ * to shrink `LEVEL_STEP` to compensate -- but that would quietly inflate the
++ * levels of everybody studying one, which is nearly everybody, and levels that
++ * jumped on the deploy that split them would look exactly like the bug this
++ * was fixing.
++ */
++export function rankOf(xp: number): { level: number; levelAt: number; nextLevel: number } {
++  const level = levelFor(xp);
++  return { level, levelAt: xpForLevel(level), nextLevel: xpForLevel(level + 1) };
++}
++
++/**
++ * Whether an answer counts towards a word's consecutive-correct run.
++ *
++ * Wider than `isProduction` and narrower than "not a miss", and both edges are
++ * deliberate. A hinted answer counts, because the player retrieved the word
++ * and a hint is a first letter rather than the answer -- `HINTED_CEILING` above
++ * makes the same argument about the ladder. A recognised one counts too: the
++ * run is a claim about ten answers in a row spread over months, and one lucky
++ * pick out of four does not survive that, so excluding it would only punish
++ * the players using the easier mode honestly.
++ *
++ * `seen` is neither correct nor incorrect and must not touch the run, for the
++ * same reason it never creates a row: watching an opponent play a word is not
++ * an answer.
++ */
++export function isCorrect(grade: Grade): boolean {
++  return isProduction(grade) || grade === 'recognised';
++}

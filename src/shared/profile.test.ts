@@ -10,7 +10,10 @@ import {
   dueWords,
   findWord,
   migrate,
+  spendable,
   newProfile,
+  profileView,
+  totalXp,
   restsFor,
   decided,
   tallyFor,
@@ -21,6 +24,7 @@ import {
   type Streak,
 } from './profile.js';
 import { LANGS } from './games/wordChainDisplay.js';
+import { rankOf } from './review.js';
 
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
@@ -37,6 +41,8 @@ function word(over: Partial<Known> = {}): Known {
     seen: 1,
     got: 1,
     missed: 0,
+    run: 1,
+    learnedAt: 0,
     lastAt: NOW,
     dueAt: NOW + DAY,
     box: 1,
@@ -64,7 +70,7 @@ describe('migration', () => {
 
   it('keeps everything a stored profile actually had', () => {
     const stored = newProfile('acct', 'Amelia', NOW - DAY);
-    stored.xp = 412;
+    stored.xp = { en: 0, pl: 412, ja: 0 };
     stored.words = [word()];
     stored.applied = ['run#1'];
     stored.streak = { days: 9, lastDay: dayOf(NOW), rests: 1 };
@@ -81,7 +87,7 @@ describe('migration', () => {
    */
   it('repairs missing collections rather than crashing on the first read', () => {
     const profile = migrate({ version: 1, id: 'x', name: 'y', xp: 'nonsense' }, NOW);
-    expect(profile.xp).toBe(0);
+    expect(profile.xp).toEqual({ en: 0, pl: 0, ja: 0 });
     expect(dueCount(profile, NOW)).toBe(0);
     expect(tallyFor(profile, 'wordchain').played).toBe(0);
     expect(profile.streak).toEqual({ days: 0, lastDay: 0, rests: 0 });
@@ -296,5 +302,115 @@ describe('bookkeeping', () => {
     expect(dayOf(0)).toBe(0);
     expect(dayOf(DAY - 1)).toBe(0);
     expect(dayOf(DAY)).toBe(1);
+  });
+});
+
+/*
+  The lobby chip wears one level for the whole account, and the thing worth
+  pinning is that it is not any of the per-language ones: levels are quadratic,
+  so pooling is a different answer from taking the best row or adding the rows
+  up, and a future refactor that "simplifies" this into `byLang` would be a
+  silent demotion for everybody studying two languages.
+*/
+describe('the account level', () => {
+  it('is the pooled total, not one language and not the sum of levels', () => {
+    const profile = newProfile('acct', 'Amelia', NOW);
+    // 100 apiece: each language alone is level 2, the pool of 200 is level 3.
+    profile.xp = { en: 100, pl: 100, ja: 0 };
+    const view = profileView(profile, NOW, rankOf);
+
+    expect(totalXp(profile)).toBe(200);
+    expect(view.xp).toBe(200);
+    expect(view.rank.level).toBe(3);
+    expect(view.byLang.every((row) => row.level === 2)).toBe(true);
+  });
+
+  it('counts English, unlike the chest balance beside it', () => {
+    const profile = newProfile('acct', 'Amelia', NOW);
+    profile.xp = { en: 300, pl: 0, ja: 0 };
+    const view = profileView(profile, NOW, rankOf);
+
+    // The one place the two rules are visible together, and the pair is the
+    // point: English levels you and does not buy you anything.
+    expect(view.rank.level).toBeGreaterThan(1);
+    expect(view.spendable).toBe(0);
+  });
+
+  it('leaves the bar somewhere to go at every level', () => {
+    const profile = newProfile('acct', 'Amelia', NOW);
+    for (const xp of [0, 1, 59, 60, 179, 180, 5000]) {
+      profile.xp = { en: xp, pl: 0, ja: 0 };
+      const { rank, xp: total } = profileView(profile, NOW, rankOf);
+      expect(rank.levelAt).toBeLessThanOrEqual(total);
+      expect(rank.nextLevel).toBeGreaterThan(total);
+    }
+  });
+});
+
+/**
+ * Migrating an account from before chests, now that there is one currency.
+ *
+ * This used to be the version 4 rung's tests, and the rung is gone. What
+ * replaces them is the same question asked the other way round: an old profile
+ * must come forward with its experience intact and **no second pot beside it**.
+ *
+ * The version 4 rung granted `floor(spendableEarned / cost)` chests without
+ * charging the balance it read, and the test that pinned it said out loud that
+ * it was deliberate generosity and that this was where a change of mind would
+ * have to show up. This is that change of mind. It is written as a property of
+ * the migrated profile rather than as the absence of a field, so it keeps
+ * meaning something if a future rung ever wants to pay somebody in experience.
+ */
+describe('migrating an account from before chests', () => {
+  /** A version 2 profile with experience in two languages, one of them English. */
+  const old = () => ({
+    version: 2,
+    id: 'acc',
+    name: 'Amelia',
+    createdAt: 1_000,
+    xp: { en: 500, pl: 1_000, ja: 0 },
+    words: [],
+  });
+
+  it('brings the balance forward whole and spends none of it', () => {
+    const migrated = migrate(old(), NOW);
+    // The 500 English is ignored for the same reason `spendable` ignores it:
+    // English earns, it does not buy.
+    expect(spendable(migrated)).toBe(1_000);
+    expect(migrated.spent).toBe(0);
+    expect(migrated.version).toBe(PROFILE_VERSION);
+  });
+
+  it('is worth exactly what the rule says, and not twice that', () => {
+    // The bug the sixth version exists to remove. Under version 4 this account
+    // was worth twenty openings: ten banked as `credits` and ten more still
+    // sitting in the balance those credits were computed from. Anybody earning
+    // the same thousand a week later got ten. One number now, and it is ten.
+    const migrated = migrate(old(), NOW);
+    expect(Math.floor(spendable(migrated) / 100)).toBe(10);
+  });
+
+  it('does not grow on the way through storage and back', () => {
+    // The round trip a real profile makes. A rung that reads a running total
+    // rather than something it consumes is the kind that pays twice when it
+    // runs twice, so the property is worth keeping asserted even now that the
+    // rung it was aimed at has gone.
+    const once = migrate(old(), NOW);
+    const twice = migrate(JSON.parse(JSON.stringify(once)), NOW);
+    expect(spendable(twice)).toBe(spendable(once));
+    expect(twice.spent).toBe(once.spent);
+  });
+
+  it('carries nothing across that used to be a second currency', () => {
+    // A stored profile from version 4 still has `credits` on it. It must come
+    // through as a balance and nothing else: no field, and no experience
+    // conjured out of one either.
+    const banked = { ...old(), version: 4, credits: 7, spent: 0 };
+    const migrated = migrate(banked, NOW);
+    expect((migrated as unknown as Record<string, unknown>).credits).toBeUndefined();
+    // The half that would still matter if the key were ever left on: seven
+    // banked chests must not become seven openings by any route.
+    expect(spendable(migrated)).toBe(1_000);
+    expect(Math.floor(spendable(migrated) / 100)).toBe(10);
   });
 });

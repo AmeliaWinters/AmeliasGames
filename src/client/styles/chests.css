@@ -1,0 +1,290 @@
+/* Chests: the screen where experience turns into a wardrobe.
+
+   Palette tokens, no hex, flat, like everything else that is chrome rather
+   than art. The one place a colour comes from outside the palette is
+   `.chest-drop-chip`, whose whole job is to be the colour the drop actually
+   is; the same exception `avatar.css` makes for the customiser's swatch, and
+   for the same reason.
+
+   Two things here are load bearing rather than decorative.
+
+   The grid is `auto-fill` over a minimum rather than a fixed column count,
+   because the card list is a map over `SETS` and a fifth set has to land
+   without anyone editing this file.
+
+   The spin and the reveal are not in this file. A chest and a gacha pull are
+   the same hundred GP spent on the same press, and they moved like two
+   different apps until `roll.css` became the one place either of them gets its
+   movement from; what is left here is this screen's layout. */
+
+.chests {
+  display: grid;
+  gap: 1rem;
+}
+
+.chest-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.chest-head h2 {
+  font-family: var(--display);
+  margin: 0;
+}
+
+.chest-balance {
+  margin: 0;
+  color: var(--ink);
+}
+
+.chest-balance b {
+  font-size: 1.35rem;
+  /* Lining figures, so a balance that ticks past a thousand does not reflow
+     the line it sits on. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one rule somebody has to know before they wonder why their English is
+   buying nothing. Said once, here, rather than on every card. */
+.chest-rule {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  max-width: 34rem;
+}
+
+/* What the balance is worth, beside the balance rather than under it. Muted,
+   because the big number is the thing being read and this is the gloss on it. */
+.chest-worth {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The distance to the next chest, drawn. Shares `.chest-bar` with the per-set
+   progress on the cards, which is the point: the same bar means the same kind
+   of thing in both places, one filling towards an open and one towards a
+   finished set. Slightly taller here because it is the header's own line
+   rather than a detail inside a card. */
+.chest-next {
+  height: 6px;
+  max-width: 34rem;
+}
+
+.chest-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+}
+
+.chest-card {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  padding: 0.75rem;
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+  /* The art sits on a ground of its own rather than on the page, for the
+     reason `avatar.css` gives at length: the illustrated sets are light line
+     art and they strand on cream. */
+  background: var(--board);
+}
+
+/* Where the customiser sent them. A ring rather than a scroll, because the
+   grid is four cards on a phone and scrolling to one of four is worse than
+   pointing at it. */
+.chest-card-focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.chest-art {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: calc(var(--panel-radius) - 2px);
+}
+
+/* The gacha card's cover is a photograph rather than the line art the sets
+   use, so it needs the crop `.chest-art` does not: an AniList portrait is
+   3:4 and this slot is square, and without `object-fit` the browser squashes
+   a face rather than trimming one. The ground underneath is the same bargain
+   `waifu.css` makes -- a third-party CDN that has not answered yet should be
+   a shape and not a hole. */
+.chest-card-gacha .chest-art {
+  object-fit: cover;
+  object-position: center top;
+  background: var(--rule);
+}
+
+.chest-meta {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.chest-meta h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-family: var(--display);
+}
+
+.chest-artist,
+.chest-count,
+.chest-done {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.chest-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.chest-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.chest-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  /* The one transition on the screen, and it is the progress bar rather than
+     the reveal: after a chest lands, this is the thing that should visibly
+     move. Measurable, and it degrades to an instant jump. */
+  transition: width 220ms ease-out;
+}
+
+.chest-open {
+  width: 100%;
+  /* `min-height` rather than a height, because the label changes length
+     between "Open a chest, 100" and "Start this set" and the taller of the two
+     must not clip. The 44 is the same floor every control in this app has, and
+     it is the trap CLAUDE.md opens with: a minimum beats `aspect-ratio`, so
+     nothing here is given one. */
+  min-height: 44px;
+}
+
+/* The wait, such as it is.
+
+   A chest is one request and on a good connection it answers in a few
+   milliseconds, so without this the item is simply there and the press had no
+   beat. The beat is now the spin itself -- see `.chest-spin` below and
+   `roll.ts` -- and this is only the card saying which of the four is the one
+   doing it. It was a pulsing border because there was nothing else; a border
+   that pulses forever beside a picture that is already moving is two answers
+   to one question, so it holds still now. */
+.chest-card-opening {
+  border-color: var(--accent);
+}
+
+/* The spin, in the slot the reveal is about to take.
+
+   The card cycles pieces out of the set it is opening, which is the whole
+   reason this is worth doing on a chest rather than only on a pull: the
+   pictures going past are the actual contents of the box, so the wait says
+   what is in it. Same size, same padding and same border as `.chest-reveal`,
+   so the answer replaces the spin in place rather than resizing the card
+   underneath somebody's thumb. */
+.chest-spin {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  text-align: center;
+  padding: 0.6rem;
+  border-radius: calc(var(--panel-radius) - 2px);
+  border: 1px solid var(--accent);
+}
+
+/* What came out. A block under the button rather than a dialog over the
+   screen: a modal would have to be dismissed before the next chest, and
+   opening several in a row is the ordinary case.
+
+   Staggered rather than dropped in whole, and the stagger is `roll.css`: the
+   markup wears `roll-panel` on this box, `roll-land` on the item, `roll-say`
+   and `roll-say-late` on the lines under it. Word for word what the gacha's
+   reveal wears, which is the point -- these two were the same press paced two
+   different ways, and a comment claiming they matched was the only thing
+   holding them together.
+
+   A refusal is not a present and is not paced like one. `Refused` carries no
+   `roll-*` class at all, so it arrives at once, as the answer to a question. */
+.chest-reveal {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  text-align: center;
+  padding: 0.6rem;
+  border-radius: calc(var(--panel-radius) - 2px);
+  border: 1px solid var(--accent);
+}
+
+.chest-drop-art {
+  width: 60%;
+  aspect-ratio: 1;
+  border-radius: calc(var(--panel-radius) - 2px);
+}
+
+/* The one colour on this screen that is not a token. It is a picture of the
+   art, not chrome. See the note at the top and `Variant` in `types.ts`. */
+.chest-drop-chip {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule-hi);
+}
+
+.chest-drop-name {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.chest-drop-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.chest-drop-acts {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.chest-drop-acts button {
+  min-height: 44px;
+}
+
+/* The way to the shelf, under the button that rolls. Quiet on purpose: it is
+   the smaller of the two errands on this card, and the ranking is the whole
+   point of there being two controls instead of one that did both. */
+.chest-shelf {
+  min-height: 44px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-hi);
+}
+
+.chest-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.chest-retry {
+  min-height: 44px;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The reveal's own stillness is in `roll.css`, on the classes this screen's
+     markup wears, so it cannot be answered here and forgotten there. What is
+     left is the one moving thing this file still owns. */
+  .chest-bar span {
+    transition: none;
+  }
+}

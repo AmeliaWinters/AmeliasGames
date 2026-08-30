@@ -24,10 +24,10 @@
  * written by hand.
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { act, createElement, type ComponentType } from 'react';
+import { Suspense, act, createElement, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { GAMES } from '../../shared/games/index.js';
-import { boardFor } from './boards.js';
+import { boardFor, preloadAllBoards } from './boards.js';
 import { fixturesFor, playableIds, type Fixture } from './boardFixtures.js';
 import type { BoardProps } from './boards.js';
 
@@ -36,7 +36,7 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   // Without it every render logs "the current testing environment is not
   // configured to support act(...)", and the warning is telling the truth:
   // effects would not be flushed and half these boards do their measuring in
@@ -82,6 +82,16 @@ beforeAll(() => {
   // without one of these and null is the honest answer here, so the board is
   // being held to coping with it.
   HTMLCanvasElement.prototype.getContext = (() => null) as never;
+
+  /*
+    Every board is a `lazy` chunk now, and a lazy component's first render
+    suspends until the module loader answers -- which, under vite-node, is real
+    async work and not a microtask. Fetching all fifteen once here is what lets
+    `draw` below stay a bounded flush instead of a race: by the time anything
+    renders, every `import()` a thunk makes is a cache hit that settles on the
+    next tick.
+  */
+  await preloadAllBoards();
 });
 
 /** Mounted roots, torn down after each test so no board keeps a timer alive. */
@@ -106,8 +116,23 @@ interface Rendered {
  * `seat` may be null and that is not an edge case: a spectator socket has no
  * seat, and "a board must not assume it has one" is written on `BoardProps`
  * rather than enforced anywhere. Here it is enforced.
+ *
+ * Async because every board is a `lazy` chunk now, and a lazy component
+ * suspends on its first render however fast the import resolves. So this draws
+ * through the same `Suspense` boundary `screens/Room.tsx` puts around it and
+ * flushes with an async `act`, which is what settles the import and mounts the
+ * real board. Nothing below asks a weaker question than it did when this was
+ * synchronous: `prodEverything` still runs against a fully mounted board, and
+ * the two things that would quietly hollow this file out -- a board that never
+ * arrives, or a fallback being prodded instead of a board -- both fail, the
+ * first on the "drew nothing at all" count and the second on the "gives a seat
+ * that can act something to press" total.
  */
-function draw(gameId: string, fixture: Fixture, seat: number | null): Rendered {
+async function draw(
+  gameId: string,
+  fixture: Fixture,
+  seat: number | null,
+): Promise<Rendered> {
   const def = GAMES[gameId];
   const Board = boardFor(gameId) as ComponentType<BoardProps<unknown, unknown>> | null;
   if (!Board) throw new Error(`${gameId} is in GAMES with no board in boards.ts`);
@@ -123,18 +148,25 @@ function draw(gameId: string, fixture: Fixture, seat: number | null): Rendered {
   const root = createRoot(host);
   mounted.push({ root, host });
 
-  act(() => {
-    root.render(
-      createElement(Board, {
-        state,
-        seat,
-        names: Array.from({ length: fixture.seats }, (_, i) => `Player ${i + 1}`),
-        canAct,
-        connected: Array.from({ length: fixture.seats }, () => true),
-        now: fixture.now,
-        onMove: (move: unknown) => moves.push(move),
-      }),
-    );
+  const tree = createElement(
+    Suspense,
+    // A fallback that draws nothing, deliberately: if a chunk ever failed to
+    // settle, a board left showing its fallback has to look like the empty box
+    // "drew nothing at all" already fails on, rather than like something.
+    { fallback: null },
+    createElement(Board, {
+      state,
+      seat,
+      names: Array.from({ length: fixture.seats }, (_, i) => `Player ${i + 1}`),
+      canAct,
+      connected: Array.from({ length: fixture.seats }, () => true),
+      now: fixture.now,
+      onMove: (move: unknown) => moves.push(move),
+    }),
+  );
+
+  await act(async () => {
+    root.render(tree);
   });
 
   return { host, moves };
@@ -247,18 +279,22 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     null, // the spectator
   ];
 
-  it('draws in every state it can reach, from every seat and from none', () => {
+  it('draws in every state it can reach, from every seat and from none', async () => {
     for (const fixture of fixtures) {
       for (const seat of seatsOf(fixture)) {
-        expect(
-          () => draw(gameId, fixture, seat),
+        // The same question as before -- does drawing this throw -- asked of a
+        // promise, because drawing is async now. A board that throws on mount
+        // rejects here and fails with its own error, which is what
+        // `.not.toThrow()` was for.
+        await expect(
+          draw(gameId, fixture, seat),
           `${fixture.name}, seat ${seat}`,
-        ).not.toThrow();
+        ).resolves.toBeTruthy();
       }
     }
   });
 
-  it('draws something, rather than drawing nothing without complaining', () => {
+  it('draws something, rather than drawing nothing without complaining', async () => {
     /*
       A board that renders `null` throws nothing and sails through the test
       above, and "the game did not appear" is the report this whole file exists
@@ -270,7 +306,7 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
       assertion rather than about the board.
     */
     for (const fixture of fixtures) {
-      const { host } = draw(gameId, fixture, 0);
+      const { host } = await draw(gameId, fixture, 0);
       expect(
         host.querySelectorAll('*').length,
         `${fixture.name} drew nothing at all`,
@@ -278,12 +314,12 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     }
   });
 
-  it('sends no move from a seat the server says cannot act', () => {
+  it('sends no move from a seat the server says cannot act', async () => {
     for (const fixture of fixtures) {
       const def = GAMES[gameId];
       for (let seat = 0; seat < fixture.seats; seat++) {
         if (def.canAct(fixture.state, seat, fixture.now)) continue;
-        const { host, moves } = draw(gameId, fixture, seat);
+        const { host, moves } = await draw(gameId, fixture, seat);
         prodEverything(host);
         expect(
           moves,
@@ -295,7 +331,7 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     }
   });
 
-  it('sends no move from a socket with no seat at all', () => {
+  it('sends no move from a socket with no seat at all', async () => {
     /*
       The spectator, and the one of these three that has actually bitten. A
       board gating on `canAct` alone is correct for a seated player and wrong
@@ -304,7 +340,7 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
       board that indexes an array with it draws somebody else's hand.
     */
     for (const fixture of fixtures) {
-      const { host, moves } = draw(gameId, fixture, null);
+      const { host, moves } = await draw(gameId, fixture, null);
       prodEverything(host);
       expect(
         moves,
@@ -313,13 +349,13 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     }
   });
 
-  it('sends no move once the game is over', () => {
+  it('sends no move once the game is over', async () => {
     // The one state where every seat is finished, and the one where a board is
     // most likely to have been written as "draw the final position" with the
     // controls left in place above it.
     for (const fixture of fixtures.filter((f) => f.name.endsWith(': over'))) {
       for (let seat = 0; seat < fixture.seats; seat++) {
-        const { host, moves } = draw(gameId, fixture, seat);
+        const { host, moves } = await draw(gameId, fixture, seat);
         prodEverything(host);
         expect(
           moves,
@@ -329,7 +365,7 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     }
   });
 
-  it('gives a seat that can act something to press', () => {
+  it('gives a seat that can act something to press', async () => {
     /*
       The other half of the bargain, and the reason the three tests above are
       not satisfied by a board that renders nothing at all. Aggregated over the
@@ -343,7 +379,7 @@ describe.each(CASES)('%s', (gameId, fixtures) => {
     for (const fixture of fixtures) {
       for (let seat = 0; seat < fixture.seats; seat++) {
         if (!def.canAct(fixture.state, seat, fixture.now)) continue;
-        const { host, moves } = draw(gameId, fixture, seat);
+        const { host, moves } = await draw(gameId, fixture, seat);
         prodEverything(host);
         sent += moves.length;
       }

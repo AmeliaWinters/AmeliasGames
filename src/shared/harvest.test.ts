@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { applyRecord, harvestKey, type GameRecord, type Learned } from './harvest.js';
-import { APPLIED_MEMORY, FORM, dayOf, findWord, newProfile, type Profile } from './profile.js';
-import { BOXES, TOP_BOX, XP_PER_GAME, XP_PER_WIN, xpFor } from './review.js';
+import {
+  APPLIED_MEMORY,
+  FORM,
+  dayOf,
+  findWord,
+  newProfile,
+  zeroXp,
+  type Profile,
+} from './profile.js';
+import {
+  BOXES,
+  LANG_POINTS_MULTIPLIER,
+  POINTS_FIRST_GAME_OF_DAY,
+  POINTS_PER_GAME,
+  TOP_BOX,
+  XP_PER_GAME,
+  XP_PER_WIN,
+  xpFor,
+} from './review.js';
 
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
@@ -120,7 +137,9 @@ describe('a word only watched go past', () => {
 
   it('earns nothing and does not hold up a streak on its own', () => {
     const after = apply(blank(), record([learned({ grade: 'seen' })]));
-    expect(after.xp).toBe(XP_PER_GAME + XP_PER_WIN);
+    // The bonus lands under Polish: a word watched go past still says which
+    // language the game was in, even though it is not study. See `applyRecord`.
+    expect(after.xp.pl).toBe(XP_PER_GAME + XP_PER_WIN);
     expect(after.streak.days).toBe(0);
   });
 });
@@ -222,7 +241,7 @@ describe('what a seat gets out of it', () => {
     // one player is signed in.
     const after = applyRecord(blank(), record([learned()]), 7, 'run#1', NOW);
     expect(after.words).toEqual([]);
-    expect(after.xp).toBe(0);
+    expect(after.xp).toEqual(zeroXp());
     expect(after.applied).toEqual([]);
   });
 
@@ -271,11 +290,14 @@ describe('what a seat gets out of it', () => {
   it('pays for the words and, a little, for the game', () => {
     const after = apply(blank(), record([learned({ grade: 'produced' })]));
     // Paid on the rung reached, which is 1 for a word met and produced.
-    expect(after.xp).toBe(xpFor('produced', 1) + XP_PER_GAME + XP_PER_WIN);
+    expect(after.xp.pl).toBe(xpFor('produced', 1) + XP_PER_GAME + XP_PER_WIN);
+    // And nothing anywhere else: a level is a claim about one language.
+    expect(after.xp.en).toBe(0);
+    expect(after.xp.ja).toBe(0);
   });
 
   it('makes a deep review outpay a whole game', () => {
-    const deep: Profile = { ...blank(), words: [], xp: 0 };
+    const deep: Profile = { ...blank(), words: [], xp: zeroXp() };
     let profile = deep;
     // Walk one word up to the top rung, then review it there.
     for (let n = 1; n <= TOP_BOX; n++) {
@@ -308,5 +330,61 @@ describe('the streak', () => {
     // often the most useful session somebody has.
     const after = apply(blank(), record([learned({ grade: 'wrong' })]));
     expect(after.streak.days).toBe(1);
+  });
+});
+
+describe('the purse', () => {
+  // A profile that has already played today, so the daily bonus is out of the
+  // way and each test is measuring the game in front of it.
+  function started(): Profile {
+    return { ...blank(), playedDay: dayOf(NOW) };
+  }
+
+  it('pays for a game that taught nothing at all', () => {
+    // The whole of version 7. Under the old rule the purse *was* the
+    // non-English experience total, so Connect Four bought nothing and read as
+    // the app not having noticed it.
+    const backgammon = { gameId: 'connect4', seats: [{ seat: 0, result: null, learned: [] }] };
+    expect(apply(started(), backgammon, 'run#1').points).toBe(POINTS_PER_GAME);
+  });
+
+  it('pays a language game five times as much', () => {
+    const after = apply(started(), record([learned({ grade: 'recognised' })]));
+    expect(after.points).toBe(POINTS_PER_GAME * LANG_POINTS_MULTIPLIER);
+  });
+
+  it('pays a big study session what the words were worth, not the flat hundred', () => {
+    // The flat number is a floor. A game whose words earned more than it pays
+    // what they earned, or the careful player and the one typing rubbish would
+    // walk away with the same purse.
+    const many = Array.from({ length: 40 }, (_, n) => learned({ key: `w${n}`, grade: 'produced-fast' }));
+    const after = apply(started(), record(many));
+    expect(after.points).toBeGreaterThan(POINTS_PER_GAME * LANG_POINTS_MULTIPLIER);
+    expect(after.points).toBe(after.xp.pl);
+  });
+
+  it('pays the daily bonus once, on the first game harvested that day', () => {
+    // A record with no word events at all is an ordinary game, whatever
+    // `gameId` says: `applyRecord` decides by what was taught, not by name.
+    const first = apply(blank(), record([]), 'run#1');
+    expect(first.points).toBe(POINTS_FIRST_GAME_OF_DAY + POINTS_PER_GAME);
+
+    const second = apply(first, record([]), 'run#2', NOW + 60_000);
+    expect(second.points - first.points).toBe(POINTS_PER_GAME);
+
+    const tomorrow = apply(second, record([]), 'run#3', NOW + DAY);
+    expect(tomorrow.points - second.points).toBe(POINTS_FIRST_GAME_OF_DAY + POINTS_PER_GAME);
+  });
+
+  it('cannot be collected twice by a re-sent harvest', () => {
+    // The daily bonus rides on the same idempotency check as everything else,
+    // which is the only reason it can be this large.
+    const once = apply(blank(), record([]), 'run#1');
+    expect(apply(once, record([]), 'run#1')).toBe(once);
+  });
+
+  it('pays a seat that is not in the record nothing', () => {
+    const missing = { gameId: 'connect4', seats: [{ seat: 1, result: null, learned: [] }] };
+    expect(apply(blank(), missing, 'run#1').points).toBe(0);
   });
 });

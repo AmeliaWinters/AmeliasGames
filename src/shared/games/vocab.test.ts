@@ -13,6 +13,7 @@ import {
   PHRASE_RARITY,
   ALSO_SHOWN,
   PICK_OPTIONS,
+  LEVEL_SCALE,
   PICK_SCALE,
   RARITY_STEP,
   RETRY_AFTER,
@@ -518,6 +519,58 @@ describe('answering', () => {
   });
 
   /**
+   * The English side of the index is normalised, and these are the three ways
+   * it used to fail.
+   *
+   * All reported from a real game. The lists come from six sources that each
+   * chose their own English for the same idea, and the index compared those
+   * strings raw: `dobrze` is glossed *well, fine* and `dobra` *alright, OK*,
+   * so answering the commoner one got "wrong, the answer was dobra" -- the
+   * game teaching a distinction that is not there. `wie` is *knows* against
+   * `wiedzieć` *know*, and `rok` is *year* against `lat` *years*, both of them
+   * a learner marked wrong for the source's choice of English number.
+   *
+   * Written as words rather than through the reducer because these are claims
+   * about the index, and naming the pair is the whole documentation.
+   */
+  it('files an English wording and its plural under one meaning', () => {
+    const takes = (clued: string, typed: string): boolean => {
+      const entry = chainLookup('pl', clued);
+      expect(entry, clued).not.toBeNull();
+      const question = vocabQuestion('pl', 'hard', entry!.rank);
+      expect(question, clued).not.toBeNull();
+      const guess = chainLookup('pl', typed);
+      expect(guess, typed).not.toBeNull();
+      return question!.accepts.has(guess!.key);
+    };
+
+    expect(takes('dobra', 'dobrze'), 'alright, OK <- well, fine').toBe(true);
+    expect(takes('dobrze', 'dobra'), 'and the same the other way').toBe(true);
+    expect(takes('wiedzieć', 'wie'), 'know <- knows').toBe(true);
+    expect(takes('lat', 'rok'), 'years <- year').toBe(true);
+    expect(takes('dziękować', 'dzięki'), 'thank <- thanks').toBe(true);
+
+    // The rule is number and wording, not meaning: `dobre` is glossed *goods*
+    // and folding that onto *good* would have the clue for `dobry` accepting
+    // a word for merchandise. See `NOT_PLURAL`.
+    expect(takes('dobry', 'dobre'), 'good is not goods').toBe(false);
+  });
+
+  /**
+   * The clue is normalised for the index and not for the eye.
+   *
+   * `alright` and `OK` are one key now, and deduping the printed senses on
+   * that key would quietly cut the clue for `dobra` down to "alright". Two
+   * wordings is more of a definition than one, so `show` dedupes on its own
+   * form. See `Sense.bare`.
+   */
+  it('still prints every wording the dictionary wrote', () => {
+    const entry = chainLookup('pl', 'dobra');
+    const question = vocabQuestion('pl', 'hard', entry!.rank);
+    expect(question?.clue).toBe('alright, OK');
+  });
+
+  /**
    * The two ways to be wrong, and they cost differently. See point 2 on the
    * reducer: a real word with the wrong meaning is a guess, and a word the list
    * has never heard of is nearly always a typo.
@@ -610,19 +663,20 @@ describe('the handicap', () => {
     );
   });
 
-  it('gives every level the same clock and the same points', () => {
+  it('gives every level the same clock, and only the top one a discount', () => {
     const state = levelled(['new', 'some', 'fluent']);
-    // The handicap moved off the clock and the scoreline entirely: what a
-    // level buys is the mix of questions, and nothing else. This is the test
-    // that fails if somebody reintroduces a multiplier.
+    // The clock half of the old handicap is gone and stays gone: this is the
+    // test that fails if somebody reintroduces a per-level window. The points
+    // half came back deliberately (`LEVEL_SCALE`) and stops at the top band.
     VOCAB_LEVELS.forEach((_, seat) => expect(windowMs(state, seat)).toBe(ROUND_MS));
     expect(windowMs(state, 9)).toBe(0);
 
     const rank = state.round!.answer!.rank;
-    const paidAt = VOCAB_LEVELS.map((_, seat) =>
+    const [beginner, middle, expert] = VOCAB_LEVELS.map((_, seat) =>
       roundPoints(state, seat, rank, 4_000, 'say', false),
     );
-    expect(new Set(paidAt).size).toBe(1);
+    expect(middle).toBe(beginner);
+    expect(expert).toBeLessThan(beginner);
   });
 
   /**
@@ -758,45 +812,66 @@ describe('what a round pays', () => {
   });
 
   /**
-   * The headline, and the thing this whole design turns on now: the handicap
-   * is in the *question*, so the arithmetic is the same for everybody and it
-   * is the beginner's three-in-four `pick` rounds that cost them half. An
-   * expert handed a `pick` would pay exactly the same half.
+   * Most of the handicap is still in the *question*, and this is what pins
+   * that: `PICK_SCALE` is charged to the round rather than to the player, so
+   * an expert handed a `pick` pays exactly the same half a beginner does. Held
+   * at the two seats the level discount does not touch, so it keeps testing
+   * the question and not `LEVEL_SCALE`.
    */
-  it('scales by the question asked and never by who is asking', () => {
+  it('scales by the question asked, the same way for every level', () => {
     const state = levelled(['new', 'some', 'fluent']);
     const cold = VOCAB_LEVELS.map((_, seat) => roundPoints(state, seat, 50, 3_000, 'say', false));
     const chosen = VOCAB_LEVELS.map((_, seat) =>
       roundPoints(state, seat, 50, 3_000, 'pick', false),
     );
-    expect(new Set(cold).size).toBe(1);
-    expect(new Set(chosen).size).toBe(1);
-    expect(chosen[0]).toBe(Math.round(cold[0] * PICK_SCALE));
+    expect(new Set(cold.slice(0, 2)).size).toBe(1);
+    expect(new Set(chosen.slice(0, 2)).size).toBe(1);
+    for (const seat of [0, 1, 2]) {
+      expect(chosen[seat]).toBe(Math.round(cold[seat] * PICK_SCALE));
+    }
   });
 
   /**
    * What replaced "a slow learner outscores a fast expert": the expert is six
-   * times faster on the same clue and does outscore them, on a round they both
-   * typed -- and the learner takes it back on the three rounds in four they
-   * were asked the other way and the expert was not. The gap is earned per
-   * round rather than applied to a person.
+   * times faster on the same clue, and speed alone still pays them more --
+   * that is what keeps the round a race. `LEVEL_SCALE` is then charged on top,
+   * which is enough to hand this particular pair to the learner: six times
+   * faster is worth less than double here, because the speed term tops out at
+   * doubling. Both halves are asserted, because either one alone reads as the
+   * whole rule and neither is.
    */
-  it('pays the faster answer more when the question was the same one', () => {
+  it('pays the faster answer more, then charges the expert their level', () => {
     const state = levelled(['fluent', 'new']);
     const expert = paid(state, 0, 50, 2_000);
     const learner = paid(state, 1, 50, 12_000);
     expect(learner).toBeGreaterThan(0);
-    expect(expert).toBeGreaterThan(learner);
+    expect(roundPoints(state, 1, 50, 2_000, 'say', false)).toBeGreaterThan(learner);
+    expect(expert).toBeLessThan(learner);
   });
 
   it('measures speed against your own window, the same one for everybody', () => {
     const state = levelled(['fluent', 'new']);
-    // Both seats exactly half way through their own window, which is now the
-    // same window. Nothing at all is left between them.
+    // Both seats exactly half way through their own window, which is the same
+    // window. All that is left between them is the declared level.
     const expert = paid(state, 0, 5, windowMs(state, 0) / 2);
     const learner = paid(state, 1, 5, windowMs(state, 1) / 2);
     expect(learner).toBe(Math.round(RARITY_STEP * (1 + SPEED_BONUS / 2)));
-    expect(expert).toBe(learner);
+    expect(Math.abs(expert - learner * LEVEL_SCALE.fluent)).toBeLessThanOrEqual(0.5);
+  });
+
+  /**
+   * The declared handicap, pinned at both ends: a fluent seat is halved and a
+   * `some` seat is not. The middle band pays full on purpose -- somebody who
+   * says "getting there" should never wish they had said "just starting" --
+   * and that is the half of this rule most likely to be quietly "tidied" into
+   * an interpolation later.
+   */
+  it('halves a fluent seat and nobody else, on the same answer', () => {
+    const state = levelled(['fluent', 'some', 'new']);
+    const [expert, middle, learner] = [0, 1, 2].map((seat) => paid(state, seat, 50, 4_000));
+    expect(learner).toBeGreaterThan(0);
+    expect(middle).toBe(learner);
+    expect(Math.abs(expert - learner * LEVEL_SCALE.fluent)).toBeLessThanOrEqual(0.5);
   });
 
   it('never scores a right answer at nothing', () => {
@@ -1392,7 +1467,10 @@ describe('hints', () => {
   });
 
   it('halves what the answer then pays', () => {
-    const state = levelled(['fluent', 'fluent']);
+    // Two middle seats, not two fluent ones: they open on a `say`, so the
+    // hint is buyable, and they pay full level (`LEVEL_SCALE`), so the hint is
+    // the only thing scaling this answer.
+    const state = levelled(['some', 'some']);
     const buzzer = windowMs(state, 0);
     expect(roundPoints(state, 0, 50, buzzer, 'say', true)).toBe(
       Math.round(RARITY_STEP * 2 * HINT_SCALE),

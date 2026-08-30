@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 // Values from liarsDiceDisplay.js, which imports nothing: the board must never
 // pull the reducer into the client bundle. The types below are type-only, so
 // they carry no runtime import.
 import {
   DICE_PER_PLAYER,
   FACES,
-  HIDDEN_FACE,
-  LIARSDICE_TRAY,
   beats,
   countInHand,
   describeBid,
@@ -19,12 +17,12 @@ import {
 import type { Bid, LdMove, LdState, Showdown } from "../../shared/games/liarsDiceDisplay.js";
 import { Die } from "./Die.js";
 import { useReveal } from "../dice/useReveal.js";
-import { useLanding } from "../dice/useLanding.js";
-import { Dice3DTray, type DiceTrayHandle } from "../dice3d/Dice3DTray.js";
-import { startingFrom, type ThrownDice, type Toss } from "../../shared/games/toss.js";
 
 import type { BoardProps } from "./boards.js";
 import { namer } from "./names.js";
+
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/liarsdice.css";
 
 type Props = BoardProps<LdState, LdMove>;
 
@@ -43,23 +41,10 @@ type Props = BoardProps<LdState, LdMove>;
  */
 
 /**
- * What each seat is holding right now: their real hand, or the reveal, or for
- * a seat the reveal has not reached yet the face-down row it was showing a
- * moment ago.
- *
- * `inTheAir` is your own hand while your own throw is still running. The move
- * is sent the instant the physics has settled *in the background*, a second run
- * of the same seed being what you are watching, so the state knows your five
- * numbers a whole animation before the cubes do and drawing them here would
- * print the answer beside the dice still finding it.
+ * What each seat is holding right now: their real hand, or the reveal, or the
+ * face-down row a seat the reveal has not reached yet was showing a moment ago.
  */
-function handFor(
-  state: LdState,
-  index: number,
-  turned: boolean,
-  inTheAir: boolean,
-): number[] {
-  if (inTheAir) return (state.dice[index] ?? []).map(() => HIDDEN_FACE);
+function handFor(state: LdState, index: number, turned: boolean): number[] {
   return state.showdown && turned
     ? (state.showdown.hands[index] ?? [])
     : (state.dice[index] ?? []);
@@ -88,68 +73,27 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const [face, setFace] = useState(1);
 
   /*
-    Your own throw, and it never goes on the wire.
+    There is no throw to watch, and that is deliberate.
 
-    Every other tray in the app replays a `Toss` out of the game state, because
-    both players are meant to watch the same dice land. Here they are emphatically
-    not: your hand is yours, `view()` redacts it from everybody else, and a
-    throw on the wire would be the hand on the wire. So the toss is local. This
-    client makes it, this client animates it, and the only thing that leaves is
-    the five numbers it came up with.
+    This board used to put a 3D tray in front of you and take your hand from
+    the cubes you flicked, which meant the client decided its own dice. The
+    tray was also the only thing that ever showed five dice when you were down
+    to three, since it was built for a full hand and never asked the state how
+    many you were holding. Both went together: the server already deals every
+    round (see `nextRound`), so the hand below *is* the hand, and the `roll`
+    move is now just this client agreeing with what it was dealt.
 
-    Which also means the opponent has nothing to watch, and gets nothing: their
-    hands stay as the counted rows below, face down until a call turns them up.
-  */
-  const [ownToss, setOwnToss] = useState<Toss | null>(null);
-  const trayRef = useRef<DiceTrayHandle>(null);
-  const [rolling, landed] = useLanding(ownToss?.n ?? 0);
-  /*
-    The tray stays while the dice are still moving.
-
-    `owesRoll` goes false the moment the `roll` move lands, which is the moment
-    the throw *starts* animating, so gating the tray on it alone unmounted the
-    cubes mid-flight and put the settled row underneath in their place. You
-    threw, and the dice vanished before they stopped.
+    Sent once per round, the moment it is owed. Without it `owesRoll` stays
+    true, which keeps `canAct` true for a seat that is not on turn.
   */
   const owed = seat !== null && owesRoll(state, seat);
-  const throwing = owed || rolling;
-
-  /*
-    Your own hand, all showing the same number: the same event Yahtzee marks,
-    given the same flourish, because it is the same five dice doing the same
-    thing and only the rulebook around them differs.
-
-    Safe to show even though hands are secret: this is your tray, on your
-    client, drawn from the hand the server already told you is yours. Nobody
-    else has one of these on screen, since Liar's Dice puts up a tray only while
-    *you* owe a throw.
-
-    Three at least, because "every die alike" is not news when you are down to
-    two of them, and the flourish should get rarer as your hand does, not
-    commoner.
-  */
-  const hand = seat !== null ? (state.dice[seat] ?? []) : [];
-  const allAlike = hand.length >= 3 && hand.every((die) => die === hand[0]);
-  const cheer = ownToss && allAlike ? { n: ownToss.n, kind: "all" as const } : null;
-
-  const reportThrow = (thrown: ThrownDice) => {
-    setOwnToss((previous) => ({
-      n: (previous?.n ?? 0) + 1,
-      seed: thrown.seed,
-      x: thrown.x,
-      y: thrown.y,
-      // The aim as well as the speed. `entryOf` reads these to decide which
-      // edge the dice come in by, and a replay built without them runs a
-      // different throw and then jumps to `rest` at the end of it.
-      ax: thrown.ax,
-      ay: thrown.ay,
-      // The same starting places the tray itself used, from the same helper, so
-      // the throw that is animated is the throw that was reported.
-      from: startingFrom(previous, LIARSDICE_TRAY, DICE_PER_PLAYER),
-      rest: thrown.rest,
-    }));
-    onMove({ type: "roll", faces: thrown.faces });
-  };
+  useEffect(() => {
+    if (!owed || seat === null) return;
+    onMove({ type: "roll", faces: state.dice[seat] ?? [] });
+    // The round, and whether this seat still owes it: re-sending on every
+    // render would be a move a round the reducer refuses.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owed, state.round, seat]);
 
   // The pickers start on the smallest bid that would be legal, which is where a
   // player reaches first and saves them tapping up from one every time. Re-armed
@@ -178,9 +122,10 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   const total = totalDice(state);
   const proposed: Bid = { seat: seat ?? 0, quantity, face };
   const legal = quantity <= total && beats(proposed, state.bid);
-  // Not while your own dice are still moving: the hand you would be bidding
-  // from is one you have not been shown yet.
-  const bidding = canAct && state.phase === "bid" && !rolling;
+  // `turn`, not `canAct`: `canAct` is still true for a seat that only owes its
+  // roll, and a bid box on every seat at the top of a round is three controls
+  // that look live and are not.
+  const bidding = canAct && state.turn === seat && state.phase === "bid";
   const canCall = bidding && state.bid !== null;
   const showdown = state.showdown;
   /*
@@ -212,7 +157,7 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
   // of the count you actually know, and counting it off your own row by eye
   // every time the spinner moves is arithmetic the board can just do.
   const mine =
-    seat !== null && !isOut(state, seat) && !rolling ? countInHand(state, seat, face) : null;
+    seat !== null && !isOut(state, seat) ? countInHand(state, seat, face) : null;
 
   /** What the call cost, or paid: the line under the count it turned up. */
   const consequence = (call: Showdown) => {
@@ -234,44 +179,12 @@ export function LiarsDiceBoard({ state, seat, names, canAct, onMove }: Props) {
         {nameFor(state.starter)} opened
       </p>
 
-      {/* Your own five, thrown. Only while you owe a throw: once they have
-          landed the hand below is the hand, and a tray still sitting there
-          would invite a second roll the reducer would refuse. */}
-      {throwing && (
-        <div className="ld-throw">
-          <Dice3DTray
-            ref={trayRef}
-            count={DICE_PER_PLAYER}
-            tray={LIARSDICE_TRAY}
-            faces={seat !== null ? (state.dice[seat] ?? []) : []}
-            toss={ownToss}
-            flying={rolling}
-            mine
-            cheer={cheer}
-            label="Your dice. Flick to throw them."
-            hint={rolling ? undefined : "Flick to throw"}
-            // Only while a throw is still owed: a second flick at dice that are
-            // already in the air would send a `roll` the reducer refuses, and
-            // restart the animation on the way.
-            onThrow={owed ? reportThrow : undefined}
-            onRest={landed}
-          />
-          <button
-            className="primary"
-            disabled={!owed}
-            onClick={() => trayRef.current?.throwNow({ x: 0, y: 0 })}
-          >
-            {rolling ? "Rolling..." : "Roll"}
-          </button>
-        </div>
-      )}
-
       {/* Every hand, yours face up and theirs face down, until a call turns
           them all over. */}
       <div className="ld-hands">
         {state.dice.map((_, index) => {
           const turned = reveal.shown(index);
-          const hand = handFor(state, index, turned, rolling && index === seat);
+          const hand = handFor(state, index, turned);
           const out = isOut(state, index) && !showdown?.out.includes(index);
           return (
             <div

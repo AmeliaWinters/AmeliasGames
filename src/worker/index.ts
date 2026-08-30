@@ -15,16 +15,19 @@ import {
 } from '../shared/session.js';
 import { verifyClaim } from '../shared/account.js';
 import { PING_FRAME, PONG_FRAME, type ServerMessage } from '../shared/protocol.js';
-import type { ProfileView, StudyLists } from '../shared/profile.js';
+import { LEARN_LANGS } from '../shared/profile.js';
+import type { Known, ProfileView, StudyLists } from '../shared/profile.js';
 import { harvestKey } from '../shared/harvest.js';
 import { PLAYER_PATHS, type HarvestPost } from '../shared/players.js';
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
   /**
-   * One object per account. Reached only from inside a room, never routed to
-   * from `fetch` — see the note on `Player`. A client that could post its own
-   * results could post any results.
+   * One object per account. Reached from inside a room, and from exactly one
+   * route in `fetch`: `/account/chest`, which proves the account first and
+   * forwards a request that carries no facts. See the note on `Player`, and
+   * the route itself. Every *other* path stays unreachable from a browser,
+   * because a client that could post its own results could post any results.
    */
   PLAYERS: DurableObjectNamespace;
   ASSETS: Fetcher;
@@ -195,11 +198,15 @@ export class GameRoom implements DurableObject {
     accountId: string,
     path: string,
     body?: unknown,
-  ): Promise<{ profile: ProfileView; study: StudyLists } | null> {
+  ): Promise<{ profile: ProfileView; study: StudyLists; words: Known[] } | null> {
     try {
       const stub = this.env.PLAYERS.get(this.env.PLAYERS.idFromName(accountId));
       const response = await stub.fetch(
-        `https://player${path}?id=${encodeURIComponent(accountId)}`,
+        // `path` may already carry a query -- `vocab` names a language -- so
+        // the separator is chosen rather than assumed. Getting this wrong
+        // produces `?lang=pl?id=...`, which reads as one parameter and loses
+        // the account.
+        `https://player${path}${path.includes('?') ? '&' : '?'}id=${encodeURIComponent(accountId)}`,
         body === undefined
           ? undefined
           : {
@@ -209,11 +216,11 @@ export class GameRoom implements DurableObject {
             },
       );
       if (!response.ok) return null;
-      // Each path fills in one half of this and the callers read the half
+      // Each path fills in one part of this and the callers read the part
       // they asked for. Widening the return type rather than generifying it,
-      // because there are two callers and a type parameter would be more
+      // because there are three callers and a type parameter would be more
       // machinery than the saving.
-      return (await response.json()) as { profile: ProfileView; study: StudyLists };
+      return (await response.json()) as { profile: ProfileView; study: StudyLists; words: Known[] };
     } catch {
       return null;
     }
@@ -240,9 +247,13 @@ export class GameRoom implements DurableObject {
     }
   }
 
-  private async sendProfile(ws: WebSocket, accountId: string): Promise<void> {
+  /** Hands the view back as well, so a caller that needs a field off it does
+      not pay a second request for the same read. */
+  private async sendProfile(ws: WebSocket, accountId: string): Promise<ProfileView | null> {
     const answer = await this.askPlayer(accountId, PLAYER_PATHS.profile);
-    if (answer) this.post(ws, { t: 'profile', profile: answer.profile });
+    if (!answer) return null;
+    this.post(ws, { t: 'profile', profile: answer.profile });
+    return answer.profile;
   }
 
   /** The live socket for a seat, if anybody is sitting at it right now. */
@@ -459,6 +470,13 @@ export class GameRoom implements DurableObject {
       // This is also the retry: `harvest` is gated on `pending`, so a write
       // that failed last time is simply tried again now.
       if (engine.isOver()) await this.harvest(engine);
+      // Before the welcome rather than after it, unlike the showcase below:
+      // this one arrived in the `hello` and costs no I/O, so the joiner's own
+      // view can carry it and nothing waits a round trip. Not gated on an
+      // account either — a guest who built a figure still gets to be seen
+      // wearing it.
+      engine.setAvatar(result.seat, hello.avatar);
+      await this.persist();
       this.post(ws, {
         t: 'welcome',
         seat: result.seat,
@@ -467,13 +485,59 @@ export class GameRoom implements DurableObject {
       // Sent unasked-for, because the lobby's "18 words due" is the whole
       // reason anybody comes back and it should be on the screen before they
       // have pressed anything.
-      if (hello.accountId) await this.sendProfile(ws, hello.accountId);
+      if (hello.accountId) {
+        const profile = await this.sendProfile(ws, hello.accountId);
+        // Off the profile that was already being fetched, rather than a
+        // request of its own: this runs on every join of every signed-in
+        // player, and it is one field.
+        //
+        // After `welcome` rather than before, so a slow player object cannot
+        // hold up somebody's own seat. The broadcast below carries the faces
+        // to everybody including them, one round trip later, and a join is the
+        // one moment where that is invisible.
+        if (profile) {
+          engine.setShowcase(result.seat, profile.showcase);
+          await this.persist();
+        }
+      }
       this.broadcast();
       return;
     }
 
     if (!meta || meta.playerId === '') {
       return this.fail(ws, { kind: 'rejected', error: 'Join a room first.' });
+    }
+
+    /*
+      The two questions about an account rather than about a room, answered
+      before the engine is loaded.
+
+      Neither needs one, and the vocabulary screen is precisely the screen
+      somebody has open while the room behind it is swept: answering these
+      after the `no-room` refusal meant the words vanished because a game
+      nobody was playing had expired. The dev server has always answered them
+      without a room (see `serve`), and two adapters disagreeing about whether
+      your own words are readable is the drift this file is meant not to have.
+    */
+    if (msg.t === 'profile') {
+      // No id on the message, so this can only ever answer for the account
+      // this socket proved on the way in. There is nobody else to ask about.
+      if (meta.accountId) await this.sendProfile(ws, meta.accountId);
+      return;
+    }
+
+    if (msg.t === 'vocab') {
+      // Same gate as `profile`, and the same echo: the language comes back on
+      // the answer so two requests in flight cannot be drawn under each
+      // other's heading.
+      if (!meta.accountId) return;
+      // Checked before it addresses an object, not merely because `Player`
+      // refuses it afterwards: an unchecked language is an unbounded number of
+      // player wakes for a thirty byte message. The dev server checks here too.
+      if (!LEARN_LANGS.includes(msg.lang)) return;
+      const answer = await this.askPlayer(meta.accountId, `${PLAYER_PATHS.vocab}?lang=${encodeURIComponent(msg.lang)}`);
+      if (answer) this.post(ws, { t: 'vocab', lang: msg.lang, words: answer.words });
+      return;
     }
 
     const engine = await this.loadEngine();
@@ -494,13 +558,6 @@ export class GameRoom implements DurableObject {
     // a game ends is a *refused* move — somebody tapping the board one more
     // time — which returns long before the dispatch below.
     if (engine.isOver()) await this.harvest(engine);
-
-    if (msg.t === 'profile') {
-      // No id on the message, so this can only ever answer for the account
-      // this socket proved on the way in. There is nobody else to ask about.
-      if (meta.accountId) await this.sendProfile(ws, meta.accountId);
-      return;
-    }
 
     if (isAction(msg)) {
       // Before the deal, not after: `setup` is what reads the lists, and a
@@ -604,9 +661,98 @@ export class GameRoom implements DurableObject {
 // it through their stub, which is the whole trust story. See `player.ts`.
 export { Player } from './player.js';
 
+/*
+  The headers the packaged app needs and the web build never sees.
+
+  Wide open, and it can be: every route behind it is either public (`/peek`
+  answers about a room code anybody can type) or gated on a signature that the
+  origin has nothing to do with. An allow-list of origins here would be a
+  second place to remember the Android scheme, and it would not make the chest
+  route one bit harder to reach.
+*/
+/**
+ * Prove the claim, then hand the request to the account's own object.
+ *
+ * The shape every browser-reachable player path shares: a nonce, a signature
+ * over that nonce, and a body the caller builds from what survived checking.
+ * `body` is a function rather than a value so a route decides what of the
+ * request it is willing to forward, which is the whole of the trust boundary
+ * on this side: nothing reaches the object that a route did not name.
+ *
+ * The signature is pinned to the nonce rather than to a room code, for the
+ * reason the chest route sets out at length: it is strictly tighter, since a
+ * lifted signature can only ever replay the one request it was minted for, and
+ * every path behind here is idempotent under a replay.
+ */
+async function forwardToPlayer(
+  request: Request,
+  env: Env,
+  path: string,
+  body: (parsed: Record<string, unknown> | null) => Record<string, unknown>,
+  method: 'GET' | 'POST' = 'POST',
+): Promise<Response> {
+  const parsed = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const nonce = String(parsed?.nonce ?? '');
+  // Bounded before it is used as signed material or an object key.
+  if (!/^[A-Z0-9]{8,64}$/.test(nonce)) {
+    return new Response('Bad request.', { status: 400, headers: cors() });
+  }
+
+  const accountId = await verifyClaim(parsed?.claim, nonce);
+  // A failed claim is a refusal rather than a guest: a guest can still play a
+  // game, but there is no such thing as a guest's collection.
+  if (!accountId) return new Response('Not your account.', { status: 401, headers: cors() });
+
+  const stub = env.PLAYERS.get(env.PLAYERS.idFromName(accountId));
+  const answer = await stub.fetch(
+    new Request(`https://player${path}?id=${encodeURIComponent(accountId)}`, {
+      method,
+      ...(method === 'POST'
+        ? {
+            body: JSON.stringify({ nonce, ...body(parsed) }),
+            headers: { 'content-type': 'application/json' },
+          }
+        : {}),
+    }),
+  );
+  // Copied onto a fresh response rather than mutated: the object's answer has
+  // immutable headers, and an answer the app cannot read is the same as none.
+  const headers = new Headers(answer.headers);
+  for (const [name, value] of Object.entries(cors())) headers.set(name, value);
+  return new Response(answer.body, { status: answer.status, headers });
+}
+
+function cors(): Record<string, string> {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'content-type',
+    'access-control-allow-methods': 'POST, GET, OPTIONS',
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    /*
+      The preflight, and it is the Android build that needs it.
+
+      On the web the lobby and this worker are one origin and no browser ever
+      asks. The packaged app is served from its own scheme and talks to
+      `VITE_SERVER_ORIGIN`, so the chest POST is cross-origin, and a JSON body
+      makes it a preflighted request rather than a simple one. The dev server
+      grew this first (see `serveLookup`); the worker not having it meant the
+      one build that actually needs it was the one build that could not open a
+      chest.
+
+      Answered before anything is routed, because a preflight names the method
+      it is asking about rather than performing it, and answering it is not
+      permission to do anything: the claim on the POST itself is still what
+      decides whose account is touched.
+    */
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: cors() });
+    }
 
     /*
       "Does this code exist, and what is it playing?", asked by the lobby as
@@ -629,6 +775,106 @@ export default {
       // Routing by code is what pins every player in a room to one instance.
       const id = env.ROOMS.idFromName(code);
       return env.ROOMS.get(id).fetch(request);
+    }
+
+    /*
+      Opening a chest, and **the only route in this worker that reaches a
+      player object.** Everything else that touches a profile is a room acting
+      on a finished game; this is somebody pressing a button in the lobby,
+      which has no socket at all (see `net.ts`), so there has to be a door.
+
+      The comment at the top of `account.ts` is the one this route was written
+      against: it says a signature is pinned to one room, and asks to be
+      revisited if one ever needs to travel anywhere else. It does now. So the
+      signature is pinned to the **nonce** instead of a room code, and signed
+      under the `chest` scope instead of the room one, which is strictly
+      tighter: a lifted signature can only ever reopen the chest it was minted
+      for, and reopening is idempotent and hands back the original drop.
+      Nothing else this worker serves accepts a claim signed that way, because
+      `payloadFor` puts both the value and the scope in the signed bytes.
+
+      The scope is load-bearing rather than decorative. Without it the two
+      payloads are told apart only by length -- a room code is four characters
+      and the nonce regex demands eight -- so widening `CODE_LENGTH` to eight
+      would turn every hello claim ever seen into a chest-opening signature.
+      See `ClaimScope`.
+
+      What keeps the widening safe is that the request carries no facts. It
+      names a set and a nonce; the object reads the balance, decides the drop
+      and writes the result. There is still no way to tell this system you knew
+      a word, which is the thing `Player`'s header is protecting.
+    */
+    if (url.pathname === '/account/chest' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as {
+        claim?: unknown;
+        nonce?: unknown;
+        set?: unknown;
+      } | null;
+      const nonce = String(body?.nonce ?? '');
+      const set = String(body?.set ?? '');
+      // Bounded before it is used as signed material or an object key, so a
+      // megabyte of "nonce" never reaches the storage layer.
+      if (!/^[A-Z0-9]{8,64}$/.test(nonce) || !set) {
+        return new Response('Bad chest request.', { status: 400, headers: cors() });
+      }
+
+      const accountId = await verifyClaim(body?.claim, nonce, 'chest');
+      // A failed claim is a refusal here rather than a guest, which is the
+      // opposite of what `admit` does and is right: a guest can still play a
+      // game, but there is no such thing as a guest's wardrobe to open.
+      if (!accountId) return new Response('Not your account.', { status: 401, headers: cors() });
+
+      const stub = env.PLAYERS.get(env.PLAYERS.idFromName(accountId));
+      const answer = await stub.fetch(
+        new Request(`https://player${PLAYER_PATHS.chest}?id=${encodeURIComponent(accountId)}`, {
+          method: 'POST',
+          body: JSON.stringify({ set, nonce }),
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      // Copied onto a fresh response rather than mutated: the object's answer
+      // has immutable headers, and a chest opened but unreadable by the app
+      // that asked is the same as one that never opened.
+      const headers = new Headers(answer.headers);
+      for (const [name, value] of Object.entries(cors())) headers.set(name, value);
+      return new Response(answer.body, { status: answer.status, headers });
+    }
+
+    /*
+      The gacha's three routes, and they widen the door by exactly nothing.
+
+      `/account/waifu` carries a nonce and asserts less than the chest does:
+      there is not even a set to name. `/account/collection` reads a list the
+      account already owns. `/account/showcase` is the only one that carries a
+      fact, three character ids, and the object checks each against what was
+      actually claimed rather than believing the list. See `Player`'s header,
+      which is where the rule these are measured against is written down.
+
+      Routed through one helper rather than three copies of the chest route.
+      The chest route above is deliberately left as it is: it is the one with
+      the argument written into it, and turning it into a call would move the
+      reasoning away from the thing it is about.
+    */
+    if (url.pathname === '/account/waifu' && request.method === 'POST') {
+      return forwardToPlayer(request, env, PLAYER_PATHS.waifu, () => ({}));
+    }
+
+    if (url.pathname === '/account/showcase' && request.method === 'POST') {
+      return forwardToPlayer(request, env, PLAYER_PATHS.showcase, (body) => ({
+        // Bounded here as well as repaired at the far end, so a megabyte of
+        // "showcase" never reaches the storage layer. `legalShowcase` is what
+        // decides which of these survive.
+        showcase: Array.isArray(body?.showcase)
+          ? body.showcase.slice(0, 8).map((id) => String(id).slice(0, 64))
+          : [],
+      }));
+    }
+
+    if (url.pathname === '/account/collection' && request.method === 'POST') {
+      // A POST for a read, because the claim is signed over a nonce and a
+      // nonce does not belong in a URL that a proxy may log. Nothing is
+      // written; see `PLAYER_PATHS.collection`.
+      return forwardToPlayer(request, env, PLAYER_PATHS.collection, () => ({}), 'GET');
     }
 
     return env.ASSETS.fetch(request);

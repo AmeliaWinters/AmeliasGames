@@ -114,16 +114,46 @@ export function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * What a client signs to claim an account in a room.
+ * What one signature is *for*.
+ *
+ * Two different things are signed with the same key: joining a room, where the
+ * value is a room code, and opening a chest, where it is a nonce. They must
+ * not be interchangeable, and for a while they were only kept apart by an
+ * accident of length -- room codes are four characters and the nonce regex
+ * demands eight or more, so no room code could ever be read as a nonce. That
+ * is not a security property, it is a coincidence: widen `CODE_LENGTH` to
+ * eight and every hello claim a server has ever seen becomes a valid
+ * chest-opening signature for that account.
+ *
+ * So the scope goes in the signed bytes, where it costs nothing and holds
+ * whatever anyone does to the code length later.
+ */
+export type ClaimScope = 'room' | 'chest';
+
+/** The domain prefix each scope signs under. See `ClaimScope`. */
+const SCOPE_DOMAIN: Record<ClaimScope, string> = {
+  room: DOMAIN,
+  chest: `${DOMAIN}/chest`,
+};
+
+/**
+ * What a client signs to claim an account, for one room or one chest.
  *
  * The id is in it as well as the key, so a signature cannot be lifted onto a
- * different account id even if two ids somehow shared a key; the code is in it
- * so a signature is pinned to one room; and the domain prefix is in it so this
- * string can never collide with anything else this app might one day ask
- * somebody to sign.
+ * different account id even if two ids somehow shared a key; the value is in
+ * it so a signature is pinned to one room or one nonce; the scope is in it so
+ * a signature for one of those can never be replayed as the other; and the
+ * domain prefix is in it so this string can never collide with anything else
+ * this app might one day ask somebody to sign.
  */
-export function payloadFor(id: string, code: string): Uint8Array<ArrayBuffer> {
-  const encoded = new TextEncoder().encode(`${DOMAIN}|${id}|${code.toUpperCase()}`);
+export function payloadFor(
+  id: string,
+  code: string,
+  scope: ClaimScope = 'room',
+): Uint8Array<ArrayBuffer> {
+  const encoded = new TextEncoder().encode(
+    `${SCOPE_DOMAIN[scope]}|${id}|${code.toUpperCase()}`,
+  );
   // Copied for the same reason `fromBase64Url` builds its own buffer: what
   // `crypto.subtle` will accept is narrower than what `encode` hands back.
   const bytes = new Uint8Array(new ArrayBuffer(encoded.length));
@@ -152,7 +182,11 @@ export async function accountIdFor(rawKey: Uint8Array<ArrayBuffer>): Promise<str
  * not play": somebody whose key has gone wrong should still get their game of
  * Connect Four.
  */
-export async function verifyClaim(claim: unknown, code: string): Promise<string | null> {
+export async function verifyClaim(
+  claim: unknown,
+  code: string,
+  scope: ClaimScope = 'room',
+): Promise<string | null> {
   if (!isClaim(claim)) return null;
   try {
     const raw = fromBase64Url(claim.key);
@@ -174,7 +208,7 @@ export async function verifyClaim(claim: unknown, code: string): Promise<string 
       { name: 'ECDSA', hash: 'SHA-256' },
       key,
       fromBase64Url(claim.sig),
-      payloadFor(claim.id, code),
+      payloadFor(claim.id, code, scope),
     );
     return ok ? claim.id : null;
   } catch {

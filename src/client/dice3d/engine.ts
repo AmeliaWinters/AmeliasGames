@@ -42,7 +42,7 @@
 
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Tray, Quat } from '../../shared/games/dice.js';
-import { faceUp, seeded } from '../../shared/games/dice.js';
+import { FACE_AXES, faceUp, seeded, turn } from '../../shared/games/dice.js';
 import type { Rest3 } from '../../shared/games/toss.js';
 
 export { faceUp };
@@ -358,6 +358,55 @@ export const PHYS = {
    */
   DEADLINE: 190,
   DEADLINE_DAMP: 4,
+
+  /**
+   * When a die has stopped, decided here rather than left to Rapier.
+   *
+   * This is the fix the note above `DEADLINE` said had not been made, and it
+   * was worth making because the cost of not making it was not a physics
+   * problem at all: it was a full second of a player looking at five
+   * motionless dice with the sheet still blank and "Roll again" still greyed.
+   *
+   * Rapier sleeps a body only after it has been under its velocity thresholds
+   * for a sustained stretch, half a second by default, and `stepThrow` was
+   * reporting motion until it did. Measured over 40 Yahtzee throws, the gap
+   * between the last frame in which any die visibly moved and the frame Rapier
+   * finally slept them was **0.48s every single time**, min 0.48 and max 0.51:
+   * not a tail, a constant, because it is a timer rather than a measurement.
+   * Doubled by the old playback rate, that is the delay being complained about.
+   *
+   * So stillness is now asked directly, which is also what everyone else
+   * building one of these does: watch the velocities per frame rather than wait
+   * for the engine's own deactivation timer.
+   *
+   * Rapier's sleep still counts as stopped, so nothing regresses if a body
+   * sleeps by some other route first.
+   */
+  /** cm/s. A die under this is moving less than a millimetre a frame. */
+  SETTLE_LIN: 2,
+  /** rad/s. About a degree and a half per frame at this timestep. */
+  SETTLE_ANG: 0.6,
+  /**
+   * And it has to hold for this many steps, a fifteenth of a second.
+   *
+   * Not zero, because a die pivoting over an edge passes through nearly zero
+   * velocity at the top of the pivot, and calling that a stop reads the face
+   * off a die that is about to fall onto a different one. The confirmation
+   * window is what tells a pause from a stop.
+   */
+  SETTLE_STEPS: 8,
+  /**
+   * How flat is flat: the dot of the die's nearest face-normal with straight
+   * up, so this is cos(10 degrees).
+   *
+   * The other half of the cocked-die problem, and the half a velocity check
+   * cannot see: a die wedged against a wall or resting on a neighbour can be
+   * genuinely motionless while showing nothing in particular. `faceUp` would
+   * still name a face for it, and that face is a coin toss between two of them.
+   * A die that is still but not flat is not settled, and the throw runs on
+   * until it topples or `HARD_STOP` takes it.
+   */
+  SETTLE_FLAT: 0.985,
 } as const;
 
 /** A contact worth hearing, in the frame it happened. */
@@ -378,6 +427,12 @@ export interface ThrowWorld {
   k: number;
   steps: number;
   events: RAPIER.EventQueue;
+  /**
+   * Consecutive steps each die has been still for. See `SETTLE_STEPS`; it is
+   * per-die rather than per-throw because four dice stopping does not make the
+   * fifth one stopped.
+   */
+  still: number[];
 }
 
 /** The tray's own size in physics units. What the camera has to frame. */
@@ -775,7 +830,16 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
     bodies.push(body);
   }
 
-  return { world, bodies, held, tray, k, steps: 0, events: new RAPIER.EventQueue(true) };
+  return {
+    world,
+    bodies,
+    held,
+    tray,
+    k,
+    steps: 0,
+    events: new RAPIER.EventQueue(true),
+    still: bodies.map(() => 0),
+  };
 }
 
 /**
@@ -785,6 +849,22 @@ export function openThrow(spec: ThrowSpec): ThrowWorld {
  * of a frame can find it without allocating one array per frame for the life
  * of the throw.
  */
+/**
+ * Is this die still, and lying on a face? One step's worth of the judgement;
+ * `SETTLE_STEPS` is what turns it into a stop.
+ */
+function settling(body: RAPIER.RigidBody): boolean {
+  const v = body.linvel();
+  if (v.x * v.x + v.y * v.y + v.z * v.z > PHYS.SETTLE_LIN * PHYS.SETTLE_LIN) return false;
+  const w = body.angvel();
+  if (w.x * w.x + w.y * w.y + w.z * w.z > PHYS.SETTLE_ANG * PHYS.SETTLE_ANG) return false;
+  const r = body.rotation();
+  const q: Quat = [r.w, r.x, r.y, r.z];
+  let flattest = -Infinity;
+  for (const { axis } of FACE_AXES) flattest = Math.max(flattest, turn(q, axis)[1]);
+  return flattest >= PHYS.SETTLE_FLAT;
+}
+
 export function stepThrow(live: ThrowWorld, hits: Hit[]): number {
   hits.length = 0;
   // Past the deadline, lean on them. Applied here rather than at setup because
@@ -848,7 +928,14 @@ export function stepThrow(live: ThrowWorld, hits: Hit[]): number {
   let moving = 0;
   for (let i = 0; i < live.bodies.length; i++) {
     if (live.held[i]) continue;
-    if (!live.bodies[i].isSleeping()) moving++;
+    const body = live.bodies[i];
+    if (body.isSleeping()) {
+      live.still[i] = PHYS.SETTLE_STEPS;
+      continue;
+    }
+    if (settling(body)) live.still[i]++;
+    else live.still[i] = 0;
+    if (live.still[i] < PHYS.SETTLE_STEPS) moving++;
   }
   return moving;
 }

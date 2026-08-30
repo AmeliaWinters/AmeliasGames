@@ -1,0 +1,582 @@
+/* The settings menu: the rows the account chip drops, and the screens they
+   open.
+
+   The back half of `profile.css`, cut along the "The account menu" banner and
+   imported straight after it, so the cascade is unchanged.
+
+   Every row in here is the same object -- a full-bleed line of type with a
+   mark on the end -- and the mark is the promise: a chevron goes somewhere, a
+   caret opens something underneath. Keeping them together is what stops the
+   next row being drawn with the wrong one. */
+
+/* The account menu.
+
+   One button in the bar opens this, and it is drawn the way an account menu is
+   drawn everywhere else: who you are at the top, then rows in groups with a
+   rule between the groups. That shape is the reason the merge works. Two
+   controls in the bar needed somebody to learn which of them held what; a menu
+   needs them to press the thing with their name on it, which they already do.
+
+   The parts that used to be whole panels -- the name form, the QR, the key --
+   are what the rows open, in place, one at a time. The two that are sections
+   rather than glances, the words and the stats, are screens the menu leads to:
+   see `.prof-page` at the foot of this file. */
+.prof-menu {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Who this is. The heading as well as the picture, so the focus the panel
+   takes on opening lands on the name rather than on the first row.
+
+   No rule under it. The block is the top of a card that already has an edge,
+   and the first group's own `border-top` was drawing a second line 60px below
+   the first for no reason either of them could give. */
+.prof-me {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* Tight underneath. The block used to pay 14px here and the group below it
+     another 6px before a row that carries 8px of its own, so three separate
+     paddings stacked into a 28px trough between the name and the first thing
+     to press. */
+  padding: 16px 16px 8px;
+}
+
+.prof-me-av {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  /* 20.8px, which clears the 18.66px where a bold face is large text: the
+     ground on the accent is 4.33, and above that size that is the 3:1 it has
+     to be rather than the 4.5 it is not. */
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--ground);
+}
+
+.prof-me-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Overriding `.prof > h2`, which is set for a panel whose heading was the
+   whole top of it. Here it is one of two lines in a block 44px tall.
+
+   And overriding `.panel h2` in `controls.css`, which is written for a heading
+   that names a section: centred, muted, tracked caps. This one is a person's
+   name sitting beside their initial, so all four of those were wrong on it --
+   a name centred over a left-aligned summary line reads as a mistake, and
+   "AME" in 0.14em caps reads as a label rather than as somebody called Ame. */
+.prof-menu .prof-me h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.2;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: start;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The handle's slot, and so the one line in here that is read without being
+   looked for. It carries the two figures the stats lead with. */
+.prof-me-sub {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count of words due, given the top of the menu.
+
+   It was a figure inside the stats drawer, two presses down, and the lobby's
+   own due prompt opens this menu -- so the one number anybody came back for
+   was behind the thing that promised it. Here it is a control, and it goes to
+   the words rather than reporting on them.
+
+   Drawn on `--board` with an accent edge, which is the same weight the lobby's
+   `.myword-due` carries and for the same reason: it is the one thing in here
+   allowed to be loud, and it earns that by being absent whenever there is
+   nothing due. */
+.prof-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0 16px 10px;
+}
+
+.prof-due {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-height: 44px;
+  padding: 9px 12px 9px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--board));
+  color: var(--ink);
+  text-align: start;
+  font-family: var(--display);
+  font-weight: 600;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+/* Same chevron as the lobby's, mixed into `--board` rather than laid over
+   whatever is behind it, because the menu has a ground of its own. The two
+   controls are the same promise in two places and they have to look it. */
+.prof-due::after {
+  content: "";
+  align-self: center;
+  margin-inline-start: auto;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+}
+
+.prof-due:active {
+  transform: translateY(1px);
+}
+
+@media (hover: hover) {
+  .prof-due:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, var(--board));
+  }
+
+  .prof-due:hover:not(:disabled)::after {
+    transform: rotate(45deg) translate(1px, -1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prof-due,
+  .prof-due::after {
+    transition: none;
+  }
+}
+
+.prof-due-n {
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.prof-due-of {
+  font-size: 0.92rem;
+}
+
+/* A fact rather than a thing to do, so it is type beside the button and not a
+   second button. Absent on day one: "0 days" is worth less than the space. */
+.prof-streak {
+  flex: none;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-family: var(--display);
+  font-weight: 600;
+}
+
+.prof-streak-n {
+  font-size: 1.05rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Groups, separated by a rule rather than by a heading. Each group is one kind
+   of thing -- you, the look of the app, the key, leaving -- and naming them
+   would be four labels on twelve words. */
+/* The rule is what separates one group from the next; the padding only has to
+   keep the rows off it. See `.prof-me` for why it is not 6px. */
+.prof-group {
+  padding: 2px 0;
+  border-top: 1px solid var(--rule);
+}
+
+/* A row: full bleed, left-aligned, the height of a menu item. Not a button
+   shape, because eight button shapes stacked is a wall of chips; the press
+   target is the whole width, which is what makes it a menu. */
+.prof-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  /* The floor every touch target in this app is held to. */
+  min-height: 44px;
+  padding: 8px 16px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  text-align: start;
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.prof-row:hover,
+.prof-row:focus-visible {
+  background: var(--board);
+}
+
+/* The press, said back. Every row in here either opens something below the
+   fold or changes something elsewhere, so a row that acknowledges nothing on
+   the way down is a row somebody presses twice. Transform rather than colour,
+   because two of these rows are already coloured by their state. */
+.prof-row:active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prof-row:active {
+    transform: none;
+    background: var(--rule);
+  }
+}
+
+/* Open reads as open. A row that opened something underneath itself without
+   changing is a row people press twice, and the second press closes it.
+
+   The mark is a rule down the edge rather than accent type. Accent on
+   `--board` measures 3.78 in daylight, and 14.7px at 600 is not large text by
+   any reading of it, so the obvious version of this was under AA on the one
+   row somebody is looking at. The rule carries the same colour at a size where
+   the ratio is not the question. */
+.prof-row[aria-expanded="true"] {
+  background: var(--board);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.prof-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The current value, on the row, the way "Appearance: Device theme" carries
+   its own state. `--muted` against `--surface`, which is the pairing this
+   project measures its small type on.
+
+   The value is the half that gives. `flex-shrink: 100` rather than 1, because
+   a row too wide for 320 is shrunk in proportion to what each half started at,
+   and at 1 the label lost six pixels off "Recovery key" while the value beside
+   it kept most of a sentence. At 100 the value absorbs effectively all of it,
+   and the label keeps its own ellipsis as the floor under a pathological
+   case. */
+/* The strip of faces on the collection row.
+
+   Overlapped rather than spaced, because three 24px portraits in a line push
+   the value out of a 320px row and a fan of three reads as a set at half the
+   width. `flex: none` so this is never the half that gives: the value beside
+   it shrinks first, and a strip squeezed to slivers would be worse than no
+   strip. */
+.prof-row-faces {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.prof-row-face {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* The ring is what separates one face from the one it overlaps; without it
+     three dark portraits on a dark row are one shape. */
+  border: 1.5px solid var(--surface);
+  background: var(--board);
+}
+
+.prof-row-face + .prof-row-face {
+  margin-inline-start: -8px;
+}
+
+/* An empty slot is an outline rather than a hole, so "one of three" is legible
+   without counting. */
+.prof-row-face-empty {
+  border: 1.5px dashed var(--rule);
+  background: none;
+}
+
+/* Somebody you have not met. Dimmed so the row never implies she is yours, and
+   still a face, which is the whole point of drawing her. */
+.prof-row-face-teaser {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.prof-row-value {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* The mark on the end, and the two of them are different promises: a chevron
+   leaves, a caret opens underneath. Both quiet, both the same width, so a
+   column of rows lines up whichever kind each one is. `--muted` on `--surface`
+   is the pairing the small type here is measured on, and these are shapes
+   rather than text, which is the weaker requirement of the two.
+
+   `inline-flex` rather than the span's own `inline`, and it is not cosmetic: a
+   transform does not apply to a non-replaced inline box at all, so the caret
+   below took its colour and quietly ignored its rotation. */
+.prof-row-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 12px;
+  text-align: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* Down when shut, up when open, and it is the one thing in this menu that
+   moves. 120ms because it is answering a press that has already happened. */
+.prof-row-caret {
+  transition: transform 120ms ease;
+}
+
+.prof-row[aria-expanded="true"] .prof-row-caret {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prof-row-caret {
+    transition: none;
+  }
+}
+
+/* The rows a section opened, indented to the label above them and quieter than
+   it, so the fold reads as a fold rather than as four more rows that arrived.
+   The indent is the avatar's gutter, which is the only left edge this panel
+   has that is not 16px. */
+.prof-row-sub {
+  padding-inline-start: 32px;
+  font-weight: 500;
+}
+
+/* Sound, which is the one control in here with an off. Only the on state is
+   allowed the accent -- an off switch that is still coloured is the reason
+   people look twice at these.
+
+   The off state is drawn in `--muted` rather than in `--rule-hi`, which is
+   where the obvious version of this fell over: a rule token against
+   `--surface` measures 1.68, and 1.4.11 wants 3 for the boundary that says
+   which way a control is set. `--muted` is 5.56 on the same ground, and it is
+   the token the small type here is already measured on. */
+.prof-switch {
+  flex: none;
+  inline-size: 34px;
+  block-size: 20px;
+  border: 1px solid var(--muted);
+  border-radius: 10px;
+  padding: 2px;
+  display: flex;
+  justify-content: flex-start;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.prof-row-switch[aria-checked="true"] .prof-switch {
+  background: var(--accent);
+  border-color: var(--accent);
+  justify-content: flex-end;
+}
+
+.prof-switch-dot {
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+/* On the accent the knob is the ground, which is the pairing the avatar above
+   is drawn in, and it measures well past the 3 a shape has to clear. */
+.prof-row-switch[aria-checked="true"] .prof-switch-dot {
+  background: var(--ground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prof-switch {
+    transition: none;
+  }
+}
+
+/* Destructive, and drawn as the quietest thing here rather than the loudest:
+   it is confirmed before it does anything, and a red row people are used to
+   seeing is a red row they stop reading. */
+.prof-row-danger {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* What a row opens. Indented to the row's own padding and set on the board, so
+   it reads as belonging to the row above it rather than as the next thing. */
+.prof-menu .prof-name,
+.prof-menu .prof-qr,
+.prof-menu .prof-key,
+.prof-menu .prof-paste,
+.prof-menu .prof-keep-why,
+.prof-menu .prof-make {
+  margin: 0;
+  padding: 10px 16px 14px;
+}
+
+/* The key section: a group that folds, rather than a drawer with something in
+   it. Set on the board like any other drawer, and ruled top and bottom so the
+   four rows inside it read as belonging to the row that opened them rather
+   than as the rest of the menu.
+
+   Its own rows carry the 32px indent; the paragraph and the forms inside it
+   keep the menu's 16px, because a measured paragraph pushed in twice is a
+   column two words narrower for nothing. */
+.prof-keys {
+  background: var(--board);
+  border-block: 1px solid var(--rule);
+}
+
+.prof-keys .prof-row:hover,
+.prof-keys .prof-row:focus-visible {
+  background: var(--surface);
+}
+
+.prof-keys .prof-row[aria-expanded="true"] {
+  background: var(--surface);
+}
+
+/* The name, on one line with its button, because it is one short word and a
+   stacked label above a full-width field would be the tallest thing in the
+   menu for the shortest question in it. */
+.prof-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.prof-name label {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.prof-name input {
+  width: 100%;
+}
+
+/* Announced rather than shown moving: it appears beside the button while the
+   cursor is still in the field. */
+.prof-saved {
+  flex: none;
+  font-size: 0.82rem;
+  color: var(--accent);
+  font-family: var(--display);
+  font-weight: 600;
+}
+
+/* The report on the last press that changed everything and showed nothing:
+   an account made, a key taken, a file saved. Accent and display type like
+   `.prof-saved`, which is the same idea one control smaller, and separated by
+   a rule rather than a colour block because it is a receipt and not an alert
+   -- the alert in this menu is `.prof-bad` and the two must not read alike. */
+.prof-said {
+  margin: 4px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  font-family: var(--display);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Why the key matters, above the four rows that are about it. Muted body type
+   and measured: it is a paragraph somebody reads once. */
+.prof-keep-why {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 46ch;
+}
+
+/* Nothing filed yet. Said on the screen rather than by refusing to open it: a
+   row that leads to a dead end is worse than a screen that says what to do. */
+.prof-empty {
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 46ch;
+}
+
+.prof-make {
+  display: block;
+}
+
+/* A screen the menu leads to, rather than a drawer inside it.
+
+   Stats and Vocabulary are the two things in this account that are sections:
+   several blocks, one of them a list that grows without limit. Opened in place
+   they put the bottom half of the menu below the fold for as long as they were
+   open, on the phone widths this file is measured at first. So they replace
+   the menu under the same chip and come back with one press.
+
+   This is the panel's own padding rather than the menu's zero, because a
+   screen is read down the page and a menu is pressed at its edges. `.vocab`
+   already draws itself this way; the two are the same object and the Back
+   button below is deliberately the same shape as `.vocab-back`. */
+.prof-page {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prof-page > h2 {
+  margin: 0 0 8px;
+}
+
+/* Last rather than first, and left-aligned. The moment to want it is when you
+   have finished reading the screen, so it is at the foot of it, where the
+   thumb already is.
+
+   What it means moved: it used to be "up to the account menu", and the menu is
+   a dropdown on the lobby bar now rather than the top of this page. So on all
+   but one screen it is the way out of the account, back to where the press
+   came from. The close button pinned to `.acct-page` still does the same
+   thing from anywhere on a long scroll. See `leaveAccount` in `App.tsx`. */
+.prof-back {
+  min-height: 44px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 8px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-weight: 600;
+}

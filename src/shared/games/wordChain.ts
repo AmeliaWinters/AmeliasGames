@@ -1,34 +1,45 @@
 import type { GameDefinition, MoveResult, Rng } from '../types.js';
 import type { Learned, SeatOutcome } from '../harvest.js';
-import type { Grade } from '../review.js';
 import { wasFast } from '../review.js';
 import { GAME_MANIFEST } from './manifest.js';
 import { named } from '../refusal.js';
+// The turn machinery. Same side of the boundary as this file: it reaches the
+// dictionary, so nothing on the client may import either.
+import {
+  answererOf,
+  beginPlay,
+  cooledBy,
+  ended,
+  handTo,
+  handsOn,
+  isLang,
+  isLevel,
+  linkFrom,
+  linkLearned,
+  missed,
+  modeOf,
+  opponentOf,
+  tookUntil,
+  tooThin,
+  SEATS,
+} from './wordChainTurns.js';
 import {
   chainKey,
   chainLookup,
-  commonestStarting,
-  countEnding,
-  countStarting,
-  fold,
   foldLetter,
 } from './chainDictionary.js';
-import type { ChainEntry } from './chainDictionary.js';
 import {
-  LANGS,
+  CHAIN_DEFAULT_LEVEL,
   LANG_NAME,
-  MIN_ANSWERS,
   MIN_LENGTH,
   TURN_MS,
   canAct,
   hasBeaten,
+  hintsFor,
   isFinished,
-  lockTurns,
   lockedFor,
-  saidBy,
   scoreFor,
   stoppedSeat,
-  studyFor,
   targetScore,
   turnMsFor,
   usedKeys,
@@ -36,10 +47,6 @@ import {
 
 import type {
   ChainLang,
-  ChainLink,
-  ChainMiss,
-  ChainMode,
-  LetterCooldown,
   WcMove,
   WcState,
 } from './wordChainDisplay.js';
@@ -47,8 +54,12 @@ import type {
 // Re-exported so the reducer, its tests and the board all name these in one
 // place, while only this file ever reaches the word lists.
 export {
+  CHAIN_DEFAULT_LEVEL,
+  CHAIN_LEVELS,
+  HINT_AT,
   LANGS,
   LANG_NAME,
+  LEVEL_NAME,
   LIST_SIZE,
   MIN_ANSWERS,
   MIN_LENGTH,
@@ -57,13 +68,17 @@ export {
   TURN_STEP_MS,
   TURN_STEP_WORDS,
   canAct,
+  chainHintSteps,
   chainStats,
   clockCall,
   formatClock,
   hasBeaten,
+  hintsFor,
   isFinished,
+  levelOf,
   lockTurns,
   lockedFor,
+  maskWord,
   missFor,
   msLeftFor,
   outOfTime,
@@ -76,11 +91,14 @@ export {
   usedKeys,
   wordPoints,
 } from './wordChainDisplay.js';
-export { LOCK_FREE, LOCK_FULL, MAX_LOCK } from './wordChainDisplay.js';
+export { MAX_LOCK, THIN_START } from './wordChainDisplay.js';
 export type {
   ActiveCooldown,
   ChainHighlight,
+  ChainHint,
+  ChainHintStep,
   ChainLang,
+  ChainLevel,
   ChainLink,
   ChainMiss,
   ChainMode,
@@ -107,7 +125,7 @@ export type {
  * Words score their letters, and the score is what the game is settled on: a
  * lost minute puts you out of the chain, not out of the game. See point 5.
  *
- * Nine things here are worth knowing before changing anything:
+ * Ten things here are worth knowing before changing anything:
  *
  * 1. **Japanese links on romaji letters, not on kana.** Real shiritori chains
  *    the last *mora* to the first, and a word ending in the kana `n` loses
@@ -162,20 +180,25 @@ export type {
  *    three-letter ones, which is what makes reaching for a long word under a
  *    five-second clock a decision rather than a flourish.
  *
- * 7. **A thin ending is not yours again for a while.** Ending a word puts that
- *    letter out of your own reach for up to five of your turns, priced purely
- *    by how many words in your language still end on it: three hundred left
- *    costs nothing, a hundred and fifty or fewer costs the full five, and it is
- *    a straight line between. `lockTurns` is the whole rule and `lockedFor` is
- *    the check. It replaced a per-seat ladder that grew every time you went
- *    back to a letter, which was fair and untrackable: the count was private,
- *    invisible until a word was refused, and spread over every letter at once.
- *    This price is a fact about the list, so both players see the same number
- *    and it can be shown before the word is submitted. No escape hatch: unlike
- *    `tooThin`, which protects a player from the dictionary, this is what stops
- *    two players stripping the same corner of the list bare. It also means the
- *    reveal has to respect it, or the game would end by showing the loser a
- *    word it would have refused.
+ * 7. **Leave somebody on a thin letter once and you may not do it again.**
+ *    Hand over a letter the answering seat has fewer than five hundred words
+ *    for and it is out of *your* reach for your next five turns. `THIN_START`
+ *    is the bar, `lockTurns` is the whole rule and `lockedFor` is the check.
+ *
+ *    It is rule 2 one bar up, and priced off the same count: words in the
+ *    answering seat's language that start with the letter and are still
+ *    unsaid. Under `MIN_ANSWERS` the word is refused, because there is no
+ *    answer; under `THIN_START` it is allowed once, because there is an answer
+ *    but not five of them in a row. English *-y* is the case it is written
+ *    for: 228 words start with it, which is playable, and playable four times
+ *    running is not.
+ *
+ *    Two earlier versions of this got it wrong in opposite directions, and
+ *    `lockTurns` records both. No escape hatch: unlike `tooThin`, which
+ *    protects a player from the dictionary, this is what stops two players
+ *    stripping the same corner of the list bare. It also means the reveal has
+ *    to respect it, or the game would end by showing the loser a word it would
+ *    have refused.
  *
  * 8. **The minute shrinks as the chain grows.** Every word on the chain takes
  *    a second off the answer, down to a floor of five. `turnMsFor` is the whole
@@ -193,252 +216,21 @@ export type {
  *    behind it, except that the seat protected from a dead letter is now the
  *    chaser themselves, since they are answering their own words. The one
  *    concession is the letter the chase *starts* on, see `chaseLetter`.
+ *
+ * 10. **A level buys help, not time and not points.** Every seat gets the same
+ *     clock and the same scoring; the three bands decide when, on a turn that
+ *     is going badly, the game starts walking you towards a word you could
+ *     have said. A beginner is nudged at twenty seconds with what the word
+ *     means and at forty with its first two letters and its length, the middle
+ *     band at thirty-five and fifty, and somebody fluent never. `HINT_AT` is
+ *     the ladder and `hintsFor` reads it against the allowance that turn
+ *     actually had, so the hints stop coming as the clock shrinks past them.
+ *     Two rules hold it together: it is the *same* word `revealFor` would show
+ *     at the end of the minute, found by one function (`answerFor`), because
+ *     hinting at one word and revealing another reads as the game changing its
+ *     mind; and it goes only to the seat on the clock, blanked harder than the
+ *     cooldowns are, because it is the answer to the turn in progress.
  */
-
-const SEATS = 2;
-
-const opponentOf = (seat: number): number => (seat + 1) % SEATS;
-
-/**
- * The letter a word hands on: the last of the key the chain is linking on.
- *
- * In a `loose` game that is the folded key, so *ręką* hands on an `a`. In a
- * `strict` one it is the word as written, so *coś* hands on a `ś`.
- */
-const handsOn = (entry: ChainEntry, mode: ChainMode): string => chainKey(entry, mode).slice(-1);
-
-/** Which chain this game is: see `ChainMode`, and point 4 above. */
-const modeOf = (state: WcState): ChainMode => (state.strict ? 'strict' : 'loose');
-
-function linkFrom(entry: ChainEntry, lang: ChainLang, seat: number, ms: number): ChainLink {
-  return {
-    word: entry.word,
-    key: entry.key,
-    lang,
-    seat,
-    gloss: entry.gloss,
-    script: entry.script,
-    lemma: entry.lemma,
-    rank: entry.rank,
-    ms,
-  };
-}
-
-/**
- * How long the seat on the clock has taken, as of `now`.
- *
- * Read back out of the deadline rather than kept as a start time, because the
- * deadline is what the whole game already agrees on (the board counts down to
- * it, `expire` fires on it) and a second field recording when the turn began
- * could drift from it.
- *
- * Clamped to the turn's own allowance at both ends, which is not always a
- * minute. See `turnMsFor`, and take the chain length from the state *before*
- * the word being timed is appended, which is what this is handed.
- *
- * `now` is the server's, but a restored room or a missing clock can hand this
- * arithmetic a number from anywhere, and a word that took minus four seconds
- * would poison every average built on it.
- */
-function tookUntil(state: WcState, now: number): number {
-  if (state.deadline === null) return 0;
-  const had = turnMsFor(state.chain.length);
-  return Math.min(had, Math.max(0, had - (state.deadline - now)));
-}
-
-/**
- * Whether answering `letter` in `lang` is unreasonable: too few words start
- * with it and are still unsaid, or the language never had any.
- *
- * Not a check for zero. See `MIN_ANSWERS`: a letter with three answers, all of
- * them proper nouns out of a subtitle corpus, is a letter nobody can play.
- */
-function tooThin(
-  lang: ChainLang,
-  letter: string,
-  used: ReadonlySet<string>,
-  mode: ChainMode,
-): boolean {
-  return countStarting(lang, letter, used, mode) < MIN_ANSWERS[lang];
-}
-
-/** The letters `seat` may not end a word on right now. */
-function blockedFor(state: WcState, seat: number): Set<string> {
-  return new Set(lockedFor(state, seat).map((cool) => cool.letter));
-}
-
-/**
- * How long ending on `letter` would lock it for `seat`, were they to do it
- * now. Zero when the ending is free, which is the common case.
- *
- * `used` is the set of words that count as spent for the question, which at
- * the moment of charging includes the word being said: a player is not
- * credited with the ending they have just consumed. Exported because the board
- * can price a word before it is submitted, and because the warning and the
- * penalty must not be able to disagree.
- */
-export function lockCostFor(
-  state: WcState,
-  seat: number,
-  letter: string,
-  used: ReadonlySet<string> = usedKeys(state),
-): number {
-  const lang = state.langs[seat];
-  if (lang == null) return 0;
-  return lockTurns(countEnding(lang, letter, used, modeOf(state)));
-}
-
-/**
- * Charge `seat` for ending a word on `letter`, and hand back every seat's
- * cooldowns with that one seat's updated.
- *
- * Called with the state from *before* the word is appended, so the seat's own
- * word count is taken as `saidBy + 1`; `used` is the after set, see
- * `lockCostFor`. A free ending stores nothing, and clears any expired entry
- * the letter was still carrying, so `cooldowns` never grows a row that means
- * "this letter is fine".
- */
-function cooledBy(
-  state: WcState,
-  seat: number,
-  letter: string,
-  used: ReadonlySet<string>,
-): LetterCooldown[][] {
-  const said = saidBy(state, seat) + 1;
-  const mine = (state.cooldowns[seat] ?? []).filter((cool) => cool.letter !== letter);
-  const turns = lockCostFor(state, seat, letter, used);
-  return state.cooldowns.map((cools, index) =>
-    index === seat ? (turns === 0 ? mine : [...mine, { letter, until: said + turns }]) : cools,
-  );
-}
-
-/**
- * The state the seat on the clock is handed: whose turn, what letter, how many
- * words are behind it, and a fresh clock, shorter than the last one every
- * third word.
- *
- * One place, because the count and the letter have to agree: a `required` set
- * without recounting would leave the board telling a player there are 1,501
- * words when the letter has changed underneath it.
- */
-function handTo(
-  state: WcState,
-  seat: number,
-  required: string,
-  used: ReadonlySet<string>,
-  now: number,
-): WcState {
-  const lang = state.langs[seat];
-  return {
-    ...state,
-    at: seat,
-    required,
-    available: lang == null ? null : countStarting(lang, required, used, modeOf(state)),
-    // Shorter the further the chain has run, see `turnMsFor`. Measured off the
-    // chain this state already carries, so the seat answering the fourth word
-    // is the first to get less than the minute.
-    deadline: now + turnMsFor(state.chain.length),
-  };
-}
-
-/** Nobody is on the clock any more, and `loser` is settled. */
-function ended(state: WcState, loser: number): WcState {
-  return { ...state, phase: 'over', loser, available: null, deadline: null };
-}
-
-/**
- * The word `seat` could have said, as a link ready for the end screen.
- *
- * Filtered by that seat's own cooldowns, because the reveal is a claim ("this
- * is what you could have said") and a word the game would have refused makes a
- * liar of the one screen the whole game is played for.
- */
-function revealFor(state: WcState, seat: number, lang: ChainLang): ChainLink | null {
-  const found = commonestStarting(
-    lang,
-    state.required,
-    usedKeys(state),
-    modeOf(state),
-    blockedFor(state, seat),
-    // Only this seat's, and only in the language they were playing. A word
-    // their opponent owes a review on is nothing to do with the minute that
-    // has just gone, and a word due in a language nobody at this table chose
-    // would be matched on a folded key that means something else entirely.
-    // See `WcState.study` and `commonestStarting`.
-    new Set(studyFor(state, seat, lang)),
-  );
-  // Zero milliseconds, because nobody spent any time on it: the reveal is a
-  // word out of the list, not a turn that was played.
-  return found ? linkFrom(found, lang, seat, 0) : null;
-}
-
-/**
- * The letter the chase opens on.
- *
- * Normally the one the chain is already asking for: the chaser answers what
- * their opponent could not, which is the whole shape of the thing and keeps the
- * chain a chain rather than a fresh start with the same players.
- *
- * Unless their own language has hardly anything behind it, in which case they
- * open free, exactly as the first word of the game does. `tooThin` only ever
- * looked ahead to the *opponent's* language, so a letter that is perfectly
- * fair to hand across the table can be one the hander's own list cannot
- * answer: an English player may legally end on L, and if their Japanese
- * opponent then misses, chasing them on an L would be a chase nobody could ever
- * complete. Being handed an impossible letter is losing to the dictionary
- * (point 2) and it does not stop being that because the game is nearly over.
- */
-function chaseLetter(state: WcState, chaser: number, used: ReadonlySet<string>): string {
-  const lang = state.langs[chaser];
-  if (lang == null) return '';
-  return tooThin(lang, state.required, used, modeOf(state)) ? '' : state.required;
-}
-
-/**
- * A minute of `seat`'s has gone. Work out what that costs them.
- *
- * Both ways of losing one come through here, the clock and the give-up button,
- * because they differ only in what the status line says.
- *
- * What it costs depends on where the game is. The first miss puts that seat
- * out of the chain and hands the other one a chase; the second is the chaser's
- * own, and ends it. And a chase that could not be lost is not run at all: a
- * survivor who is already ahead has already beaten the score they would be
- * chasing. `ChainMiss` is where the reasoning lives, tie-break included.
- */
-function missed(state: WcState, seat: number, gaveUp: boolean, now: number): WcState {
-  const lang = state.langs[seat] ?? 'en';
-  const miss: ChainMiss = { seat, gaveUp, reveal: revealFor(state, seat, lang) };
-  const withMiss: WcState = { ...state, misses: [...state.misses, miss] };
-
-  // The chaser's own minute. They had the chain to themselves and did not get
-  // past the target, so the seat that set it takes it, level included.
-  if (state.phase === 'chase') return ended(withMiss, seat);
-
-  const other = opponentOf(seat);
-  if (scoreFor(state, other) > scoreFor(state, seat)) return ended(withMiss, seat);
-
-  const used = usedKeys(state);
-  return handTo({ ...withMiss, phase: 'chase' }, other, chaseLetter(state, other, used), used, now);
-}
-
-/**
- * Setup is over: decide what kind of chain this is, and put the first player
- * on the clock with the whole of their language open.
- *
- * The mode is settled here and never again. Deciding it per word, by asking
- * each time whether the two languages match, comes to the same answer, but it
- * puts the rule somewhere a later change could make it waver mid-chain, and a
- * game that starts asking for `ł` after ten words of `l` is unplayable.
- */
-function beginPlay(state: WcState, langs: ChainLang[], now: number): WcState {
-  const strict = langs[0] === langs[1];
-  return handTo({ ...state, phase: 'playing', langs, strict }, 0, '', new Set(), now);
-}
-
-function isLang(value: unknown): value is ChainLang {
-  return typeof value === 'string' && (LANGS as readonly string[]).includes(value);
-}
 
 export const wordChain: GameDefinition<WcState, WcMove> = {
   ...GAME_MANIFEST.wordchain,
@@ -447,6 +239,10 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     return {
       phase: 'setup',
       langs: Array(SEATS).fill(null),
+      // The middle band for both, so a table that ignores the control plays
+      // very much the game it played before hints existed. See
+      // `CHAIN_DEFAULT_LEVEL`.
+      levels: Array(SEATS).fill(CHAIN_DEFAULT_LEVEL),
       // Not knowable until both seats have chosen. See `beginPlay`.
       strict: false,
       chain: [],
@@ -464,6 +260,9 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       // Nobody is thinking yet, so there is nothing to count. Set the moment
       // play begins, see `handTo`.
       available: null,
+      // Nobody is on the clock, so nobody is being walked anywhere. Set with
+      // the clock, see `handTo`.
+      hint: null,
       // Null until the room says both seats are filled, see `start`. A clock
       // armed when the room *opened* would run down while the second player
       // was still reading the invite.
@@ -487,6 +286,24 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
   applyMove(state, move, seat, _rng: Rng, now): MoveResult<WcState> {
     const at = now ?? 0;
     if (!canAct(state, seat, now)) return { ok: false, error: 'Not your move.' };
+
+    if (move.type === 'level') {
+      // Setup only, and `canAct` narrows that further: a seat may act during
+      // setup right up until it picks a language, so in practice the level is
+      // settled *before* the language and is final the moment the language is.
+      // Deliberate. The second language to land starts the game, so a level
+      // that could still be changed after that would be a control the other
+      // player is already playing against.
+      if (state.phase !== 'setup') {
+        return { ok: false, error: 'Levels are set before the first word.' };
+      }
+      if (!isLevel(move.level)) {
+        return { ok: false, error: `${named(move.level)} is not one of the levels.` };
+      }
+      const levels = (state.levels ?? Array(SEATS).fill(CHAIN_DEFAULT_LEVEL)).slice();
+      levels[seat] = move.level;
+      return { ok: true, state: { ...state, levels } };
+    }
 
     if (move.type === 'lang') {
       if (!isLang(move.lang)) {
@@ -557,7 +374,7 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     // In a chase there is nobody to hand the letter to but yourself, which is
     // what makes the cooldowns and `tooThin` matter more rather than less: a
     // chaser is the one who has to answer the word they just played.
-    const next = state.phase === 'chase' ? seat : opponentOf(seat);
+    const next = answererOf(state, seat);
     const nextLang = state.langs[next];
     const letter = handsOn(entry, mode);
 
@@ -570,9 +387,12 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       // Says how long rather than just refusing, because unlike a word that is
       // not in the list this is a rule the player can plan around: knowing it
       // is back in two turns is the difference between a wall and a cost.
+      // Names the thin letter and not the count, the way `tooThin` does and
+      // for the same reason: told there are 228 words in Y, a player will name
+      // a 229th and be right.
       return {
         ok: false,
-        error: `${entry.word} ends in ${letter.toUpperCase()}, and you have just used that ending. It is yours again in ${turns}.`,
+        error: `${entry.word} ends in ${letter.toUpperCase()}, and you have just left somebody on that letter with hardly anything to say. It is yours again in ${turns}.`,
       };
     }
 
@@ -590,9 +410,16 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
       };
     }
 
+    // Read off the pre-append state, which is the one the player was looking
+    // at while they typed. Any rung showing counts, not just the one that
+    // names the word: the gloss alone is often enough to retrieve it, and a
+    // grade that only fired on the spelling rung would let the ladder's first
+    // step through for free.
+    const helped = hintsFor(state, seat, at).length > 0;
+
     const chained: WcState = {
       ...state,
-      chain: [...state.chain, linkFrom(entry, lang, seat, tookUntil(state, at))],
+      chain: [...state.chain, linkFrom(entry, lang, seat, tookUntil(state, at), helped)],
       // Charged off the pre-append state, see `cooledBy`.
       cooldowns: cooledBy(state, seat, letter, after),
     };
@@ -630,6 +457,11 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
   view(state, seat) {
     return {
       ...state,
+      // Blanked harder than the cooldowns below, and for a better reason: this
+      // is the answer to the turn that is running. A seat waiting on its
+      // opponent would otherwise be handed the word that opponent is failing to
+      // find, and with it the letter it is about to be asked for.
+      hint: state.hint?.seat === seat ? state.hint : null,
       cooldowns: state.cooldowns.map((cools, index) => (index === seat ? cools : [])),
       // The other seat's is blanked for a different reason than the cooldowns
       // are, and a stronger one: a cooldown is a fact about this game, and a
@@ -690,6 +522,12 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
   canAct,
 
   isOver: isFinished,
+
+  // Word Chain settles a loser rather than a winner: the seat that ran out is
+  // the one the rules name, and with two seats the other one won.
+  winner(state) {
+    return state.loser === null ? null : opponentOf(state.loser);
+  },
 
   status(state, names) {
     const who = (seat: number): string => names[seat] ?? `Player ${seat + 1}`;
@@ -776,9 +614,16 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
           linkLearned(
             link,
             link.seat === seat
-              ? wasFast(link.ms, turnMsFor(i))
-                ? 'produced-fast'
-                : 'produced'
+              ? link.hinted
+                ? // A word the ladder handed over is not production, however
+                  // fast it was typed: reading a hint and typing it is quick.
+                  // Vocab Race grades the same situation the same way, and the
+                  // two games have to agree, because they file into one ledger
+                  // and a card does not know which game promoted it.
+                  'hinted'
+                : wasFast(link.ms, turnMsFor(i))
+                  ? 'produced-fast'
+                  : 'produced'
               : 'seen',
           ),
         );
@@ -802,32 +647,3 @@ export const wordChain: GameDefinition<WcState, WcMove> = {
     return { gameId: wordChain.id, seats: outcomes };
   },
 };
-
-/**
- * One link, as the ledger wants it.
- *
- * The key is the folded **lemma** where the list knows one, and that is the
- * whole of why this lives here rather than in `harvest.ts`: `fold` is in
- * `chainDictionary.ts` with eighty thousand lines of word list behind it, and
- * the ledger may never reach either. Polish files `jestem` and `być`
- * separately and plays them separately, which is right for the chain and wrong
- * for a vocabulary — six inflections of one verb is one verb learned, and a
- * profile claiming six is lying to somebody deciding what to study.
- *
- * `link.key` is deliberately *not* reused for this even though it is already
- * folded: it is the folded form of the word as played, which is the thing the
- * chain links on, and using it would file every inflection under its own row.
- */
-function linkLearned(link: ChainLink, grade: Grade): Learned {
-  return {
-    lang: link.lang,
-    key: fold(link.lemma || link.word),
-    word: link.word,
-    script: link.script,
-    lemma: link.lemma,
-    gloss: link.gloss,
-    rank: link.rank,
-    grade,
-    ms: link.ms,
-  };
-}

@@ -1,0 +1,1928 @@
+diff --git a/src/client/App.tsx b/src/client/App.tsx
+index 8d0e50b..527bb80 100644
+--- a/src/client/App.tsx
++++ b/src/client/App.tsx
+@@ -36,21 +36,23 @@ import {
+   PALETTES,
+   savePalette,
+   type Palette,
+ } from "./palette.js";
+ import { applySound, loadSound } from "./feel.js";
+ import { play, primeSfx, useTableSounds } from "./sfx.js";
+ import { Toaster, useToasts, type Toasts } from "./toast.js";
+ import { hasAccount } from "./account.js";
+ import { Profile } from "./Profile.js";
+ import { earnedBetween, loadProfileCache, saveProfileCache, type Earned } from "./profileCache.js";
+-import type { ProfileView } from "../shared/profile.js";
++import type { LearnLang, ProfileView } from "../shared/profile.js";
++import { Vocabulary } from "./Vocabulary.js";
++import { saveVocabCache } from "./vocabCache.js";
+ 
+ /**
+  * What the tab says before a room is open.
+  *
+  * Read off the document rather than written out again: `index.html` sets a
+  * title built for a search result, and a second copy of it here would be a
+  * second copy to keep in step. Captured at module load, which is before
+  * anything below has had a chance to change it.
+  */
+ const LOBBY_TITLE = typeof document === "undefined" ? "" : document.title;
+@@ -290,20 +292,22 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
+     status,
+     error,
+     errorKind,
+     errorSeq,
+     sendMove,
+     requestRematch,
+     switchGame,
+     startGame,
+     dismissError,
+     profile,
++    vocab,
++    requestVocab,
+   } = useRoom({
+       active: intent === "play" && Boolean(name),
+       name,
+       code,
+       create,
+       gameId,
+     });
+ 
+   useChannel(room?.gameId ?? gameId);
+   useTableSounds(room, seat, errorSeq);
+@@ -322,20 +326,47 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
+   */
+   const [earned, setEarned] = useState<Earned | null>(null);
+   const lastProfile = useRef<ProfileView | null>(loadProfileCache());
+   useEffect(() => {
+     if (!profile) return;
+     setEarned(earnedBetween(lastProfile.current, profile));
+     lastProfile.current = profile;
+     saveProfileCache(profile);
+   }, [profile]);
+ 
++  /*
++    Refresh the stored ledger the moment there is both a reason and a socket.
++
++    A finished game is the only thing that changes the ledger and the end of
++    one is the only time this client is sure of having a socket -- the lobby,
++    which is where the Vocabulary screen is actually opened, has none. See
++    `vocabCache.ts`, which makes the same argument the summary cache makes one
++    size up.
++
++    The language that earned most, and only that one. `earnedBetween` sorts
++    nothing, but a game teaches one language in every case that exists today
++    (both language games pick a language before they deal), and asking for
++    three would be two round trips spent on empty lists plus a race in `net.ts`,
++    which keeps only the last answer.
++  */
++  useEffect(() => {
++    const best = earned?.langs.reduce(
++      (top, row) => (top === null || row.xp > top.xp ? row : top),
++      null as { lang: LearnLang; xp: number } | null,
++    );
++    if (best) requestVocab(best.lang);
++  }, [earned, requestVocab]);
++
++  useEffect(() => {
++    if (vocab) saveVocabCache(vocab.lang, vocab.words, Date.now());
++  }, [vocab]);
++
+   // A new game clears the last one's takings, so an end screen never opens
+   // showing what the *previous* game taught somebody.
+   const dealt = room?.waiting === false;
+   useEffect(() => {
+     if (dealt) setEarned(null);
+   }, [dealt, room?.gameId]);
+ 
+   // What the lobby will open on next time. Written from the room rather than
+   // from the pick, so a game somebody else chose still counts as the game you
+   // played. Arriving on a link is how half the games here start.
+@@ -927,21 +958,21 @@ function CodeCells({
+         autoComplete="off"
+         autoCorrect="off"
+         autoCapitalize="characters"
+         spellCheck={false}
+       />
+     </div>
+   );
+ }
+ 
+ /** Which panel under the bar is open, if any. */
+-type Panel = null | "name" | "profile";
++type Panel = null | "name" | "profile" | "vocab";
+ 
+ /**
+  * The join box: a code, who you are, and what the code turns out to be.
+  *
+  * Open on the page rather than behind a "Have a code?" button. Somebody who
+  * was read four letters over a table has exactly one job on this screen, and a
+  * button that hides the field for it is a step between them and it. The shelf
+  * is still the first thing under it, because everybody else is here to pick a
+  * game.
+  *
+@@ -1264,61 +1295,123 @@ function Setup({
+   // Escape closes whichever panel is open, which is what Escape does to
+   // anything that opened over the page.
+   const onEscape = (e: React.KeyboardEvent) => {
+     if (e.key !== "Escape") return;
+     setPanel(null);
+     setPending(null);
+   };
+ 
+   const pendingName = pending ? gameEntry(pending)?.name : undefined;
+ 
++  /*
++    A press anywhere else closes the account menu, which is the half of "menu"
++    that Escape does not cover: a menu that hangs off a chip is dismissed by
++    reaching past it, and every other one on the web behaves that way.
++
++    Pointerdown rather than click, so the menu is gone before whatever was
++    reached for takes the press -- and the ref covers the chip too, or the
++    chip's own toggle would be undone by this and reopen on every press. Only
++    while something is open, so the lobby carries no listener at rest.
++  */
++  const accountRef = useRef<HTMLDivElement>(null);
++  useEffect(() => {
++    if (panel !== "profile" && panel !== "vocab") return;
++    const away = (e: PointerEvent) => {
++      if (accountRef.current?.contains(e.target as Node)) return;
++      setPanel(null);
++      setPending(null);
++    };
++    document.addEventListener("pointerdown", away);
++    return () => document.removeEventListener("pointerdown", away);
++  }, [panel]);
++
+   return (
+     <main className="app setup">
+       {/* The whole of the old left-hand column, folded onto one line: who you
+           are, and the one control somebody arriving with a code came for. */}
+       <header className="lobby-bar">
+         <h1 className="wordmark">
+           <BrandMark />
+         </h1>
+-        {/* Who you are and what is keeping it, stacked as one card at the far
+-            end of the bar. The way in to an account used to be a line of lobby
+-            furniture down beside the tagline, which is the wrong place for it:
+-            it is the account control, and the account control belongs on the
+-            thing that already says your name. Stacked rather than a third chip
+-            on the line, because three chips at 375px take the wordmark down to
+-            an ellipsis -- see `css.test.ts`, "the lobby bar". */}
+-        <div className="account">
++        {/* One control at the far end of the bar, and it is the account.
++
++            It was two, stacked: a chip that opened a one-field name form, and
++            a link under it that opened the words. Two controls for one idea,
++            and the split was ours rather than anybody's expectation -- the
++            thing that shows your name is the thing you press to get at your
++            account, everywhere else on the web. So the name form moved inside
++            the panel and this is what is left. One line again, which is what
++            the card was stacked to avoid: with the link gone the bar is back
++            to a chip beside the lockup at 320px. */}
++        <div className="account" ref={accountRef}>
+           <button
+             type="button"
+             className="whoami"
+-            aria-expanded={panel === "name"}
+-            onClick={() => togglePanel("name")}
++            aria-expanded={panel === "profile"}
++            aria-haspopup="menu"
++            onClick={() => togglePanel("profile")}
+           >
+             <span className="av" aria-hidden="true">
+               {(trimmed || "?").slice(0, 1).toUpperCase()}
+             </span>
+-            <span className="who">{trimmed || "Add your name"}</span>
++            {/* The name is the label when there is one. Before that the chip
++                has to say what it is for, and "Account" is the honest version:
++                the panel behind it asks for the name on its first row. */}
++            <span className="who">{trimmed || "Account"}</span>
++            <span className="sr-only">
++              {signed ? ". Your account" : ". No account on this device"}
++            </span>
+           </button>
+ 
+-          {/* The quiet half. It is a label for a state, not a pitch: the pitch
+-              is the reminder down in the lobby, and the panel behind this
+-              button says the rest. The one loud state -- words actually due --
+-              stays down there too, where a 1.7rem number has room to be the
+-              reason to come back. */}
+-          <button
+-            type="button"
+-            className="acct-link"
+-            aria-expanded={panel === "profile"}
+-            onClick={() => togglePanel("profile")}
+-          >
+-            {signed ? "Your account" : "Create an account"}
+-          </button>
++          {/* Hung off the chip, not laid into the column beside it.
++
++              It was drawn in the lobby aside, which put the account menu down
++              the left of a desktop lobby while the button that opened it sat
++              at the top right -- a press in one corner answered in another,
++              and on the way it shoved the shelf down the page. Every account
++              menu anybody has used drops from its own chip, so this one does:
++              out of flow, anchored to the card, costing the page no height.
++
++              `onKeyDown` here rather than on each panel so Escape closes it
++              from anywhere inside, including the rows that open forms. */}
++          {(panel === "profile" || panel === "vocab") && (
++            <div className="acct-pop" onKeyDown={onEscape}>
++              {/* A screen rather than a drawer, so it replaces the profile
++                  panel instead of growing underneath it. Back returns to the
++                  panel it was opened from, which is the only place it can
++                  have come from.
++
++                  No socket here -- the lobby has none -- so `live` and
++                  `onRequest` are both absent and the screen draws the stored
++                  copy and says so. See `vocabCache.ts`. */}
++              {panel === "vocab" && (
++                <Vocabulary profile={profile} onBack={() => setPanel("profile")} />
++              )}
++
++              {panel === "profile" && (
++                <Profile
++                  profile={profile}
++                  onOpenVocab={() => setPanel("vocab")}
++                  name={name}
++                  onName={(chosen) => {
++                    setName(chosen);
++                    onName(chosen);
++                  }}
++                  onChanged={refreshAccount}
++                  swapLabel={swapLabel}
++                  onSwapPalette={onSwapPalette}
++                  sound={sound}
++                  onToggleSound={onToggleSound}
++                />
++              )}
++            </div>
++          )}
+         </div>
+ 
+         {/* Anchored under the chip that opened it rather than laid across the
+             page. As a block in the flow it was a full-width card that shoved
+             the join box, the tagline and the whole shelf down the screen to
+             ask for one word; out of flow it costs the page no height at all
+             and appears where the press was. */}
+         {panel === "name" && (
+         <form
+           className="panel panel-pop"
+@@ -1406,23 +1499,20 @@ function Setup({
+               copy never mentioned. Absent once there is an account, because
+               then it is describing something you already have. */}
+           {!signed && (
+             <p className="acct-why">
+               An account remembers the words you have found and the ones you
+               owe a review on, and keeps your stats and streaks across every
+               game. No email, nothing to fill in.
+             </p>
+           )}
+ 
+-          {panel === "profile" && (
+-            <Profile profile={profile} onChanged={refreshAccount} />
+-          )}
+         </div>
+ 
+       {/* One element around the shelf, which `base.css` reads: the two recovery
+           screens wear `.app.setup` too, and the desktop layout is for the lobby
+           rather than for a wordmark and a button. */}
+       <div className="shelves">
+         {/* The other half of the fork, and it had never been named.
+ 
+             The code above it is a question with a rule under it; this is the
+             answer for everybody who has not got one. Two named halves is the
+diff --git a/src/client/Profile.tsx b/src/client/Profile.tsx
+index 89c781b..ed1d236 100644
+--- a/src/client/Profile.tsx
++++ b/src/client/Profile.tsx
+@@ -11,22 +11,22 @@
+  * Everything here is drawn from the cached `ProfileView` — see
+  * `profileCache.ts` for why the lobby cannot have a live one, and why a stale
+  * count is the right trade.
+  *
+  * **It renders no word it was not sent.** The client has no dictionary and
+  * never may, so every gloss, script and rank on this screen arrived on the row
+  * itself. That is what `Known` is carrying all those fields for.
+  */
+ import { useEffect, useRef, useState } from "react";
+ import type { GameTally, ProfileView, TallyResult } from "../shared/profile.js";
+-import { LEARN_LANGS, dayOf, decided } from "../shared/profile.js";
+-import { BOXES, levelFor, xpForLevel } from "../shared/review.js";
++import { dayOf, decided } from "../shared/profile.js";
++import { BOXES } from "../shared/review.js";
+ import {
+   createAccount,
+   exportAccount,
+   exportCompact,
+   forgetAccount,
+   hasAccount,
+   importAccount,
+ } from "./account.js";
+ import { QrCode } from "./qr.js";
+ import { canScan, scanQr, type Scan } from "./scan.js";
+@@ -57,176 +57,49 @@ function Figure({ n, of, lead }: { n: number; of: string; lead?: boolean }) {
+     <div className={lead ? "figure figure-lead" : "figure"}>
+       <span className="figure-n">{n.toLocaleString()}</span>
+       <span className="figure-of">{of}</span>
+     </div>
+   );
+ }
+ 
+ /**
+  * Hand the key over as a file.
+  *
+- * A key is four lines of base64 that has to survive being moved to another
+- * device, and the two ways of moving it that people actually have are a file
+- * and a clipboard. The clipboard is the one that can fail silently in a
+- * WebView, so this is the one that is a button: an object in Downloads can be
+- * mailed to yourself, dropped in a password manager, or put on a stick, and it
+- * cannot be half-selected.
++ * The key is short enough to write down now, which is the better backup, and
++ * the file stays anyway: a clipboard write can fail silently in a WebView, and
++ * an object in Downloads can be mailed to yourself, dropped in a password
++ * manager or put on a stick, and cannot be half-selected.
+  *
+- * The object URL is revoked on the next frame rather than immediately -- the
+- * click has to have been dispatched first -- and never held, because it keeps
+- * the key alive in the document for as long as it exists.
++ * Text or JSON depending on which the key is, because accounts minted before
++ * seeds existed still export the old pair, and a `.txt` full of braces is a
++ * file somebody will fail to feed back in. `exportAccount` decides; this only
++ * has to name what it was handed.
++ *
++ * The object URL is revoked on the next frame rather than immediately, since
++ * the click has to have been dispatched first, and never held, because it
++ * keeps the key alive in the document for as long as it exists.
+  */
+ function downloadKey(key: string): void {
+-  const url = URL.createObjectURL(new Blob([key], { type: "application/json" }));
++  const json = key.trimStart().startsWith("{");
++  const url = URL.createObjectURL(
++    new Blob([key], { type: json ? "application/json" : "text/plain" }),
++  );
+   const link = document.createElement("a");
+   link.href = url;
+   // Dated, because somebody who has done this twice needs to know which file
+   // is the account they are still using.
+-  link.download = `rebellia-key-${new Date().toISOString().slice(0, 10)}.json`;
++  const day = new Date().toISOString().slice(0, 10);
++  link.download = `rebellia-key-${day}.${json ? "json" : "txt"}`;
+   link.click();
+   setTimeout(() => URL.revokeObjectURL(url), 0);
+ }
+ 
+-/**
+- * The account controls.
+- *
+- * Separate from the numbers because they are a different kind of thing: the
+- * numbers are what you came to look at, and this is the housekeeping under
+- * them. It says "keep this somewhere private" and "losing it loses the
+- * account" in those words, because that is true and there is nobody to appeal
+- * to — no email address and no password on file, which is the same property
+- * that makes this system hold no personal data at all.
+- */
+-function Keeping({ onChanged }: { onChanged(): void }) {
+-  const [showing, setShowing] = useState<"none" | "text" | "qr">("none");
+-  const [pasting, setPasting] = useState(false);
+-  const [paste, setPaste] = useState("");
+-  const [failed, setFailed] = useState(false);
+-  const key = showing === "text" ? exportAccount() : null;
+-  const code = showing === "qr" ? exportCompact() : null;
+-
+-  /**
+-   * One arrival point for a key, however it got here.
+-   *
+-   * A scan and a paste differ only in how the text was fetched, and the thing
+-   * that decides whether text is an account is `importAccount` either way. So
+-   * the refusal, the cache clear and the reload are written once: a scanned
+-   * key that fails has to fail exactly as loudly as a pasted one, and two
+-   * copies of this is how one of them quietly stops doing that.
+-   */
+-  async function take(text: string): Promise<void> {
+-    const account = await importAccount(text);
+-    if (!account) return setFailed(true);
+-    // The words on screen belong to the account that just went away.
+-    clearProfileCache();
+-    setFailed(false);
+-    setPasting(false);
+-    setPaste("");
+-    onChanged();
+-  }
+-
+-  return (
+-    <section className="prof-keep" aria-labelledby="prof-keep-head">
+-      <h3 id="prof-keep-head">Keeping this</h3>
+-      <p>
+-        This account is a key on this device. There is no email and no password,
+-        so <strong>if you lose the key you lose the words</strong>. Save the file
+-        somewhere private.
+-      </p>
+-
+-      <div className="prof-keep-row">
+-        <button
+-          type="button"
+-          className="primary"
+-          onClick={() => {
+-            const saving = exportAccount();
+-            if (saving) downloadKey(saving);
+-          }}
+-        >
+-          Download key
+-        </button>
+-        <button
+-          type="button"
+-          onClick={() => setShowing((was) => (was === "qr" ? "none" : "qr"))}
+-        >
+-          {showing === "qr" ? "Hide code" : "Set up another device"}
+-        </button>
+-        <button
+-          type="button"
+-          onClick={() => setShowing((was) => (was === "text" ? "none" : "text"))}
+-        >
+-          {showing === "text" ? "Hide key" : "Show recovery key"}
+-        </button>
+-        <button type="button" onClick={() => setPasting((was) => !was)}>
+-          Use a key from another device
+-        </button>
+-      </div>
+-
+-      {code && (
+-        <div className="prof-qr">
+-          <QrCode text={code} alt="Your recovery key, as a QR code" />
+-          <p>
+-            On the other device, open this screen and choose{" "}
+-            <strong>use a key from another device</strong>, then point it here.
+-            {/* Said plainly, because the code looks like a ticket and is not
+-                one: it is the account itself, and a photograph of it is as
+-                good as the key. */}{" "}
+-            Anyone who photographs this has your words.
+-          </p>
+-        </div>
+-      )}
+-
+-      {key && (
+-        <label className="prof-key">
+-          <span className="sr-only">Your recovery key</span>
+-          {/* Read-only and selectable rather than a copy button: a clipboard
+-              write can fail silently on a WebView, and the text being right
+-              there is the thing that cannot. */}
+-          <textarea readOnly rows={4} value={key} onFocus={(e) => e.target.select()} />
+-        </label>
+-      )}
+-
+-      {pasting && (
+-        <form
+-          className="prof-paste"
+-          onSubmit={async (e) => {
+-            e.preventDefault();
+-            await take(paste);
+-          }}
+-        >
+-          <Scanner onText={take} />
+-          <label>
+-            Paste the key from your other device
+-            <textarea
+-              rows={4}
+-              value={paste}
+-              onChange={(e) => {
+-                setPaste(e.target.value);
+-                setFailed(false);
+-              }}
+-            />
+-          </label>
+-          {failed && (
+-            <p className="prof-bad" role="alert">
+-              That is not a key this app wrote. Copy the whole thing, including
+-              the brackets.
+-            </p>
+-          )}
+-          <button className="primary" disabled={paste.trim().length === 0}>
+-            Use this key
+-          </button>
+-        </form>
+-      )}
+-    </section>
+-  );
+-}
+-
+ /**
+  * The camera half of the handover, when there is a camera to have.
+  *
+  * Renders nothing at all where `BarcodeDetector` or `getUserMedia` is missing
+  * -- an older desktop browser, iOS Safari, or the plain-http LAN address this
+  * app gets tested on, which is not a secure context and so has no camera.
+  * That is why the paste box below it never went away: this is a shortcut past
+  * the typing, not a replacement for it.
+  *
+  * The stream is stopped on unmount as well as on a hit, because the one thing
+@@ -377,171 +250,497 @@ function Games({ games }: { games: GameTally[] }) {
+                 <Form last={tally.last} />
+               </li>
+             );
+           })}
+       </ul>
+     </section>
+   );
+ }
+ 
+ /**
+- * The panel, or the offer of one.
++ * One row of the account menu.
++ *
++ * The value lives on the label rather than off to the right -- "Appearance:
++ * Daylight", not "Appearance" with a note beside it -- because that is the one
++ * shape that reads the same at 320px as at 1280 without a second column to
++ * keep. A row either does its thing on the press or opens underneath itself,
++ * and `aria-expanded` is present only on the second kind, so a screen reader
++ * is not told that "Download key" is a collapsed anything.
++ */
++function Row({
++  label,
++  value,
++  open,
++  danger,
++  onPress,
++}: {
++  label: string;
++  value?: string;
++  open?: boolean;
++  danger?: boolean;
++  onPress(): void;
++}) {
++  return (
++    <button
++      type="button"
++      className={danger ? "prof-row prof-row-danger" : "prof-row"}
++      aria-expanded={open === undefined ? undefined : open}
++      onClick={onPress}
++    >
++      <span className="prof-row-label">{label}</span>
++      {value && <span className="prof-row-value">{value}</span>}
++    </button>
++  );
++}
++
++/**
++ * Your name, changed where the rest of your account is.
++ *
++ * The bar used to carry two controls at its far end, one for the name and one
++ * for the account, which is two answers to a question people only ask once:
++ * they press the thing that says their name. So the field moved in here, under
++ * a row of the menu, and the bar is down to one button. The one-question
++ * popover the lobby still shows when you press a game card without a name is a
++ * different thing and stays where it is.
+  *
+- * A guest is shown what an account is *for* rather than a form. There is no
+- * sign-up anywhere in this system — pressing the button makes a key and that
+- * is the whole of it, no round trip, nothing that can fail on a train — so the
+- * copy has one job, which is to say what starts happening.
++ * Seeded once and kept locally, because a field that reads its value back from
++ * the app as you type is a field that fights the cursor. `saved` is only there
++ * to say the press did something: nothing else in this menu moves when a name
++ * changes, and a button that visibly does nothing gets pressed again.
+  */
++function NameField({ name, onName }: { name: string; onName(name: string): void }) {
++  const [draft, setDraft] = useState(name);
++  const [saved, setSaved] = useState(false);
++  const trimmed = draft.trim();
++
++  return (
++    <form
++      className="prof-name"
++      onSubmit={(e) => {
++        e.preventDefault();
++        if (!trimmed) return;
++        onName(trimmed);
++        setSaved(true);
++      }}
++    >
++      <label>
++        <span className="sr-only">Your name</span>
++        <input
++          autoFocus
++          value={draft}
++          onChange={(e) => {
++            setDraft(e.target.value);
++            setSaved(false);
++          }}
++          placeholder="Amelia"
++          maxLength={20}
++        />
++      </label>
++      <button className="primary" disabled={!trimmed || trimmed === name}>
++        Save
++      </button>
++      {/* Polite rather than assertive: it arrives while the cursor is still in
++          the field, and the field is not what it is talking about. */}
++      <span className="prof-saved" role="status">
++        {saved && trimmed === name ? "Saved" : ""}
++      </span>
++    </form>
++  );
++}
++
++/**
++ * Everything the account panel used to be, laid out the way an account menu is.
++ *
++ * This was two controls in the bar and a page under each: a name chip that
++ * opened a one-field form, and a link beside it that opened the words. They
++ * are one button now, and this is what it opens -- an identity block, then
++ * rows in groups, which is the shape anybody has already learned from every
++ * other account menu they have ever opened. Nothing was dropped in the merge;
++ * the parts that were pages are what the rows open.
++ *
++ * Only one row is open at a time. They are alternatives rather than a form to
++ * work down, and two of them open a key: a recovery key and a QR of the same
++ * key on screen together is twice as much of the thing this panel spends a
++ * paragraph telling you to keep private.
++ *
++ * The appearance rows are drawn for a guest too. They are the one part of this
++ * menu that has nothing to do with having an account, and the switches in the
++ * lobby footer stay where they are, because somebody who has never opened this
++ * menu still has to be able to turn the lights on.
++ */
++type Open = "none" | "name" | "stats" | "key" | "qr" | "paste";
++
+ export function Profile({
+   profile,
++  name,
++  onName,
+   onChanged,
++  onOpenVocab,
++  swapLabel,
++  onSwapPalette,
++  sound,
++  onToggleSound,
+ }: {
+   profile: ProfileView | null;
++  name: string;
++  onName(name: string): void;
+   onChanged(): void;
++  /** Open the Vocabulary screen. See `Vocabulary.tsx`. */
++  onOpenVocab(): void;
++  swapLabel: string;
++  onSwapPalette(): void;
++  sound: boolean;
++  onToggleSound(): void;
+ }) {
+   const [signed, setSigned] = useState(hasAccount);
++  const [open, setOpen] = useState<Open>("none");
++  const [paste, setPaste] = useState("");
++  const [failed, setFailed] = useState(false);
+   const heading = useRef<HTMLHeadingElement>(null);
+ 
+-  // The panel opens under a button, so the reader's place on the page is now
++  // The menu opens under a button, so the reader's place on the page is now
+   // above something that was not there a moment ago.
+   useEffect(() => {
+     heading.current?.focus();
+   }, []);
+ 
+-  if (!signed) {
+-    return (
+-      <section className="panel prof" aria-labelledby="prof-head">
+-        <h2 id="prof-head" ref={heading} tabIndex={-1}>
+-          Keep what you learn
+-        </h2>
+-        <p>
+-          Word Chain and Vocab Race already know every word you have found and
+-          every one you have missed. With an account they are written down, and
+-          the games start asking you the ones you owe a review on.
+-        </p>
+-        <p className="prof-quiet">
+-          No email, no password, nothing to fill in. Everyone you play with can
+-          carry on without one.
+-        </p>
+-        <button
+-          className="primary"
+-          type="button"
+-          onClick={async () => {
+-            await createAccount();
+-            setSigned(true);
+-            onChanged();
+-          }}
+-        >
+-          Start keeping track
+-        </button>
+-      </section>
+-    );
+-  }
++  const key = open === "key" ? exportAccount() : null;
++  const code = open === "qr" ? exportCompact() : null;
++  const toggle = (which: Open) => setOpen((was) => (was === which ? "none" : which));
+ 
+-  // Signed in, but nothing filed yet: the account exists the moment the key
+-  // does, and the profile behind it is created by the first game.
+-  if (!profile) {
+-    return (
+-      <section className="panel prof" aria-labelledby="prof-head">
+-        <h2 id="prof-head" ref={heading} tabIndex={-1}>
+-          Nothing yet
+-        </h2>
+-        <p>
+-          Play a game of Word Chain or Vocab Race and the words will land here.
+-        </p>
+-        <Keeping onChanged={onChanged} />
+-      </section>
+-    );
++  /**
++   * One arrival point for a key, however it got here.
++   *
++   * A scan and a paste differ only in how the text was fetched, and the thing
++   * that decides whether text is an account is `importAccount` either way. So
++   * the refusal, the cache clear and the reload are written once: a scanned
++   * key that fails has to fail exactly as loudly as a pasted one, and two
++   * copies of this is how one of them quietly stops doing that.
++   */
++  async function take(text: string): Promise<void> {
++    const account = await importAccount(text);
++    if (!account) return setFailed(true);
++    // The words on screen belong to the account that just went away.
++    clearProfileCache();
++    setFailed(false);
++    setOpen("none");
++    setPaste("");
++    onChanged();
+   }
+ 
+-  const level = levelFor(profile.xp);
+-  const floor = xpForLevel(level);
+-  const ceiling = xpForLevel(level + 1);
+-  const through = Math.max(0, Math.min(1, (profile.xp - floor) / Math.max(1, ceiling - floor)));
++  /*
++    Arriving with a key from somewhere else, offered in both halves of the
++    menu.
++
++    A guest needs it because it is the other way to have an account, and
++    somebody already signed in needs it because it is how a second device joins
++    the first. Same row, same form, same refusal, written once: two copies of
++    this is how one of them quietly stops clearing the cache.
++  */
++  const takeAKey = (
++    <>
++      <Row
++        label="Use a key from another device"
++        open={open === "paste"}
++        onPress={() => {
++          setFailed(false);
++          toggle("paste");
++        }}
++      />
++      {open === "paste" && (
++        <form
++          className="prof-paste"
++          onSubmit={async (e) => {
++            e.preventDefault();
++            await take(paste);
++          }}
++        >
++          <Scanner onText={take} />
++          <label>
++            Type or paste the key from your other device
++            <textarea
++              rows={4}
++              value={paste}
++              onChange={(e) => {
++                setPaste(e.target.value);
++                setFailed(false);
++              }}
++            />
++          </label>
++          {failed && (
++            <p className="prof-bad" role="alert">
++              That is not a key this app wrote. Check it for a wrong character,
++              and copy the whole thing.
++            </p>
++          )}
++          <button className="primary" disabled={paste.trim().length === 0}>
++            Use this key
++          </button>
++        </form>
++      )}
++    </>
++  );
+ 
+-  return (
+-    <section className="panel prof" aria-labelledby="prof-head">
+-      <h2 id="prof-head" ref={heading} tabIndex={-1}>
+-        {profile.name || "Your words"}
+-      </h2>
+-
+-      {/* Words first, level second. See the note at the top of this file. */}
+-      <div className="prof-figures">
+-        <Figure n={profile.due} of={profile.due === 1 ? "word due" : "words due"} lead />
+-        <Figure n={profile.words} of={profile.words === 1 ? "word known" : "words known"} />
+-        {profile.streak.days > 0 && (
+-          <Figure n={profile.streak.days} of={profile.streak.days === 1 ? "day" : "day streak"} />
+-        )}
+-      </div>
++  /*
++    The line under the name, which is the handle's slot in every menu this one
++    is shaped like and so is the one place a summary is read without being
++    looked for. It carries the two figures the panel leads with, and says the
++    plain thing when there are none, because "Level 0, 0 words" is a worse
++    answer to "what is in here" than "no words yet" is.
++  */
++  const summary = !signed
++    ? "No account on this device"
++    : profile && profile.words > 0
++      ? `${profile.learned.toLocaleString()} known · ${profile.words.toLocaleString()} met`
++      : "No words yet";
+ 
+-      <div className="prof-level">
+-        <span className="prof-level-n">Level {level}</span>
+-        <span className="prof-bar" aria-hidden="true">
+-          <span className="prof-bar-fill" style={{ inlineSize: `${Math.round(through * 100)}%` }} />
++  return (
++    <section className="panel prof prof-menu" aria-labelledby="prof-head">
++      {/* The identity block: who this is, and what is in the account. It is
++          the heading as well as the picture, so the focus the panel takes on
++          opening lands on the name rather than on the first row. */}
++      <header className="prof-me">
++        <span className="prof-me-av" aria-hidden="true">
++          {(name.trim() || profile?.name || "?").slice(0, 1).toUpperCase()}
+         </span>
+-        <span className="prof-level-xp">
+-          {profile.xp.toLocaleString()} / {ceiling.toLocaleString()}
++        <span className="prof-me-who">
++          <h2 id="prof-head" ref={heading} tabIndex={-1}>
++            {name.trim() || profile?.name || "Your account"}
++          </h2>
++          <span className="prof-me-sub">{summary}</span>
+         </span>
++      </header>
++
++      <div className="prof-group">
++        <Row label="Change name" open={open === "name"} onPress={() => toggle("name")} />
++        {open === "name" && <NameField name={name} onName={onName} />}
++
++        {/* Above Stats, because it is the thing this account is *for*. Stats
++            is a drawer that opens in place; this is a screen of its own, so it
++            carries no `open` and gets no expanded state -- a row that claims
++            to expand and then navigates instead is a lie told to a screen
++            reader. */}
++        <Row
++          label="Vocabulary"
++          value={profile && profile.learned > 0 ? `${profile.learned.toLocaleString()} learned` : undefined}
++          onPress={onOpenVocab}
++        />
++
++        <Row label="Stats" open={open === "stats"} onPress={() => toggle("stats")} />
++        {open === "stats" &&
++          (profile ? (
++            <div className="prof-stats">
++              {/* Words first, levels second. See the note at the top of this
++                  file: the counts mean something on their own and a level only
++                  means something beside somebody else's. */}
++              <div className="prof-figures">
++                <Figure n={profile.due} of={profile.due === 1 ? "word due" : "words due"} lead />
++                <Figure
++                  n={profile.learned}
++                  of={profile.learned === 1 ? "word known" : "words known"}
++                />
++                {profile.streak.days > 0 && (
++                  <Figure
++                    n={profile.streak.days}
++                    of={profile.streak.days === 1 ? "day" : "day streak"}
++                  />
++                )}
++              </div>
++
++              {/* One block per language rather than one level for the account.
++                  The curve is per language now, and it has to be: somebody
++                  four hundred words into Polish and three words into Japanese
++                  is not level anything in general. Words met and words known
++                  are both here because they are different claims -- see
++                  `LangView`, where the weak one is documented as the weak
++                  one -- and the bar underneath is the language's own. */}
++              {profile.byLang.length > 0 && (
++                <ul className="prof-langs">
++                  {profile.byLang.map((row) => {
++                    const through = Math.max(
++                      0,
++                      Math.min(
++                        1,
++                        (row.xp - row.levelAt) / Math.max(1, row.nextLevel - row.levelAt),
++                      ),
++                    );
++                    return (
++                      <li key={row.lang}>
++                        <span className="prof-lang">{LANG_NAME[row.lang] ?? row.lang}</span>
++                        <span className="prof-lang-n">
++                          {row.learned} known of {row.words}
++                          {row.due > 0 && <em>, {row.due} due</em>}
++                        </span>
++                        <span className="prof-level">
++                          <span className="prof-level-n">Level {row.level}</span>
++                          <span className="prof-bar" aria-hidden="true">
++                            <span
++                              className="prof-bar-fill"
++                              style={{ inlineSize: `${Math.round(through * 100)}%` }}
++                            />
++                          </span>
++                          <span className="prof-level-xp">
++                            {row.xp.toLocaleString()} / {row.nextLevel.toLocaleString()}
++                          </span>
++                        </span>
++                      </li>
++                    );
++                  })}
++                </ul>
++              )}
++
++              {profile.recent.length > 0 && (
++                <section className="prof-recent" aria-labelledby="prof-recent-head">
++                  <h3 id="prof-recent-head">Lately</h3>
++                  <ul>
++                    {profile.recent.map((word) => (
++                      <li key={`${word.lang}:${word.key}`}>
++                        <span className="prof-word">
++                          {word.lemma || word.word}
++                          {word.script && <span className="prof-script">{word.script}</span>}
++                        </span>
++                        <span className="prof-gloss">{word.gloss}</span>
++                        <span className="prof-when">
++                          {word.dueAt <= Date.now() ? "due now" : `back ${restingFor(word.box)}`}
++                        </span>
++                      </li>
++                    ))}
++                  </ul>
++                </section>
++              )}
++
++              {profile.games.length > 0 && <Games games={profile.games} />}
++            </div>
++          ) : (
++            /* Signed in with nothing filed yet: the account exists the moment
++               the key does, and the profile is written by the first game. It
++               used to be a screen of its own saying "Nothing yet", which put a
++               dead end where the account is; here it is one row's empty state
++               and everything else in the menu still works. */
++            <p className="prof-quiet prof-empty">
++              Nothing yet. Play a game of Word Chain or Vocab Race and the words
++              will land here.
++            </p>
++          ))}
+       </div>
+ 
+-      {profile.byLang.length > 0 && (
+-        <ul className="prof-langs">
+-          {LEARN_LANGS.filter((lang) => profile.byLang.some((row) => row.lang === lang)).map(
+-            (lang) => {
+-              const row = profile.byLang.find((entry) => entry.lang === lang);
+-              if (!row) return null;
+-              return (
+-                <li key={lang}>
+-                  <span className="prof-lang">{LANG_NAME[lang] ?? lang}</span>
+-                  <span className="prof-lang-n">
+-                    {row.words} {row.words === 1 ? "word" : "words"}
+-                    {row.due > 0 && <em>, {row.due} due</em>}
+-                  </span>
+-                </li>
+-              );
+-            },
++      <div className="prof-group">
++        {/* The value on the label, so the row says where you are as well as
++            where pressing it goes. `swapLabel` names the palette you would
++            move to, so the row has to name the one you are in. */}
++        <Row
++          label="Appearance"
++          value={swapLabel === "Daylight" ? "Stage" : "Daylight"}
++          onPress={onSwapPalette}
++        />
++        <Row label="Sound" value={sound ? "On" : "Off"} onPress={onToggleSound} />
++      </div>
++
++      {/* The key, and the four things anybody ever does with one. Absent
++          entirely for a guest, who has no key for these rows to be about. */}
++      {signed ? (
++        <div className="prof-group">
++          <p className="prof-keep-why">
++            This account is a key on this device. There is no email and no
++            password, so <strong>if you lose the key you lose the words</strong>.
++            It is 52 characters, so you can write it on paper. Keep it somewhere
++            private.
++          </p>
++
++          <Row
++            label="Download key"
++            onPress={() => {
++              const saving = exportAccount();
++              if (saving) downloadKey(saving);
++            }}
++          />
++
++          <Row
++            label="Set up another device"
++            open={open === "qr"}
++            onPress={() => toggle("qr")}
++          />
++          {code && (
++            <div className="prof-qr">
++              <QrCode text={code} alt="Your recovery key, as a QR code" />
++              <p>
++                On the other device, open this menu and choose{" "}
++                <strong>use a key from another device</strong>, then point it here.
++                {/* Said plainly, because the code looks like a ticket and is not
++                    one: it is the account itself, and a photograph of it is as
++                    good as the key. */}{" "}
++                Anyone who photographs this has your words.
++              </p>
++            </div>
+           )}
+-        </ul>
+-      )}
+ 
+-      {profile.recent.length > 0 && (
+-        <section className="prof-recent" aria-labelledby="prof-recent-head">
+-          <h3 id="prof-recent-head">Lately</h3>
+-          <ul>
+-            {profile.recent.map((word) => (
+-              <li key={`${word.lang}:${word.key}`}>
+-                <span className="prof-word">
+-                  {word.lemma || word.word}
+-                  {word.script && <span className="prof-script">{word.script}</span>}
+-                </span>
+-                <span className="prof-gloss">{word.gloss}</span>
+-                <span className="prof-when">
+-                  {word.dueAt <= Date.now() ? "due now" : `back ${restingFor(word.box)}`}
+-                </span>
+-              </li>
+-            ))}
+-          </ul>
+-        </section>
++          <Row
++            label="Show recovery key"
++            open={open === "key"}
++            onPress={() => toggle("key")}
++          />
++          {key && (
++            <label className="prof-key">
++              <span className="sr-only">Your recovery key</span>
++              {/* Read-only and selectable rather than a copy button: a clipboard
++                  write can fail silently on a WebView, and the text being right
++                  there is the thing that cannot. */}
++              {/* Two rows, because the key is one line of 64 characters and a
++                  legacy JSON pair is four. Wrapping is on either way. */}
++              <textarea readOnly rows={3} value={key} onFocus={(e) => e.target.select()} />
++            </label>
++          )}
++
++          {takeAKey}
++        </div>
++      ) : (
++        /* The guest's half of the menu. There is no sign-up anywhere in this
++           system: pressing the button makes a key and that is the whole of it,
++           no round trip, nothing that can fail on a train. So the copy has one
++           job, which is to say what starts happening. */
++        <div className="prof-group">
++          <p className="prof-keep-why">
++            Word Chain and Vocab Race already know every word you have found and
++            every one you have missed. With an account they are written down,
++            and the games start asking you the ones you owe a review on. No
++            email, no password, nothing to fill in.
++          </p>
++          <button
++            className="primary prof-make"
++            type="button"
++            onClick={async () => {
++              await createAccount();
++              setSigned(true);
++              onChanged();
++            }}
++          >
++            Start keeping track
++          </button>
++          {takeAKey}
++        </div>
+       )}
+ 
+-      {profile.games.length > 0 && <Games games={profile.games} />}
+-
+-      <Keeping onChanged={onChanged} />
+-
+-      <button
+-        type="button"
+-        className="prof-forget"
+-        onClick={() => {
+-          if (!confirm("Sign out on this device? Without the recovery key these words are gone.")) {
+-            return;
+-          }
+-          forgetAccount();
+-          clearProfileCache();
+-          setSigned(false);
+-          onChanged();
+-        }}
+-      >
+-        Sign out on this device
+-      </button>
++      {signed && (
++        <div className="prof-group">
++          <Row
++            label="Sign out on this device"
++            danger
++            onPress={() => {
++              if (
++                !confirm(
++                  "Sign out on this device? Without the recovery key these words are gone.",
++                )
++              ) {
++                return;
++              }
++              forgetAccount();
++              clearProfileCache();
++              setSigned(false);
++              setOpen("none");
++              onChanged();
++            }}
++          />
++        </div>
++      )}
+     </section>
+   );
+ }
+diff --git a/src/client/account.ts b/src/client/account.ts
+index 0ab30aa..481c113 100644
+--- a/src/client/account.ts
++++ b/src/client/account.ts
+@@ -14,70 +14,168 @@
+  * specification: a player who never touches any of this gets exactly the app
+  * they had before, and a guest sitting down beside somebody signed in costs
+  * that person nothing.
+  *
+  * ## Losing it
+  *
+  * Losing the key loses the account, and the screen that shows it should say so
+  * in those words rather than in the language of security. That is the cost of
+  * having no email and no password, and it is why `exportAccount` shipped before
+  * any of the rest of this did.
++ *
++ * The key it hands over is 52 characters, because the pair is derived from a
++ * 32 byte seed rather than generated. `p256.ts` is the one piece of curve
++ * arithmetic that makes that possible, and the comment at the top of it is
++ * where the trade is written down. Signing never leaves WebCrypto.
+  */
+ import { accountIdFor, fromBase64Url, payloadFor, toBase64Url } from '../shared/account.js';
++import { basePointMultiply, fromFieldBytes, N, toFieldBytes } from '../shared/p256.js';
++import {
++  decodeRecoveryKey,
++  encodeRecoveryKey,
++  formatRecoveryKey,
++  looksLikeRecoveryKey,
++} from '../shared/recoveryKey.js';
+ 
+ const ALGORITHM = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+ const SIGNING = { name: 'ECDSA', hash: 'SHA-256' } as const;
+ 
++/** The whole account, in bytes. 256 bits, which is what P-256 has to spend. */
++const SEED_BYTES = 32;
++
++/** Prefix on the seed before it is hashed, so this derivation can never collide with another. */
++const DERIVATION = 'ag1/p256/';
++
++/**
++ * Seed to private scalar.
++ *
++ * A P-256 scalar is a number in [1, n-1] and n is not a power of two, so
++ * reading 32 random bytes as a number and using it directly is very slightly
++ * biased and, once in about 2^32 tries, out of range outright. Hashing with a
++ * counter and rejecting anything out of range is the standard fix and costs
++ * one SHA-256 in the overwhelming case. The counter is in the hash rather than
++ * the loop being over fresh randomness, because the whole point is that a seed
++ * derives the same account every time, on every device, forever.
++ */
++async function scalarFromSeed(seed: Uint8Array): Promise<bigint> {
++  for (let counter = 0; counter < 256; counter++) {
++    const input = new TextEncoder().encode(`${DERIVATION}${counter}|`);
++    const message = new Uint8Array(new ArrayBuffer(input.length + seed.length));
++    message.set(input);
++    message.set(seed, input.length);
++    const candidate = fromFieldBytes(
++      new Uint8Array(await crypto.subtle.digest('SHA-256', message)),
++    );
++    if (candidate > 0n && candidate < N) return candidate;
++  }
++  // Unreachable short of SHA-256 being broken; thrown rather than looped
++  // forever so a bug here looks like a bug instead of a hang.
++  throw new Error('no valid scalar after 256 tries');
++}
++
++/**
++ * The stored pair a seed produces.
++ *
++ * The scalar multiply in `p256.ts` is the step WebCrypto cannot do. Once the
++ * point is in hand this hands the whole thing straight back to WebCrypto as a
++ * jwk and asks it for the pkcs8 and raw encodings, so the bytes that end up in
++ * storage are WebCrypto's own and nothing downstream can tell a seeded account
++ * from a generated one. Extractable, for the same reason `localStorage` is the
++ * store: durability beats secrecy here.
++ */
++async function keysFromSeed(seed: Uint8Array): Promise<StoredKeys> {
++  const scalar = await scalarFromSeed(seed);
++  const point = basePointMultiply(scalar);
++  const x = toFieldBytes(point.x);
++  const y = toFieldBytes(point.y);
++  const priv = await crypto.subtle.importKey(
++    'jwk',
++    {
++      kty: 'EC',
++      crv: 'P-256',
++      d: toBase64Url(toFieldBytes(scalar)),
++      x: toBase64Url(x),
++      y: toBase64Url(y),
++      ext: true,
++    },
++    ALGORITHM,
++    true,
++    ['sign'],
++  );
++  // 0x04 and the two coordinates, which is the raw encoding `verifyClaim`
++  // expects. Built here rather than exported from a second import of the
++  // public half, because building it is three lines and the import is a
++  // round trip that can fail on its own.
++  const raw = new Uint8Array(new ArrayBuffer(1 + x.length + y.length));
++  raw[0] = 0x04;
++  raw.set(x, 1);
++  raw.set(y, 1 + x.length);
++  return {
++    seed: toBase64Url(seed),
++    priv: toBase64Url(await crypto.subtle.exportKey('pkcs8', priv)),
++    pub: toBase64Url(raw),
++  };
++}
++
+ /**
+  * Where the key lives.
+  *
+  * `localStorage` rather than IndexedDB, which would let the key be stored as a
+  * non-extractable `CryptoKey` and never be readable by script at all. That is
+  * genuinely more secure and it is the wrong trade here: a non-extractable key
+  * cannot be exported, and a key that cannot be exported is an account that
+  * cannot be recovered or moved to a second device. **Durability beats
+  * secrecy** in this system, and this is the line where that is decided rather
+  * than merely stated.
+  *
+  * Carries the `?as=` suffix for the same reason `ag.playerId` and `ag.name`
+  * do. Two tabs driving both sides of a game are two players, and one of them
+  * finishing a round of Vocab Race must not land in the other's ledger.
+  */
+ function keyFor(name: string): string {
+   const suffix = new URLSearchParams(location.search).get('as') ?? '';
+   return `ag.${name}${suffix ? `.${suffix}` : ''}`;
+ }
+ 
+-/** A key pair, as it is stored: two base64url strings. */
++/** A key pair, as it is stored: base64url strings. */
+ interface StoredKeys {
+-  /** pkcs8, the secret half. This string *is* the account. */
++  /**
++   * base64url of the 32 byte seed the pair was derived from, when there was
++   * one. Absent on accounts minted before seeds existed, and that absence is
++   * load-bearing: it is what tells `exportAccount` to keep handing those
++   * players the old JSON pair, which is still the only thing that can rebuild
++   * their account.
++   */
++  seed?: string;
++  /** pkcs8, the secret half. Derived from `seed` where there is one. */
+   priv: string;
+   /** raw, the half the server checks signatures against. */
+   pub: string;
+ }
+ 
+ export interface Account {
+   id: string;
+   /** base64url of the raw public key, sent with every claim. */
+   key: string;
+   /** Signs the payload for one room. See `payloadFor`. */
+   sign(code: string): Promise<string>;
+ }
+ 
+ function read(): StoredKeys | null {
+   try {
+     const raw = localStorage.getItem(keyFor('account'));
+     if (!raw) return null;
+     const parsed = JSON.parse(raw) as Partial<StoredKeys>;
+-    return typeof parsed.priv === 'string' && typeof parsed.pub === 'string'
+-      ? { priv: parsed.priv, pub: parsed.pub }
+-      : null;
++    if (typeof parsed.priv !== 'string' || typeof parsed.pub !== 'string') return null;
++    return typeof parsed.seed === 'string'
++      ? { seed: parsed.seed, priv: parsed.priv, pub: parsed.pub }
++      : { priv: parsed.priv, pub: parsed.pub };
+   } catch {
+     return null;
+   }
+ }
+ 
+ function write(keys: StoredKeys): void {
+   localStorage.setItem(keyFor('account'), JSON.stringify(keys));
+ }
+ 
+ /** Whether this browser has an account at all. Cheap; does no crypto. */
+@@ -88,26 +186,23 @@ export function hasAccount(): boolean {
+ /**
+  * Make one. Overwrites whatever was there, so callers must ask first.
+  *
+  * There is no server round trip and nothing to register: the account exists
+  * the moment the key does, and the profile behind it is created by the first
+  * game that gets filed against it. That is deliberate — an account that has to
+  * be registered is an account that can fail to be registered, on a train, at
+  * the moment somebody wanted to play a game.
+  */
+ export async function createAccount(): Promise<Account> {
+-  const pair = await crypto.subtle.generateKey(ALGORITHM, true, ['sign', 'verify']);
+-  const keys: StoredKeys = {
+-    priv: toBase64Url(await crypto.subtle.exportKey('pkcs8', pair.privateKey)),
+-    pub: toBase64Url(await crypto.subtle.exportKey('raw', pair.publicKey)),
+-  };
+-  write(keys);
++  const seed = new Uint8Array(new ArrayBuffer(SEED_BYTES));
++  crypto.getRandomValues(seed);
++  write(await keysFromSeed(seed));
+   const account = await loadAccount();
+   if (!account) throw new Error('the key that was just written could not be read back');
+   return account;
+ }
+ 
+ /**
+  * This browser's account, or null.
+  *
+  * Null on anything at all going wrong — no key, a corrupt key, a browser with
+  * no WebCrypto — because every caller's answer to null is the same and it is
+@@ -152,91 +247,120 @@ export async function claimFor(code: string): Promise<{ id: string; key: string;
+   try {
+     return { id: account.id, key: account.key, sig: await account.sign(code) };
+   } catch {
+     return undefined;
+   }
+ }
+ 
+ /**
+  * Take an account over from another device, or from a backup.
+  *
+- * The second-device story in one function: paste the recovery key and this
+- * browser *is* that account. No pairing, no code, no third object to broker
+- * it. That is a real simplification and it costs one thing worth stating — the
+- * key travels through wherever the player pastes it, so the advice on the
+- * screen has to be to move it somewhere private rather than to message it to
+- * themselves.
++ * The second-device story in one function: type or paste the recovery key and
++ * this browser *is* that account. No pairing, no code, no third object to
++ * broker it. That is a real simplification and it costs one thing worth
++ * stating: the key travels through wherever the player pastes it, so the
++ * advice on screen has to be to move it somewhere private rather than to
++ * message it to themselves.
+  *
+- * Takes both halves, because WebCrypto cannot derive a public key from a
+- * pkcs8 import. That is why `exportAccount` writes out a pair rather than the
+- * one secret string it would be nicer to hand somebody.
++ * Reads both formats. A 52 character key is a seed and rebuilds the pair from
++ * scratch; a JSON pair is what this app exported before seeds existed, and it
++ * has to keep working, because for those accounts it is the only copy that can
++ * ever open them. Nothing re-mints an old account as a seeded one: the seed a
++ * key was never derived from cannot be recovered, and quietly issuing a *new*
++ * account under the old one's screen is the worst possible way to fail.
+  */
+ export async function importAccount(text: string): Promise<Account | null> {
++  const keys = looksLikeRecoveryKey(text) ? await fromRecoveryKey(text) : fromLegacyJson(text);
++  if (!keys) return null;
++  // Proved before it is stored, so a mistyped or truncated key fails here
++  // rather than silently becoming an account that cannot sign anything and is
++  // therefore permanently a guest without ever saying so.
++  if (!(await provesItself(keys))) return null;
++  write(keys);
++  return await loadAccount();
++}
++
++async function fromRecoveryKey(text: string): Promise<StoredKeys | null> {
++  const seed = decodeRecoveryKey(text);
++  if (!seed) return null;
++  try {
++    return await keysFromSeed(seed);
++  } catch {
++    return null;
++  }
++}
++
++function fromLegacyJson(text: string): StoredKeys | null {
+   try {
+     const parsed = JSON.parse(text) as Partial<StoredKeys>;
+     if (typeof parsed.priv !== 'string' || typeof parsed.pub !== 'string') return null;
+-    // Proved before it is stored, so a mistyped or truncated paste fails here
+-    // rather than silently becoming an account that cannot sign anything and
+-    // is therefore permanently a guest without ever saying so.
+-    const priv = await crypto.subtle.importKey(
+-      'pkcs8',
+-      fromBase64Url(parsed.priv),
+-      ALGORITHM,
+-      false,
+-      ['sign'],
+-    );
+-    const id = await accountIdFor(fromBase64Url(parsed.pub));
+-    const pub = await crypto.subtle.importKey('raw', fromBase64Url(parsed.pub), ALGORITHM, false, [
+-      'verify',
++    return { priv: parsed.priv, pub: parsed.pub };
++  } catch {
++    return null;
++  }
++}
++
++/** Whether the secret half really signs for the public half. Never throws. */
++async function provesItself(keys: StoredKeys): Promise<boolean> {
++  try {
++    const rawPub = fromBase64Url(keys.pub);
++    const priv = await crypto.subtle.importKey('pkcs8', fromBase64Url(keys.priv), ALGORITHM, false, [
++      'sign',
+     ]);
++    const pub = await crypto.subtle.importKey('raw', rawPub, ALGORITHM, false, ['verify']);
++    const id = await accountIdFor(rawPub);
+     const sig = await crypto.subtle.sign(SIGNING, priv, payloadFor(id, 'TEST'));
+-    if (!(await crypto.subtle.verify(SIGNING, pub, sig, payloadFor(id, 'TEST')))) return null;
+-
+-    write({ priv: parsed.priv, pub: parsed.pub });
+-    return await loadAccount();
++    return await crypto.subtle.verify(SIGNING, pub, sig, payloadFor(id, 'TEST'));
+   } catch {
+-    return null;
++    return false;
+   }
+ }
+ 
+ /**
+- * The recovery key: both halves of the pair, as the text `importAccount` reads.
++ * The recovery key: 52 characters, in groups of four.
+  *
+  * **This is the account.** Anybody holding it is the account holder, and
+- * anybody who has lost it has lost the account — there is nobody to appeal to,
++ * anybody who has lost it has lost the account. There is nobody to appeal to,
+  * because there is no email address and no password on file, which is the same
+  * property that makes this system hold no personal data at all. The screen
+  * that shows this should say that in those words rather than in the language
+  * of security.
+  *
+- * Both halves rather than just the secret one, because WebCrypto will not
+- * derive a public key from a pkcs8 import, so a private key alone is not
+- * enough to rebuild an account. It is JSON rather than a word list for a
+- * duller reason: a BIP39-style phrase would be far kinder to transcribe and it
+- * is a real amount of machinery — wordlist, checksum, a seed the key is
+- * derived from rather than generated — and shipping *something* recoverable on
+- * the first day beats shipping the nicer thing on some later one. This is the
+- * function to revisit.
++ * It is short because the pair is derived from a seed rather than generated,
++ * which is what `p256.ts` is for. Short enough to read down a phone, write on
++ * paper and type in by hand, and one thing rather than two halves, which is
++ * what makes "recovery key" honest language instead of "recovery JSON".
++ *
++ * Accounts minted before seeds existed still get the old JSON pair, because
++ * there is no seed behind them to print and there is no way to invent one. So
++ * a caller cannot assume a shape here, which is why the download stays a file
++ * and the screen shows whatever this returns.
+  */
+ export function exportAccount(): string | null {
+   const keys = read();
+-  return keys === null ? null : JSON.stringify(keys, null, 2);
++  if (keys === null) return null;
++  const seed = keys.seed ? fromBase64Url(keys.seed) : null;
++  if (seed) return formatRecoveryKey(seed);
++  return JSON.stringify({ priv: keys.priv, pub: keys.pub }, null, 2);
+ }
+ 
+ /**
+- * The same key with the whitespace taken out, for the QR.
++ * The same key with the grouping taken out, for the QR.
+  *
+  * Not a formatting preference. A QR's size is decided by how many bytes go
+- * into it in steps, and the indentation `exportAccount` adds for a human
+- * reading a file is about twenty bytes that push this payload over one of
+- * those steps, costing four modules of grid on a code that a phone camera has
+- * to resolve across a room. Same JSON, same `importAccount` on the other end.
++ * into it in steps, and the dashes are twelve bytes that can push the
++ * payload over one of those steps, costing modules of grid on a code a phone
++ * camera has to resolve across a room. `importAccount` strips them anyway, so
++ * they carry nothing. On a legacy account this is still the JSON, unindented,
++ * and it is still much the larger code.
+  */
+ export function exportCompact(): string | null {
+   const keys = read();
+-  return keys === null ? null : JSON.stringify(keys);
++  if (keys === null) return null;
++  const seed = keys.seed ? fromBase64Url(keys.seed) : null;
++  return seed ? encodeRecoveryKey(seed) : JSON.stringify({ priv: keys.priv, pub: keys.pub });
+ }
+ 
+ /** Forget this browser's account. The key is gone; anything not exported is gone with it. */
+ export function forgetAccount(): void {
+   localStorage.removeItem(keyFor('account'));
+ }
+diff --git a/src/client/art.tsx b/src/client/art.tsx
+index d9eddcb..3b62fad 100644
+--- a/src/client/art.tsx
++++ b/src/client/art.tsx
+@@ -4,27 +4,26 @@ import {
+   liarsDeal,
+   morrisDeal,
+   yahtzeeDeal,
+ } from "./cardDeal";
+ // Runtime, not type-only: the card motif and the board are drawn from the same
+ // geometry as the rules. `morrisDisplay.js` imports nothing, so the reducer
+ // does not follow it in, the same bargain wheelDisplay and battleshipDisplay
+ // already make.
+ import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
+ import { Die } from "./games/Die.js";
+-import { RG_H, RG_RUNS, RG_W } from "./rgMark.js";
+ import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
+ 
+ /*
+  * Everything this app draws that is not a board.
+  *
+- * The wordmark, the two logo marks and the thirteen lobby-card motifs. All of
++ * The wordmark and the thirteen lobby-card motifs. All of
+  * it is static: no state, no props beyond a game id, nothing that reads the
+  * room. It lived in `App.tsx` until that file was four hundred lines of
+  * artwork wrapped around eight hundred lines of shell, and the artwork was
+  * what anyone scrolling past had to scroll past.
+  *
+  * Three things leave here -- `TopMark`, `BrandMark`, `CardArt` -- and the rest
+  * is the machinery behind them.
+  */
+ 
+ 
+@@ -45,75 +44,40 @@ function Wordmark({ name }: { name: string }) {
+   const [head, tail] = splitMark(name);
+   return (
+     <>
+       {head}
+       <span className="tail">{tail}</span>
+     </>
+   );
+ }
+ 
+ /**
+- * The mark.
++ * The brand: the supplied wordmark, figure, squares and all.
+  *
+- * The RG monogram: pixel arcade caps on a rounded tile, the same letterforms
+- * the favicon and the launcher icons are drawn from. The runs come from
+- * `rgMark.ts`, which `scripts/make-icons.mjs` generates from the one grid, so
+- * the glyph in the header cannot drift from the glyph on the home screen.
++ * One image rather than a glyph plus type, because the lockup is now artwork
++ * with its own spacing between the figure and the letterforms, and rebuilding
++ * that in flexbox would drift from the file the moment either is retouched.
+  *
+- * It replaced a die-on-its-corner drawn in `currentColor` with pips in the
+- * channel colour. Two things went with it and both were deliberate. The mark
+- * no longer takes the accent, because the accent moves per game and a logo
+- * that changes colour with the room is not a logo; the wordmark's second word
+- * still carries it, so the lockup has lost none of that. And it no longer
+- * takes the ink, because it is a tile rather than a line drawing -- the tile
+- * is `--board` and the letters are `--seat-0`, which is exactly the daylight
+- * pair in daylight and the stage pair in stage, from the palette's own tokens
+- * rather than from two hexes written down here.
++ * Two files, and only because the ink moves. The wordmark is drawn in near
++ * black, which is invisible on stage's ground, so `logo-stage.png` is the same
++ * PNG with its one ink entry swapped for the light one; the five signal
++ * squares are identical in both. Swapped by CSS on `data-palette` rather than
++ * by React, so the switch does not wait on a render.
+  *
+- * No fixed size: set in `em` off the lockup beside it, so the header still has
+- * one number to tune rather than two.
+- */
+-function Logo() {
+-  return (
+-    <svg
+-      className="logo"
+-      viewBox={`0 0 ${RG_W + 8} ${RG_W + 8}`}
+-      role="img"
+-      aria-hidden="true"
+-      focusable="false"
+-    >
+-      <rect className="tile" width={RG_W + 8} height={RG_W + 8} rx={(RG_W + 8) * 0.22} />
+-      <g className="mono" transform={`translate(4 ${(RG_W + 8 - RG_H) / 2})`}>
+-        {RG_RUNS.map(([x, y, len]) => (
+-          <rect key={`${x},${y}`} x={x} y={y} width={len} height={1} />
+-        ))}
+-      </g>
+-    </svg>
+-  );
+-}
+-
+-/**
+- * The brand, mark and all: the glyph, then the name stacked over two lines.
+- *
+- * Stacked because "Rebellia Games" on one line at a size worth calling a logo
+- * does not fit beside a name chip at 320px, and the half it dropped was
+- * "Games". Two short lines fit at every width this app is used at, so there is
+- * one lockup rather than a phone one and a desktop one.
++ * Height in `em` off the bar's font-size, so the bar still has one number to
++ * tune, and the width follows the image's own 1076x438.
+  */
+ export function BrandMark() {
+   return (
+     <span className="brandmark">
+-      <Logo />
+-      <span className="lockup">
+-        <span className="line">Rebellia</span>
+-        <span className="line tail">Games</span>
+-      </span>
++      <img className="logo daylight" src="/logo.png" alt="Rebellia Games" />
++      <img className="logo stage" src="/logo-stage.png" alt="" aria-hidden="true" />
+     </span>
+   );
+ }
+ 
+ /**
+  * What the top bar is called: the brand, and the game when a game is open.
+  *
+  * In a room this used to be the game's name *instead of* the brand, so the one
+  * screen a player spends the whole evening on never said what they were playing
+  * on. Both now, stacked: brand small above, game at full size below.
+diff --git a/src/client/feel.ts b/src/client/feel.ts
+index 6a4589d..573aae6 100644
+--- a/src/client/feel.ts
++++ b/src/client/feel.ts
+@@ -131,20 +131,74 @@ export function clatter(strength: number, wall: boolean, pitch = 1): void {
+   thud.frequency.setValueAtTime(155 + Math.random() * 45, now);
+   thud.frequency.exponentialRampToValueAtTime(72, now + 0.06);
+   body.gain.setValueAtTime(0.0001, now);
+   body.gain.exponentialRampToValueAtTime(0.15 * gain, now + 0.005);
+   body.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+   thud.connect(body).connect(ac.destination);
+   thud.start(now);
+   thud.stop(now + 0.09);
+ }
+ 
++/**
++ * The reward for a right answer: two notes up, short, out of the way.
++ *
++ * Synthesised rather than a recording, which is the same call `clatter` makes
++ * and made for a different reason. The dice are synthesised because a throw is
++ * different every time; this is synthesised because it has to be *different by
++ * how much was earned*, and ten recordings of the same chime at ten pitches is
++ * ten files to ship and one number to get wrong. `sfx.ts` is for the discrete
++ * events -- a disc landing, a game ending -- and this is not one.
++ *
++ * The interval rises with the payment, and only a little: a fifth over the
++ * whole range of `xpFor`, from a first recognition to a five-week review. Big
++ * enough that a good answer sounds different from an ordinary one, small
++ * enough that the ordinary one never sounds like a consolation prize. A
++ * language app that sounds disappointed in you is one people stop opening.
++ *
++ * Goes through `sharedAudio`, so the sound switch is still the only switch --
++ * see the note at the top of `sfx.ts`, which is the rule this obeys rather
++ * than a second mute to forget about.
++ */
++export function chime(xp: number): void {
++  const ac = sharedAudio();
++  if (!ac) return;
++  const now = ac.currentTime;
++
++  // The range `xpFor` actually produces: 2 for a recognition, 19 for a
++  // produced answer on the top rung. Anything outside it is clamped rather
++  // than trusted, because this is fed from a client-side estimate.
++  const lift = clamp((xp - 2) / 17, 0, 1);
++  // A fourth up from the root, then a fifth, as the payment grows. Both notes
++  // move, so the interval opens rather than the whole thing simply getting
++  // higher, which is what stops a big answer sounding like a small one played
++  // on a smaller speaker.
++  const root = 587 * (1 + lift * 0.12);
++  const notes = [root, root * (1.335 + lift * 0.165)];
++
++  notes.forEach((hz, i) => {
++    const at = now + i * 0.075;
++    const tone = ac.createOscillator();
++    const shape = ac.createGain();
++    // Triangle, not sine: a sine this short reads as a system beep, and not
++    // square, which reads as an arcade. A triangle is the one that sounds like
++    // it belongs beside wooden dice.
++    tone.type = "triangle";
++    tone.frequency.setValueAtTime(hz, at);
++    shape.gain.setValueAtTime(0.0001, at);
++    shape.gain.exponentialRampToValueAtTime(0.12, at + 0.008);
++    shape.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
++    tone.connect(shape).connect(ac.destination);
++    tone.start(at);
++    tone.stop(at + 0.18);
++  });
++}
++
+ /**
+  * A tick in the hand of whoever threw. Silent everywhere the Vibration API is
+  * not, which is every iPhone and every desktop.
+  *
+  * Throttled for a single duration but never for a pattern: a pattern is a
+  * deliberate one-off (a throw leaving the hand, a call being settled) and
+  * dropping it because a die happened to land 40ms earlier would lose the one
+  * buzz that meant something.
+  */
+ export function buzz(pattern: number | number[]): void {
+diff --git a/src/client/net.ts b/src/client/net.ts
+index ceed70c..b79adbb 100644
+--- a/src/client/net.ts
++++ b/src/client/net.ts
+@@ -2,21 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
+ import {
+   PING_FRAME,
+   PING_INTERVAL_MS,
+   PROTOCOL_VERSION,
+   SILENCE_LIMIT_MS,
+   type ClientMessage,
+   type ErrorKind,
+   type RoomView,
+   type ServerMessage,
+ } from '../shared/protocol.js';
+-import type { ProfileView } from '../shared/profile.js';
++import type { Known, LearnLang, ProfileView } from '../shared/profile.js';
+ import type { RoomPeek } from '../shared/session.js';
+ import { claimFor } from './account.js';
+ 
+ /**
+  * `connecting` is the first attempt, `closed` is a connection we had and lost.
+  * They are deliberately distinct: a first-time visitor should not be told we
+  * are "reconnecting" to something they were never connected to.
+  *
+  * `superseded` is terminal: this seat is being played somewhere else, so
+  * retrying would only start a fight over it.
+@@ -159,37 +159,49 @@ export interface UseRoom {
+   errorSeq: number;
+   sendMove(move: unknown): void;
+   requestRematch(): void;
+   /** Play a different game with the people already in this room. */
+   switchGame(gameId: string): void;
+   /** Deal the game to whoever is here. Seat 0 only, and the server enforces it. */
+   startGame(): void;
+   dismissError(): void;
+   /** Ask for the profile again. Silently does nothing for a guest. */
+   refreshProfile(): void;
++  /**
++   * The word rows for one language, once they have been asked for.
++   *
++   * Null until the first answer arrives and again for a language nobody has
++   * asked about, which the Vocabulary screen draws as "loading" rather than as
++   * "no words": the two look identical on an empty list and only one of them
++   * is worth apologising for.
++   */
++  vocab: { lang: LearnLang; words: Known[] } | null;
++  /** Fetch one language's rows. Silently does nothing for a guest. */
++  requestVocab(lang: LearnLang): void;
+ }
+ 
+ export function useRoom(opts: {
+   active: boolean;
+   name: string;
+   code: string | null;
+   create: boolean;
+   gameId: string;
+ }): UseRoom {
+   const { active, name, code, create, gameId } = opts;
+   const [room, setRoom] = useState<RoomView | null>(null);
+   const [seat, setSeat] = useState<number | null>(null);
+   const [status, setStatus] = useState<ConnectionStatus>('idle');
+   const [error, setError] = useState<string | null>(null);
+   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
+   const [errorSeq, setErrorSeq] = useState(0);
+   const [profile, setProfile] = useState<ProfileView | null>(null);
++  const [vocab, setVocab] = useState<{ lang: LearnLang; words: Known[] } | null>(null);
+ 
+   const socketRef = useRef<WebSocket | null>(null);
+   /**
+    * When we last heard *anything* from the server on the current socket.
+    *
+    * Any frame counts as proof of life, not only a pong. A room being played in
+    * sends `room` messages far more often than the heartbeat, and an older
+    * server that does not answer pings at all is plainly alive while it is
+    * talking to us.
+    */
+@@ -365,20 +377,25 @@ export function useRoom(opts: {
+             history.replaceState(
+               null,
+               '',
+               `${location.pathname}${location.search}#${msg.room.code}`,
+             );
+           }
+         } else if (msg.t === 'room') {
+           setRoom(msg.room);
+         } else if (msg.t === 'profile') {
+           setProfile(msg.profile);
++        } else if (msg.t === 'vocab') {
++          // Replaced rather than merged, and the language rides along on the
++          // state for the same reason it rides along on the message: two
++          // requests in flight must not be drawn under each other's heading.
++          setVocab({ lang: msg.lang, words: msg.words });
+         } else if (msg.t === 'error') {
+           setError(msg.message);
+           setErrorKind(msg.kind);
+           setErrorSeq((n) => n + 1);
+         }
+       };
+ 
+       socket.onclose = (event) => {
+         if (cancelled) return;
+         // The server closed us because this player said hello on another
+@@ -456,12 +473,23 @@ export function useRoom(opts: {
+     startGame: useCallback(() => post({ t: 'start' }), [post]),
+     dismissError: useCallback(() => {
+       setError(null);
+       setErrorKind(null);
+     }, []),
+     // Sent unconditionally rather than gated on having an account here: the
+     // server answers only for a socket that proved one, so a guest's request
+     // is ignored at the far end and there is no second place holding an
+     // opinion about whether this client is signed in.
+     refreshProfile: useCallback(() => post({ t: 'profile' }), [post]),
++    vocab,
++    requestVocab: useCallback(
++      (lang: LearnLang) => {
++        // Cleared before asking, so the screen shows the spinner it is about
++        // to earn rather than the previous language's words under the new
++        // language's heading for however long the round trip takes.
++        setVocab(null);
++        post({ t: 'vocab', lang });
++      },
++      [post],
++    ),
+   };
+ }
+diff --git a/src/client/profileCache.ts b/src/client/profileCache.ts
+index ce99c93..0a2b12f 100644
+--- a/src/client/profileCache.ts
++++ b/src/client/profileCache.ts
+@@ -16,21 +16,21 @@
+  *   for a nudge.
+  * - **It works with no server at all**, which the Android build cares about:
+  *   the shelf renders on a train, and the count is the last one anybody knew.
+  * - **It is not authority.** Nothing is decided from this. The server owns the
+  *   ledger and re-sends the summary on every join, which is also what corrects
+  *   it. If the two ever disagree, this one is wrong.
+  *
+  * Carries the `?as=` suffix for the same reason `ag.playerId` and the account
+  * key do: two tabs driving both sides of a game are two players.
+  */
+-import type { ProfileView } from '../shared/profile.js';
++import type { LearnLang, ProfileView } from '../shared/profile.js';
+ 
+ function storageKey(): string {
+   const suffix = new URLSearchParams(location.search).get('as') ?? '';
+   return `ag.profile${suffix ? `.${suffix}` : ''}`;
+ }
+ 
+ /**
+  * The cached summary, or null.
+  *
+  * Null for a guest, null before the first game, and null for anything at all
+@@ -76,34 +76,53 @@ export function clearProfileCache(): void {
+  * Deliberately not a protocol message. A delta on the wire would be a second
+  * thing that can disagree with the profile it describes, and it would have to
+  * survive a reconnect — a player who was away when it arrived would never see
+  * it, and re-sending it would need the room to remember what it had already
+  * said. Subtracting two summaries has neither problem: the newer one is always
+  * authoritative, and a client that missed the moment simply shows nothing,
+  * which is the honest answer to "what did that game teach you" for somebody
+  * who was not there.
+  */
+ export interface Earned {
++  /** Experience added, across every language. See `langs` for the breakdown. */
+   xp: number;
++  /**
++   * The languages that gained anything, and what each gained.
++   *
++   * Kept apart from the total because a level belongs to a language now, and
++   * "you reached level 4" with no language attached is the sentence the split
++   * was made to stop printing. Empty for a game that taught no words.
++   */
++  langs: Array<{ lang: LearnLang; xp: number; level: number; levelled: boolean }>;
+   /** Words that were not in the ledger before this game. */
+   learned: number;
+   /** Words that came back round, which is the number worth acting on. */
+   due: number;
+   /** True when this game was the day's first review. */
+   streak: boolean;
+ }
+ 
+ export function earnedBetween(before: ProfileView | null, after: ProfileView): Earned | null {
+   if (before === null) return null;
+-  const xp = after.xp - before.xp;
++
++  const was = new Map(before.byLang.map((row) => [row.lang, row]));
++  const langs = after.byLang.flatMap((row) => {
++    const old = was.get(row.lang);
++    const gained = row.xp - (old?.xp ?? 0);
++    return gained > 0
++      ? [{ lang: row.lang, xp: gained, level: row.level, levelled: row.level > (old?.level ?? 0) }]
++      : [];
++  });
++  const xp = langs.reduce((n, row) => n + row.xp, 0);
+   const learned = after.words - before.words;
+   // A game that changed nothing is a game somebody watched, or a repeat that
+   // was recognised and dropped. Either way there is nothing to announce, and a
+   // panel reading "+0" is worse than no panel.
+   if (xp <= 0 && learned <= 0) return null;
+   return {
+     xp,
++    langs,
+     learned,
+     due: after.due,
+     streak: after.streak.days > before.streak.days,
+   };
+ }

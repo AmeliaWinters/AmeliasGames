@@ -85,6 +85,7 @@ export const CHANNELS: Record<string, true> = {
   wordchain: true,
   vocab: true,
   drill: true,
+  ghost: true,
 };
 
 export function applyChannel(gameId: string | null): void {

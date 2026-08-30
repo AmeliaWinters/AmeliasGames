@@ -1,0 +1,302 @@
+/* The Vocabulary screen, and the "+7 XP" that rises off a right answer.
+
+   Two things in one file because they are one feature: the screen is the
+   record and the pop is the moment. Everything here reads palette tokens and
+   defines no colour of its own, which is the rule the whole stylesheet is
+   built on. */
+
+.vocab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Language and shelf are the same object -- a strip of radios, one of which is
+   on -- so they get one set of rules and differ only in what they contain.
+   `min-height` rather than `height`, because the label is the size that should
+   decide and 44px is the floor underneath it, which is the trap `css.test.ts`
+   is built around: a minimum beats a ratio, and a control shorter than the
+   floor takes its width with it on a narrow phone. */
+.vocab-langs,
+.vocab-shelves {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vocab-lang,
+.vocab-shelf {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.vocab-lang.on,
+.vocab-shelf.on {
+  border-color: var(--accent);
+  background: var(--board);
+  color: var(--ink);
+}
+
+/* The count inside a shelf button. Tabular, so switching shelves does not
+   shuffle the label beside it by a pixel per digit. */
+.vocab-shelf-n {
+  margin-inline-start: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.vocab-shelf.on .vocab-shelf-n {
+  color: var(--accent);
+}
+
+/* The level block, which repeats the profile panel's ordering on purpose:
+   counts first, level second. See the note at the top of `Vocabulary.tsx`. */
+.vocab-level {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.vocab-counts {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.vocab-counts strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.vocab-level-n {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.vocab-level-bar {
+  display: block;
+  block-size: 6px;
+  border-radius: 999px;
+  background: var(--board);
+  overflow: hidden;
+}
+
+.vocab-level-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--accent);
+}
+
+.vocab-level-xp {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vocab-find {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.vocab-find input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.vocab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* One row is a two-column grid: the word and its state on the top line, the
+   meaning under the word. The bar spans both columns so it has room on a
+   320px phone, which is the width every layout here is checked at first. */
+.vocab-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.vocab-row.learned {
+  /* A left edge rather than a filled background: the learned shelf is a whole
+     list of these, and a hundred filled rows is a wall. */
+  box-shadow: inset 3px 0 0 var(--live);
+}
+
+.vocab-word {
+  font-family: var(--display);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Japanese in its own script, beside the romanised lemma rather than instead
+   of it. Absent for the other two languages, because the field is empty. */
+.vocab-script {
+  margin-inline-start: 8px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.vocab-gloss {
+  grid-column: 1;
+  font-size: 0.85rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.vocab-state {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: end;
+  white-space: nowrap;
+}
+
+.vocab-row.learned .vocab-state {
+  color: var(--live);
+}
+
+.vocab-bar {
+  grid-column: 1 / -1;
+  display: block;
+  block-size: 4px;
+  margin-block-start: 4px;
+  border-radius: 999px;
+  background: var(--board);
+  overflow: hidden;
+}
+
+.vocab-bar-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--accent);
+}
+
+.vocab-none,
+.vocab-wait,
+.vocab-more,
+.vocab-stale {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.vocab-back {
+  min-height: 44px;
+  align-self: flex-start;
+  padding: 8px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-weight: 600;
+}
+
+/* The containing block for the pop, set here rather than in `vocab.css`
+   because it exists only for the pop and belongs beside the thing that needs
+   it. Without it the pop escapes to the viewport and lands wherever the page
+   happens to have scrolled to. */
+.vr-board {
+  position: relative;
+}
+
+/* The pop.
+
+   `position: absolute` inside the board, `pointer-events: none`, and nothing
+   in flow: a reward that reflowed the game underneath it would be a reward
+   that moved the button somebody was about to press. Centred over the top of
+   the board, which is where the eye already is at a reveal. */
+.xp-pops {
+  position: absolute;
+  inset-block-start: 8%;
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.xp-pop {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent);
+  /* Legible over a board of any colour without a panel behind it, which would
+     be a second rectangle appearing and vanishing on every right answer. */
+  text-shadow: 0 2px 6px var(--ground);
+  animation: xp-rise 1.1s ease-out forwards;
+}
+
+@keyframes xp-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  30% {
+    transform: translateY(-2px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-38px) scale(1);
+  }
+}
+
+/* Reduced motion keeps the reward and drops the travel. The number is the
+   feedback; the rise is the flourish, and only one of those is information. */
+@media (prefers-reduced-motion: reduce) {
+  .xp-pop {
+    animation: xp-fade 1.1s ease-out forwards;
+  }
+
+  @keyframes xp-fade {
+    0% {
+      opacity: 0;
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}

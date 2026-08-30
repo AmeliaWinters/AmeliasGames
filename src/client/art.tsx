@@ -11,13 +11,12 @@ import {
 // already make.
 import { pointAt, pointXY } from "../shared/games/morrisDisplay.js";
 import { Die } from "./games/Die.js";
-import { RG_H, RG_RUNS, RG_W } from "./rgMark.js";
 import { WEDGE_COUNT, sectorPath } from "./games/wheelGeometry.js";
 
 /*
  * Everything this app draws that is not a board.
  *
- * The wordmark, the two logo marks and the thirteen lobby-card motifs. All of
+ * The wordmark and the thirteen lobby-card motifs. All of
  * it is static: no state, no props beyond a game id, nothing that reads the
  * room. It lived in `App.tsx` until that file was four hundred lines of
  * artwork wrapped around eight hundred lines of shell, and the artwork was
@@ -52,61 +51,33 @@ function Wordmark({ name }: { name: string }) {
 }
 
 /**
- * The mark.
+ * The brand: the supplied wordmark, figure, squares and all.
  *
- * The RG monogram: pixel arcade caps on a rounded tile, the same letterforms
- * the favicon and the launcher icons are drawn from. The runs come from
- * `rgMark.ts`, which `scripts/make-icons.mjs` generates from the one grid, so
- * the glyph in the header cannot drift from the glyph on the home screen.
+ * One image rather than a glyph plus type, because the lockup is now artwork
+ * with its own spacing between the figure and the letterforms, and rebuilding
+ * that in flexbox would drift from the file the moment either is retouched.
  *
- * It replaced a die-on-its-corner drawn in `currentColor` with pips in the
- * channel colour. Two things went with it and both were deliberate. The mark
- * no longer takes the accent, because the accent moves per game and a logo
- * that changes colour with the room is not a logo; the wordmark's second word
- * still carries it, so the lockup has lost none of that. And it no longer
- * takes the ink, because it is a tile rather than a line drawing -- the tile
- * is `--board` and the letters are `--seat-0`, which is exactly the daylight
- * pair in daylight and the stage pair in stage, from the palette's own tokens
- * rather than from two hexes written down here.
+ * Two files, and only because the ink moves. The wordmark is drawn in near
+ * black, which is invisible on stage's ground, so `logo-stage.png` is the same
+ * PNG with its one ink entry swapped for the light one; the five signal
+ * squares are identical in both. Swapped by CSS on `data-palette` rather than
+ * by React, so the switch does not wait on a render.
  *
- * No fixed size: set in `em` off the lockup beside it, so the header still has
- * one number to tune rather than two.
- */
-function Logo() {
-  return (
-    <svg
-      className="logo"
-      viewBox={`0 0 ${RG_W + 8} ${RG_W + 8}`}
-      role="img"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect className="tile" width={RG_W + 8} height={RG_W + 8} rx={(RG_W + 8) * 0.22} />
-      <g className="mono" transform={`translate(4 ${(RG_W + 8 - RG_H) / 2})`}>
-        {RG_RUNS.map(([x, y, len]) => (
-          <rect key={`${x},${y}`} x={x} y={y} width={len} height={1} />
-        ))}
-      </g>
-    </svg>
-  );
-}
-
-/**
- * The brand, mark and all: the glyph, then the name stacked over two lines.
- *
- * Stacked because "Rebellia Games" on one line at a size worth calling a logo
- * does not fit beside a name chip at 320px, and the half it dropped was
- * "Games". Two short lines fit at every width this app is used at, so there is
- * one lockup rather than a phone one and a desktop one.
+ * Height in `em` off the bar's font-size, so the bar still has one number to
+ * tune, and the width follows the image's own 1076x438 -- which is on the tag
+ * as `width`/`height` rather than left to the file, because `width: auto` off
+ * an undecoded image is zero. The mark is the first thing in the top bar and
+ * the largest thing on the first screen, so everything beside it was being
+ * laid out at the wrong width and shunted sideways when the PNG landed: a
+ * layout shift on every cold load, and on the element most likely to be the
+ * LCP. The attributes give the ratio before a byte of it arrives; the CSS
+ * still decides the size.
  */
 export function BrandMark() {
   return (
     <span className="brandmark">
-      <Logo />
-      <span className="lockup">
-        <span className="line">Rebellia</span>
-        <span className="line tail">Games</span>
-      </span>
+      <img className="logo daylight" src="/logo.png" alt="Rebellia Games" width={1076} height={438} />
+      <img className="logo stage" src="/logo-stage.png" alt="" aria-hidden="true" width={1076} height={438} />
     </span>
   );
 }
@@ -190,6 +161,17 @@ const CHAIN_LINKS = ["MILK", "KIWI", "ICEBERG"];
  * `bundle.test.ts` keeps the lobby out of it.
  */
 const VOCAB_REVEAL = { clue: "only, just", word: "tylko" };
+
+/**
+ * A Superghost fragment with somewhere to go at both ends.
+ *
+ * `iłoś` is inside `miłość`, love, and the list has seven words containing it:
+ * an `m` in front, a `c`, an `n` or a `ć` behind. So the two open slots on
+ * either side of it are the position rather than a flourish. Written out rather
+ * than imported for the reason Vocab Race's reveal is: the dictionary is a
+ * reducer-side module and `bundle.test.ts` keeps the lobby out of it.
+ */
+const GHOST_FRAGMENT = "iłoś";
 /* Drill's card. A different word from the Wheel's and from Vocab Race's, so
    the two green cards beside each other are not the same word twice. */
 const DRILL_MOTIF = { clue: "already", word: "już" };
@@ -484,6 +466,24 @@ function motif(gameId: string) {
             <b>{VOCAB_REVEAL.clue}</b>
             <strong lang="pl">{VOCAB_REVEAL.word}</strong>
           </span>
+        </>
+      );
+    // The fragment mid-round, with both ends open. Two empty slots and four
+    // letters, which is the whole rule drawn: `iłoś` is inside `miłość` and it
+    // takes an `m` on the front or a `ć` on the back, so neither slot is a
+    // decoration. Real data, checked against the game's own list rather than
+    // chosen for its shape, and it is the one motif in the lobby carrying a
+    // Polish diacritic, which is the other thing this game is for.
+    case "ghost":
+      return (
+        <>
+          <i className="open" />
+          {[...GHOST_FRAGMENT].map((letter, i) => (
+            <i key={i} lang="pl">
+              {letter}
+            </i>
+          ))}
+          <i className="open" />
         </>
       );
     // A game the manifest knows and this file does not. An empty well reads as

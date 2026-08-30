@@ -18,6 +18,9 @@ import type { LpMove, LpState } from "../../shared/games/letterpressDisplay.js";
 import type { BoardProps } from "./boards.js";
 import { namer } from "./names.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/letterpress.css";
+
 type Props = BoardProps<LpState, LpMove>;
 
 /**

@@ -1,33 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 // The manifest, not the registry: the lobby needs ids and names, and importing
 // the registry here would pull every reducer into the client bundle.
-import {
-  DEFAULT_GAME_ID,
-  canSeat,
-  gameEntry,
-  gameList,
-  shelvedGames,
-  type GameEntry,
-} from "../shared/games/manifest.js";
-import { CODE_LENGTH, isRoomCode, makeRoomCode, normalizeRoomCode } from "../shared/roomCode.js";
+import { DEFAULT_GAME_ID, gameEntry } from "../shared/games/manifest.js";
+import { makeRoomCode } from "../shared/roomCode.js";
 // Every mark and motif this shell draws. See `art.tsx`: none of it reads the
 // room, so none of it belongs in the file that runs the room.
-import { BrandMark, CardArt, TopMark } from "./art.js";
-// Which board draws which game, and the state types that go with them, live in
-// `boards.ts`, where the compiler checks the pairing. Nothing here needs to
-// know: this file's business with a game is its name.
-import { boardFor, ownsSeats } from "./games/boards.js";
+import { TopMark } from "./art.js";
+import { ownsSeats } from "./games/ownsSeats.js";
 import {
   inviteUrl,
   loadLastGame,
   loadName,
-  lookupRoom,
   saveLastGame,
   saveName,
   useRoom,
 } from "./net.js";
-import type { RoomPeek } from "../shared/session.js";
-import type { ErrorKind, RoomView } from "../shared/protocol.js";
+import type { ErrorKind } from "../shared/protocol.js";
 import {
   applyChannel,
   applyPalette,
@@ -38,12 +26,43 @@ import {
   type Palette,
 } from "./palette.js";
 import { applySound, loadSound } from "./feel.js";
-import { play, primeSfx, useTableSounds } from "./sfx.js";
+import { primeSfx, useTableSounds } from "./sfx.js";
+import { useTurnNotices } from "./notify.js";
 import { Toaster, useToasts, type Toasts } from "./toast.js";
-import { hasAccount } from "./account.js";
-import { Profile } from "./Profile.js";
-import { earnedBetween, loadProfileCache, saveProfileCache, type Earned } from "./profileCache.js";
-import type { ProfileView } from "../shared/profile.js";
+import {
+  brokenHashCode,
+  brokenLinkMessage,
+  codeFromHash,
+  lobbyUrl,
+  roomUrl,
+  screenAt,
+  screenUrl,
+  type Screen,
+} from "./route.js";
+// The screens themselves. This file decides which one is showing and what it is
+// showing about; what each of them looks like is its own file.
+import { Setup } from "./screens/Setup.js";
+import {
+  GameBoard,
+  Lobby,
+  NextGame,
+  RoomAccount,
+  RoomAccountScreen,
+  RoomChests,
+  Result,
+  TableAfter,
+  Takings,
+  type RoomScreen,
+} from "./screens/Room.js";
+import {
+  earnedBetween,
+  loadProfileCache,
+  saveProfileCache,
+  type Earned,
+} from "./profileCache.js";
+import type { LearnLang, ProfileView } from "../shared/profile.js";
+import { saveVocabCache } from "./vocabCache.js";
+
 
 /**
  * What the tab says before a room is open.
@@ -56,49 +75,6 @@ import type { ProfileView } from "../shared/profile.js";
 const LOBBY_TITLE = typeof document === "undefined" ? "" : document.title;
 
 
-/**
- * This page, addressed to a room: path, query, then the code.
- *
- * The order is the whole of it. Written as `#${code}${location.search}` the
- * query lands *after* the hash, and everything after a hash is the fragment. A
- * player who arrived at `?as=b`, or at a link a chat app had decorated with a
- * tracking parameter (which is most links), got a fragment reading `ABCD?as=b`.
- * Nothing broke on the spot, because the code was already in state. It broke on
- * the next reload, where `codeFromHash` no longer recognised four letters,
- * `brokenHashCode` did, and somebody sitting in a game was shown "that link
- * doesn't look complete" and dropped at the setup screen.
- */
-function roomUrl(code: string): string {
-  return `${location.pathname}${location.search}#${code}`;
-}
-
-function codeFromHash(): string | null {
-  const raw = location.hash.slice(1).toUpperCase();
-  return isRoomCode(raw) ? raw : null;
-}
-
-/**
- * A hash that is present but unusable: a link truncated by a chat app, or
- * mangled in the paste. Silently dropping it leaves someone staring at the
- * setup screen wondering why their friend's link did nothing.
- */
-function brokenHashCode(): string | null {
-  const raw = location.hash.slice(1);
-  if (raw.length === 0 || isRoomCode(raw.toUpperCase())) return null;
-  // Whatever is in the fragment is somebody else's typing, and it can be any
-  // length at all. A toast that quotes it has to quote a readable amount of
-  // it: past a couple of codes' worth the quotation is no longer helping the
-  // player recognise their own broken link, it is just filling the toast.
-  return raw.length > 12 ? `${raw.slice(0, 12)}...` : raw;
-}
-
-/** The toast a broken invite link raises, quoting the part that went wrong. */
-function brokenLinkMessage(fragment: string): string {
-  return (
-    `"${fragment}" is not a room code. They're ${CODE_LENGTH} letters. ` +
-    "Ask for the link again, or type the code in below."
-  );
-}
 
 /**
  * Whether a failed join deserves the whole screen.
@@ -117,51 +93,6 @@ function needsWholeScreen(kind: ErrorKind | null): boolean {
   return kind === "protocol";
 }
 
-/**
- * How many can play, as seats rather than as a figure.
- *
- * It used to read "2 players", which nine of the thirteen cards said, so the
- * smallest type in the lobby spent itself thirteen times on the least
- * interesting fact available. Then it was a bare "2-8" in the corner of the
- * well, which was better -- thirteen figures in one column, comparable down it.
- *
- * This is the same fact drawn instead of set. The question the chip answers is
- * "can the six of us play this", and a range in 0.68rem mono answers it by
- * being read, parsed and compared against a number you are holding in your
- * head. A row of seats answers it by being looked at. It is also the one fact
- * on the card that was being carried by the smallest type in the lobby while
- * the largest thing on it -- the colour -- carried nothing at all.
- *
- * One pip per seat the game can hold, and the first `minPlayers` of them
- * filled: the filled run is what it takes to start, the outlined tail is room
- * left over. Connect Four is two filled and nothing after, which is the whole
- * truth about Connect Four.
- *
- * Filled and open are the *same* colour and differ in shape, which is how
- * everything else in this app that has to survive `--card-well` behind it
- * works -- see Battleships' miss dot in `docs/card-motifs.md`. That is also
- * why this needs no new contrast measurement: `--card-ink` on the chip's scrim
- * is the pairing the figures were already using.
- *
- * The word is gone from the card, so it is put back for anyone listening rather
- * than looking. See `seatLabel`.
- */
-function seatPips(table: GameEntry) {
-  return Array.from({ length: table.maxPlayers }, (_, i) => (
-    <i key={i} className={i < table.minPlayers ? "on" : undefined} />
-  ));
-}
-
-/** The same range, said out loud, for the card's accessible name. */
-function seatLabel(table: GameEntry): string {
-  // "1 players" was what a fourteenth game seating one turned this into. The
-  // figure on the card is a numeral and reads fine either way; this is the
-  // string a screen reader says out loud, so it has to be a sentence.
-  if (table.minPlayers === table.maxPlayers) {
-    return table.minPlayers === 1 ? 'on your own' : `${table.minPlayers} players`;
-  }
-  return `${table.minPlayers} to ${table.maxPlayers} players`;
-}
 
 /**
  * The palette, and the switch that changes it.
@@ -255,7 +186,47 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
     const last = loadLastGame();
     return last && gameEntry(last) ? last : DEFAULT_GAME_ID;
   });
+  /*
+    Which screen the address bar is on, or null for the lobby.
+
+    The account used to be a panel with no address: opened from the chip,
+    closed by the same chip or by Escape, and invisible to the back button --
+    which on a phone is *the* way back, so pressing it from four screens deep
+    in the customiser left the app entirely. Then it was one page, `/account`,
+    with the screen inside it held in state -- which fixed the back button and
+    left "open the chests" unlinkable and Back still meaning "leave", from any
+    depth. Each screen has its own path now. See `route.ts`.
+  */
+  const [screen, setScreen] = useState<Screen | null>(screenAt);
+  // How many entries in this history we pushed, so leaving knows whether there
+  // is anything of ours to go back through. See `onLeave` below, its only
+  // reader.
+  const pushedScreens = useRef(0);
+  useEffect(() => {
+    const onPop = () => {
+      const here = screenAt();
+      if (!here) pushedScreens.current = 0;
+      else if (pushedScreens.current > 0) pushedScreens.current -= 1;
+      setScreen(here);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const [copied, setCopied] = useState(false);
+  /*
+    Which account screen is open over a room, or null for the table itself.
+
+    The account is in both headers now, and the room's header is not on the
+    account route -- `Setup` is not even mounted while a game is up. Navigating
+    there would mean leaving the room, which is the one thing these controls
+    must never do: the moment a chest becomes affordable is the moment a game
+    just paid for it, and the answer to "you earned a chest" cannot be "leave
+    the table". So in here each of them is a layer over the room rather than a
+    page, the socket underneath stays connected, and Back puts the board
+    straight back.
+  */
+  const [roomScreen, setRoomScreen] = useState<RoomScreen | null>(null);
   const [palette, swapPalette] = usePalette();
   const [sound, toggleSound] = useSound();
   const { push } = toasts;
@@ -297,6 +268,8 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
     startGame,
     dismissError,
     profile,
+    vocab,
+    requestVocab,
   } = useRoom({
       active: intent === "play" && Boolean(name),
       name,
@@ -307,6 +280,9 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
   useChannel(room?.gameId ?? gameId);
   useTableSounds(room, seat, errorSeq);
+  // The same event as the `turn` cue, for the player who is not here to hear
+  // it. See `notify.ts`.
+  useTurnNotices(room, seat);
 
   /*
     Cache every summary the server sends, and work out what the last game did.
@@ -320,6 +296,19 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
     a comparison and never something to render, so a re-render on every profile
     message would be a re-render for nothing.
   */
+  /*
+    The profile the header draws, which is not always the one the socket sent.
+
+    `profile` from `useRoom` is null until the room pushes a summary, and that
+    is after the join -- so for the first second of every game the chest pill
+    would be absent and then appear, which reads as a bug rather than as news.
+    The lobby has drawn from the cache for exactly this reason since it had no
+    socket at all; the room takes the same fallback, and the live copy wins the
+    moment there is one. See `profileCache.ts`.
+  */
+  const [cached] = useState(loadProfileCache);
+  const shown = profile ?? cached;
+
   const [earned, setEarned] = useState<Earned | null>(null);
   const lastProfile = useRef<ProfileView | null>(loadProfileCache());
   useEffect(() => {
@@ -328,6 +317,33 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
     lastProfile.current = profile;
     saveProfileCache(profile);
   }, [profile]);
+
+  /*
+    Refresh the stored ledger the moment there is both a reason and a socket.
+
+    A finished game is the only thing that changes the ledger and the end of
+    one is the only time this client is sure of having a socket -- the lobby,
+    which is where the Vocabulary screen is actually opened, has none. See
+    `vocabCache.ts`, which makes the same argument the summary cache makes one
+    size up.
+
+    The language that earned most, and only that one. `earnedBetween` sorts
+    nothing, but a game teaches one language in every case that exists today
+    (both language games pick a language before they deal), and asking for
+    three would be two round trips spent on empty lists plus a race in `net.ts`,
+    which keeps only the last answer.
+  */
+  useEffect(() => {
+    const best = earned?.langs.reduce(
+      (top, row) => (top === null || row.xp > top.xp ? row : top),
+      null as { lang: LearnLang; xp: number } | null,
+    );
+    if (best) requestVocab(best.lang);
+  }, [earned, requestVocab]);
+
+  useEffect(() => {
+    if (vocab) saveVocabCache(vocab.lang, vocab.words, Date.now());
+  }, [vocab]);
 
   // A new game clears the last one's takings, so an end screen never opens
   // showing what the *previous* game taught somebody.
@@ -356,7 +372,13 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   // the hash, the socket and the setup screen can never fall out of step.
   const goHome = () => {
     dismissError();
-    history.replaceState(null, "", location.pathname + location.search);
+    history.replaceState(null, "", lobbyUrl());
+    // The entry we replaced was ours, and so is every screen behind it: this
+    // is a fresh start on the lobby, so there is nothing left to go back
+    // through. Leaving the count standing would make the next ✕ a `go(-2)`
+    // out of the app.
+    pushedScreens.current = 0;
+    setScreen(null);
     setCode(null);
     setCreate(false);
     setIntent("idle");
@@ -407,19 +429,81 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   // The client knows which seat it is, so the second person goes back here.
   const statusLine =
     room?.waiting && seat === 0 && room.canStart
-      ? "Everyone's here. Start whenever you're ready."
+      ? // And no "start whenever you're ready" after it: the Start button is
+        // the next thing on the screen, and the sentence was reading it out.
+        "Everyone's here."
       : room?.status;
 
   if (!name || intent === "idle") {
     return (
       <Setup
         initialName={name}
+        /* The account screens raise their own toasts -- a thing worn, a key
+           taken -- and the stack is up here above every screen, so the push
+           is handed down rather than a second Toaster being mounted in
+           there. See `AccountScreens`. */
+        onToast={toasts.push}
         pendingCode={code}
         swapLabel={swapLabel}
         onSwapPalette={swapPalette}
         sound={sound}
         onToggleSound={toggleSound}
         lastGameId={gameId}
+        /*
+          The screens, driven by the address rather than by a flag.
+
+          Pushed rather than replaced, so the back button is the way out and
+          the screen before is what it goes back to -- which is the whole
+          reason each of them has a path: from the chests reached out of the
+          customiser, Back now means the customiser, and it used to mean the
+          lobby. `setScreen` is still called beside the push because a
+          pushState raises no popstate of its own.
+        */
+        screen={screen}
+        onOpenScreen={(to) => {
+          history.pushState(null, "", screenUrl(to));
+          pushedScreens.current += 1;
+          setScreen(to);
+        }}
+        /*
+          Up one, which is what the Back at the foot of every screen means now.
+
+          It could not mean that while the screens shared an address: there was
+          one entry for all of them, so "up" and "out" were the same step and
+          the chests reached from the customiser needed a flag to tell them
+          apart. With a path each, the browser already holds the answer.
+        */
+        onBack={() => {
+          if (pushedScreens.current > 0) {
+            history.back();
+            return;
+          }
+          history.replaceState(null, "", lobbyUrl());
+          setScreen(null);
+        }}
+        onLeave={() => {
+          /*
+            Back through our own entries, replace when there are none.
+
+            `history.back()` off an entry this app never pushed -- somebody who
+            typed `/chests` in, or followed a link straight to it -- is a step
+            out of the app, onto whatever they were reading before. Replacing
+            leaves them on the lobby with no way back to a page they can reopen
+            from the chip anyway.
+
+            It is `go(-n)` rather than one step because this is the ✕, which
+            means "out of here" and not "up one": pressing it two screens deep
+            has to reach the lobby, not the screen behind.
+          */
+          const back = pushedScreens.current;
+          if (back > 0) {
+            pushedScreens.current = 0;
+            history.go(-back);
+            return;
+          }
+          history.replaceState(null, "", lobbyUrl());
+          setScreen(null);
+        }}
         // Naming yourself is not starting anything: the chip in the bar can be
         // pressed by somebody who only wants to correct their own spelling, and
         // that has to be remembered without opening a room to do it.
@@ -439,6 +523,8 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
           setCreate(joinCode === null);
           setCode(target);
           history.replaceState(null, "", roomUrl(target));
+          pushedScreens.current = 0;
+          setScreen(null);
           setIntent("play");
         }}
       />
@@ -486,6 +572,41 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   const connectionNote =
     status === "open" ? null : room ? "Reconnecting..." : "Connecting...";
 
+  /*
+    The chest screen, over the room.
+
+    It returns instead of the board rather than on top of it, which sounds like
+    the same thing and is not: the room's own components stay unmounted for the
+    duration, so nothing on the board is ticking, listening or animating behind
+    a screen nobody can see. The socket is a hook up in this component and is
+    untouched by any of it, so the game is exactly where it was on the way back.
+
+    See `RoomChests` for why the caches are read here again rather than passed
+    down from the lobby: the lobby is not mounted.
+  */
+  if (roomScreen) {
+    return (
+      <main className="app acct-page room-chests">
+        {roomScreen === "chests" ? (
+          <RoomChests
+            profile={shown}
+            onToast={toasts.push}
+            onBack={() => setRoomScreen(null)}
+          />
+        ) : (
+          <RoomAccountScreen
+            screen={roomScreen}
+            profile={shown}
+            vocab={vocab}
+            onRequestVocab={requestVocab}
+            onBack={() => setRoomScreen(null)}
+            onOpenChests={() => setRoomScreen("chests")}
+          />
+        )}
+      </main>
+    );
+  }
+
   return (
     <main className="app">
       <header className="topbar">
@@ -494,49 +615,41 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
             <TopMark gameName={room?.gameName} />
           </button>
         </h1>
-        <div className="room-meta">
-          {/* Not while the room is still filling. Down there the code is the
-              whole screen -- the thing you read down a phone -- and the same
-              four letters twice on one screen reads as two different codes
-              for a moment before it reads as one. */}
-          {room && !room.waiting && (
-            <button
-              className="code"
-              title="Copy the invite link"
-              /* The visible label is the code, which says what this *is* and
-                 not what pressing it does. On a mouse the title covers that;
-                 on a phone nothing does, and this is the one control the
-                 whole waiting state depends on. Both names keep the visible
-                 text inside them, so speaking the label still matches what is
-                 on screen. */
-              aria-label={copied ? "Invite link copied" : `Copy the invite link, room ${room.code}`}
-              onClick={() => copyInvite(room.code)}
-            >
-              {copied ? "Copied" : room.code}
-            </button>
-          )}
-          <SoundButton on={sound} onToggle={toggleSound} />
-          {/* Glanceable rather than read, but a colour alone is not available
-              to everyone, and a bare title is available to almost nobody --
-              not to a screen reader, and not to a finger. `role="img"` names
-              it on demand without announcing itself: the banner and the
-              status line already say when the connection drops, and a third
-              voice saying it would be the same news three times. */}
-          <span
-            className={`dot ${status}`}
-            role="img"
-            aria-label={connectionNote ?? "Connected"}
-            title={connectionNote ?? "Connected"}
-          />
-        </div>
+        {/* Who you are, and everything that belongs to you: the chest, the
+            balance, and the chip that opens the account. The code is not here
+            any more -- it is at the top of the lobby, at a size somebody can
+            read out loud. See `RoomAccount`. */}
+        <RoomAccount
+          profile={shown}
+          name={name}
+          onName={(chosen) => {
+            saveName(chosen);
+            setName(chosen);
+          }}
+          /* A key that came or went takes the cached summary with it, so the
+             purse and the chest have to be redrawn from nothing rather than
+             from the last account's balance. */
+          onChanged={() => setName(loadName())}
+          status={status}
+          connectionNote={connectionNote}
+          swapLabel={swapLabel}
+          onSwapPalette={swapPalette}
+          sound={sound}
+          onToggleSound={toggleSound}
+          onOpen={setRoomScreen}
+        />
       </header>
 
       {connectionNote && <div className="banner">{connectionNote}</div>}
 
-      {/* Not on a table whose board draws the seats itself, see `ownsSeats`.
-          Only once the game is dealt, though: before that there is no board,
-          and the strip is the only thing on the screen saying who has arrived. */}
-      {room && (room.waiting || !ownsSeats(room.gameId)) && (
+      {/* Not on a table whose board draws the seats itself, see `ownsSeats`,
+          and not while the room is filling: the waiting screen has a seat grid
+          of its own, which says how many seats there are as well as who is in
+          them. Nor once the game is over: `TableAfter` below draws the same
+          people at the size the lobby does, and the reason this strip is small
+          -- a board underneath it that needs the height, and a turn that is
+          about to move -- has stopped being true. */}
+      {room && !room.waiting && !room.over && !ownsSeats(room.gameId) && (
         <div className="players">
           {room.players.map((p) => (
             <div
@@ -544,13 +657,20 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
               className={[
                 "player",
                 `p${p.seat}`,
-                room.turn === p.seat && !room.waiting ? "active" : "",
+                room.turn === p.seat ? "active" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
             >
               <span className="chip" />
               <span className="who">{p.name || "Empty seat"}</span>
+              {/* No faces here, deliberately. This strip is two to a row on a
+                  phone and the comment above it records the bug that settled
+                  that: at four players the name was already down to "A..." for
+                  Ann, and three portraits would take another 36px off the half
+                  that gives. The lobby list is where the showcase is drawn,
+                  which is also where somebody is actually looking at who else
+                  is in the room. */}
               {p.seat === seat && <span className="note">you</span>}
               {p.name && !p.connected && <span className="note">away</span>}
             </div>
@@ -567,37 +687,21 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
         {room?.over ? "" : (statusLine ?? connectionNote ?? "")}
       </p>
 
-      {room?.over && (
-        <div className="result">
-          <p className="who">{room.status}</p>
-        </div>
-      )}
+      {room?.over && <Result room={room} seat={seat} />}
 
       {/* No board until the game is dealt. Before that there is no state to
           draw, and a board improvised out of nothing would be showing the
           player a game that does not exist yet. */}
-      {room && !room.waiting ? (
-        <GameBoard room={room} seat={seat} sendMove={sendMove} />
-      ) : (
-        <div className="board placeholder" />
-      )}
+      {room && !room.waiting && <GameBoard room={room} seat={seat} sendMove={sendMove} />}
 
       {room?.waiting && (
         <>
-          {/* The code is the only job on this screen, so it is also the
-              control: the thing you read out is the thing you press to send.
-              It used to be a plain box sitting next to a copy button in the
-              corner, which made the code look like a label rather than the
-              one thing worth acting on. */}
-          <button type="button" className="bigcode" onClick={() => copyInvite(room.code)}>
-            <span className="label">{copied ? "Link copied" : "Room code"}</span>
-            <span className="value">{room.code}</span>
-            <span className="act">Tap to copy the invite link</span>
-          </button>
-          <p className="hint">
-            Send the link, or read the code out. Whoever turns up gets a seat,
-            up to {room.capacity} for {room.gameName}.
-          </p>
+          <Lobby
+            room={room}
+            seat={seat}
+            copied={copied}
+            onCopyCode={copyInvite}
+          />
           {/*
             Somebody has to say when everyone is here, because the room no
             longer knows how many to expect. It is the player who opened it:
@@ -630,6 +734,7 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
 
       {room?.over && (
         <>
+          <TableAfter room={room} seat={seat} />
           <Takings earned={earned} />
           <button className="primary" onClick={requestRematch}>
             Play again
@@ -641,828 +746,3 @@ function AppScreens({ toasts }: { toasts: Toasts }) {
   );
 }
 
-/**
- * The end of a game is the one moment a room can change what it is playing:
- * everybody is here, nobody is mid-turn, and the alternative is swapping links
- * to reassemble the same people around a different board.
- *
- * Only games that seat exactly this table are offered. The seats are already
- * taken, so a two-handed game in a four-handed room would have to drop two
- * people, and it is better not to offer it than to explain that afterwards.
- * Nothing is shown at all when that leaves no alternatives.
- */
-/**
- * What that game taught you, above the rematch button.
- *
- * The moment worth showing somebody, and the reason the server pushes a
- * profile the instant a finished game is filed rather than waiting to be
- * asked. It draws nothing at all for a guest, nothing for the eleven games
- * that teach no vocabulary beyond their small flat payment, and nothing for a
- * player who was away when the summary arrived — which is the honest answer to
- * "what did that game teach you" for somebody who was not there.
- *
- * The words-due line is the one that does the work. It is the same number the
- * lobby badge shows, said at the moment somebody has just finished playing and
- * is deciding whether to go again.
- */
-function Takings({ earned }: { earned: Earned | null }) {
-  if (!earned) return null;
-  return (
-    <section className="takings" aria-labelledby="takings-head">
-      <h2 id="takings-head">
-        {earned.learned > 0
-          ? `${earned.learned} new ${earned.learned === 1 ? "word" : "words"}`
-          : "Nothing new, but it counted"}
-      </h2>
-      <p className="takings-xp">+{earned.xp.toLocaleString()} XP</p>
-      {earned.streak && <p className="takings-streak">That is today done.</p>}
-      {earned.due > 0 && (
-        <p className="takings-due">
-          {earned.due} {earned.due === 1 ? "word is" : "words are"} due for review.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function NextGame({ room, onPick }: { room: RoomView; onPick(gameId: string): void }) {
-  const others = gameList().filter(
-    (game) => game.id !== room.gameId && canSeat(game, room.players.length),
-  );
-  if (others.length === 0) return null;
-
-  return (
-    <section className="next-game" aria-labelledby="next-game-heading">
-      <h2 id="next-game-heading">Or play something else</h2>
-      <div className="games">
-        {others.map((game) => (
-          <button
-            key={game.id}
-            className="game"
-            data-game={game.id}
-            onClick={() => onPick(game.id)}
-          >
-            <span className="name">{game.name}</span>
-          </button>
-        ))}
-      </div>
-      <p className="hint">Same room, same people, same code.</p>
-    </section>
-  );
-}
-
-/**
- * The board for whatever this room is playing.
- *
- * There is no per-game branching left here: `boardFor` looks the component up
- * in a table the compiler has already checked, so adding a game touches that
- * table and this file not at all. What used to be here was a ten-case switch
- * in which every case cast `room.state` to a game's state type by hand, with
- * nothing checking that the case label and the cast agreed.
- */
-function GameBoard({
-  room,
-  seat,
-  sendMove,
-}: {
-  room: RoomView;
-  seat: number | null;
-  sendMove(move: unknown): void;
-}) {
-  // No state means the game is not dealt; no board means this build has never
-  // heard of the game, an old tab against a newer server. Neither is a dead
-  // end: the status line above still reads.
-  const Board = boardFor(room.gameId);
-  if (!room.state || !Board) return <div className="board placeholder" />;
-
-  return (
-    <Board
-      state={room.state as never}
-      seat={seat}
-      names={room.players.map((p) => p.name)}
-      connected={room.players.map((p) => p.connected)}
-      canAct={room.canAct}
-      now={room.now}
-      onMove={sendMove}
-    />
-  );
-}
-
-/**
- * The sound switch, as an icon, for the top bar.
- *
- * The lobby spells the preference out in words because there is room for words
- * there. In a room there is not, so it becomes a speaker -- with the state in
- * `aria-pressed` and in the label, because "is that speaker crossed out?" is a
- * question a 16px glyph should never be the only answer to.
- */
-function SoundButton({ on, onToggle }: { on: boolean; onToggle(): void }) {
-  return (
-    <button
-      type="button"
-      className="mute"
-      aria-pressed={on}
-      aria-label={`Sound ${on ? "on" : "off"}`}
-      title={on ? "Turn sound off" : "Turn sound on"}
-      onClick={onToggle}
-    >
-      {/* One speaker, drawn once: only the waves change, so the two states
-          cannot drift apart in size or alignment. */}
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path className="cone" d="M2 6h2.4L7.5 3.2v9.6L4.4 10H2z" />
-        {on ? (
-          <>
-            <path d="M9.9 5.7a3 3 0 0 1 0 4.6" />
-            <path d="M11.9 3.8a6 6 0 0 1 0 8.4" />
-          </>
-        ) : (
-          <path d="M10.3 6.3l3.4 3.4M13.7 6.3l-3.4 3.4" />
-        )}
-      </svg>
-    </button>
-  );
-}
-
-/**
- * One game on the shelf: its table, mid-play, with a way to sit down at it.
- *
- * A button rather than a radio, and that is the whole change to this screen.
- * The card used to pick a game which a button 957px further down then started,
- * so the label that named your choice ("Start Connect Four") was read at the
- * one moment your choice had scrolled off the top. Pressing the table you want
- * is one act instead of two, and it removes the only control on the screen that
- * had to be hunted for.
- *
- * What that costs is the confirmation step, and the answer to a mis-tap is
- * that a room is free: nothing is spent, nobody is told, and the wordmark is
- * the way back. What it saves is the `.picked` state, the Start button, and
- * the two of them having to agree about which game they meant.
- *
- * Every card is its own tab stop, which is what a list of buttons is. No
- * roving tabindex and no `aria-checked`: there is nothing selected here any
- * more, so there is no selection to model.
- */
-function TableCard({
-  table,
-  onStart,
-}: {
-  table: GameEntry;
-  onStart(gameId: string): void;
-}) {
-  return (
-    <button className="game" data-game={table.id} onClick={() => onStart(table.id)}>
-      <CardArt gameId={table.id} />
-      <span className="name">{table.name}</span>
-      <span className="blurb">{table.blurb}</span>
-      <TableFacts table={table} />
-    </button>
-  );
-}
-
-/**
- * The table you left, laid out the way a table is: wide.
- *
- * The featured card used to be an ordinary card at twice the size, which meant
- * a portrait crop stretched across two columns with its name underneath. A
- * card that is going to be the biggest thing on the screen may as well be the
- * shape of the thing it is showing, so the motif takes one side and the words
- * take the other -- and it gains the one control the shelf does not have: a
- * verb. "Play again" is a different offer from "Connect Four", and it is the
- * offer this card is actually making.
- *
- * The art stays a 5:2 well at phone width, stacked above the words, because
- * that is the crop all thirteen motifs were composed against and a hero is not
- * worth re-drawing them for. Past 560px it takes the right-hand half instead;
- * `picker.css` says what that costs the two motifs drawn in SVG.
- */
-function HeroCard({
-  table,
-  onStart,
-}: {
-  table: GameEntry;
-  onStart(gameId: string): void;
-}) {
-  return (
-    <button className="game featured" data-game={table.id} onClick={() => onStart(table.id)}>
-      <CardArt gameId={table.id} />
-      <span className="face">
-        <span className="resume">Last played</span>
-        <span className="name">{table.name}</span>
-        <span className="blurb">{table.blurb}</span>
-        <TableFacts table={table} />
-        <span className="cta">Play again</span>
-      </span>
-    </button>
-  );
-}
-
-/**
- * Who can play, and how long it takes, on one line under the blurb.
- *
- * The seats used to be a chip stamped on the corner of the motif, which was
- * the only place they fitted while the card had nothing else to say. They have
- * company now -- see `minutes` in the manifest -- and two facts about the same
- * game belong on one line in the card body, where neither of them is lying on
- * top of a crop of a board.
- *
- * Both are drawn rather than written, and both are hidden from anyone
- * listening, because a row of pips and a tilde are shapes. The sentence
- * underneath is the same two facts, said once, in the order they are read.
- */
-function TableFacts({ table }: { table: GameEntry }) {
-  return (
-    <span className="facts">
-      <span className="count" aria-hidden="true">
-        {seatPips(table)}
-      </span>
-      <span className="mins" aria-hidden="true">
-        ~{table.minutes} min
-      </span>
-      <span className="sr-only">
-        {seatLabel(table)}, about {table.minutes} minutes
-      </span>
-    </span>
-  );
-}
-
-/**
- * Four letters, drawn as four boxes, over one real input.
- *
- * The boxes are the whole of why the code came out of the form: somebody is
- * holding four letters that were read out to them across a room, and a 90px
- * text field says "fill this in" where the thing in their hand says "ABCD".
- *
- * One input underneath, not four. Four fields each holding a character is the
- * pattern most one-time-code entries on the web use, and it is the one that
- * breaks paste, breaks backspace at a boundary, and hands a screen reader four
- * unlabelled fields to announce. So the boxes are decoration -- `aria-hidden`,
- * drawn from the value -- and the input is a plain four-character field lying
- * transparently over them, which pastes, corrects and announces the way a
- * field does, because it is one.
- */
-function CodeCells({
-  value,
-  field,
-  onChange,
-}: {
-  value: string;
-  field: React.RefObject<HTMLInputElement>;
-  onChange(next: string): void;
-}) {
-  return (
-    <div className="cells">
-      {Array.from({ length: CODE_LENGTH }, (_, i) => (
-        <i key={i} className={i === value.length ? "cell caret" : "cell"} aria-hidden="true">
-          {value[i] ?? ""}
-        </i>
-      ))}
-      <input
-        ref={field}
-        className="cells-field"
-        value={value}
-        onChange={(e) => onChange(normalizeRoomCode(e.target.value))}
-        maxLength={CODE_LENGTH}
-        aria-label="Room code"
-        aria-describedby="code-hint"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="characters"
-        spellCheck={false}
-      />
-    </div>
-  );
-}
-
-/** Which panel under the bar is open, if any. */
-type Panel = null | "name" | "profile";
-
-/**
- * The join box: a code, who you are, and what the code turns out to be.
- *
- * Open on the page rather than behind a "Have a code?" button. Somebody who
- * was read four letters over a table has exactly one job on this screen, and a
- * button that hides the field for it is a step between them and it. The shelf
- * is still the first thing under it, because everybody else is here to pick a
- * game.
- *
- * What it adds over the old panel is the line under the cells: the code is
- * checked as the fourth letter lands and the box says what it found -- the
- * game, and how many are already sitting down. Four letters read across a room
- * are misheard often enough that "join, connect, fail, come back, retype" was
- * the ordinary path, and the failure arrived on a different screen than the
- * mistake.
- *
- * The lookup is advisory. It cannot seat anybody and it never blocks the
- * button on its own opinion: a lost lookup leaves the code joinable and the
- * socket has the final say, which is the only place that can honestly have it.
- */
-function JoinBox({
-  code,
-  onCode,
-  field,
-  name,
-  onName,
-  askName,
-  onEditName,
-  onJoin,
-}: {
-  code: string;
-  onCode(next: string): void;
-  field: React.RefObject<HTMLInputElement>;
-  name: string;
-  onName(next: string): void;
-  askName: boolean;
-  onEditName(): void;
-  onJoin(): void;
-}) {
-  const [found, setFound] = useState<RoomPeek | null>(null);
-  const [checking, setChecking] = useState(false);
-  const complete = code.length === CODE_LENGTH;
-  const trimmed = name.trim();
-
-  /*
-    One lookup per completed code, and never one per keystroke: the question
-    only has an answer once all four letters are in, and the three prefixes on
-    the way there would be three round trips whose answers are all "no".
-
-    Aborting the one in flight is what keeps the box honest when somebody
-    backspaces and retypes -- a slower first answer must not land on top of a
-    newer code and describe the wrong room.
-  */
-  useEffect(() => {
-    if (!complete || !isRoomCode(code)) {
-      setFound(null);
-      setChecking(false);
-      return;
-    }
-    const stop = new AbortController();
-    setChecking(true);
-    let live = true;
-    lookupRoom(code, stop.signal).then((answer) => {
-      if (!live) return;
-      setChecking(false);
-      setFound(answer);
-    });
-    return () => {
-      live = false;
-      stop.abort();
-    };
-  }, [code, complete]);
-
-  /*
-    One line, and it says the most specific true thing it can.
-
-    "We could not tell" is a real state and it is not a refusal: `lookupRoom`
-    answers null for anything that went wrong, including offline, and telling
-    somebody their good code is bad is worse than telling them nothing.
-  */
-  let status: React.ReactNode = null;
-  if (complete && checking) {
-    status = <span className="join-status">Looking for {code}...</span>;
-  } else if (complete && found?.exists) {
-    const seated = found.players ?? 0;
-    status = (
-      <span className="join-status join-found">
-        <strong>{found.gameName}</strong>
-        {found.full
-          ? `, full (${seated} of ${found.capacity} seated)`
-          : `, ${seated} ${seated === 1 ? "player" : "players"} waiting`}
-      </span>
-    );
-  } else if (complete && found && !found.exists) {
-    status = <span className="join-status join-missing">No room with that code. Check the letters?</span>;
-  }
-
-  return (
-    <form
-      className="joinbox"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onJoin();
-      }}
-    >
-      <h2>Got a code?</h2>
-      {/*
-        Two shapes, and the fork is `askName`, which is decided once on arrival
-        and never flips while somebody is typing.
-
-        Known name: the button sits on the end of the code line, because there
-        is nothing between the last letter and pressing it. Unknown name: the
-        name field comes between them, and the button has to follow the last
-        thing it depends on -- a Join sitting above the field it is waiting for
-        is a control that looks broken to everyone who has not yet scrolled
-        past it.
-      */}
-      {askName ? (
-        <>
-          <CodeCells value={code} field={field} onChange={onCode} />
-          <label>
-            Your name
-            <input
-              value={name}
-              onChange={(e) => onName(e.target.value)}
-              placeholder="Amelia"
-              maxLength={20}
-            />
-          </label>
-          <button className="primary" disabled={!trimmed || !complete}>
-            Join
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="join-row">
-            <CodeCells value={code} field={field} onChange={onCode} />
-            <button className="join-go" disabled={!trimmed || !complete}>
-              Join <span aria-hidden="true">&rarr;</span>
-            </button>
-          </div>
-          {/* Everybody here is named in the bar above, and asking a returning
-              player to type it again in front of a code is the form this
-              screen got rid of. */}
-          <p className="join-as">
-            Joining as {trimmed}.{" "}
-            <button type="button" className="linky" onClick={onEditName}>
-              Not you?
-            </button>
-          </p>
-        </>
-      )}
-      {/* Under the control rather than over it, and absent until there is
-          something to say. It used to sit above with 2.4em reserved under a
-          line of instructions nobody needed twice. Below, appearing costs
-          nobody a mis-press: the only control it can move is not there. */}
-      {status && (
-        <p className="hint" id="code-hint">
-          {status}
-        </p>
-      )}
-    </form>
-  );
-}
-
-function Setup({
-  initialName,
-  pendingCode,
-  swapLabel,
-  onSwapPalette,
-  sound,
-  onToggleSound,
-  lastGameId,
-  onName,
-  onStart,
-}: {
-  initialName: string;
-  pendingCode: string | null;
-  swapLabel: string;
-  onSwapPalette(): void;
-  sound: boolean;
-  onToggleSound(): void;
-  lastGameId: string;
-  onName(name: string): void;
-  onStart(name: string, code: string | null, gameId: string | null): void;
-}) {
-  const [name, setName] = useState(initialName);
-  const [code, setCode] = useState(pendingCode ?? "");
-  /*
-    The screen opens with nothing on it but the shelf.
-
-    The name and the code used to be the first two things on this page, which
-    put a form in front of the only thing anybody came here for. Both are still
-    here and neither has moved far: they are one press away in the bar, and the
-    press is only ever needed by somebody who has something to type. Arriving
-    on a link that did not open is the one case that is known in advance, so
-    that one opens the code panel itself rather than sending a person holding a
-    code off to look for where to put it.
-  */
-  const [panel, setPanel] = useState<Panel>(null);
-  /*
-    The last summary this browser was sent, which is all the lobby can have:
-    a profile arrives down a socket and the shelf has none. Held in state
-    rather than read on every render so that signing in, signing out or
-    pasting a key repaints the badge without a reload.
-  */
-  const [profile, setProfile] = useState(loadProfileCache);
-  /*
-    Whether there is a key, held as state rather than read at render.
-
-    The account and the profile are not the same fact and the difference is
-    visible for as long as it takes to play one game: the key exists the moment
-    you press the button, the profile is written by the first word you find. So
-    the panel's `onChanged` refreshing the cache alone left `null` where there
-    was already `null`, React re-rendered nothing, and the bar went on offering
-    to create the account somebody had just created.
-  */
-  const [signed, setSigned] = useState(hasAccount);
-  const refreshAccount = () => {
-    setProfile(loadProfileCache());
-    setSigned(hasAccount());
-  };
-  /*
-    The table somebody pressed before this app knew what to call them.
-
-    A seat cannot be taken anonymously -- the server wants a name in `hello`,
-    and the people already at the table want to know who just sat down -- so a
-    first-time visitor pressing a card is asked, once, on the spot. Holding the
-    game here is what makes that one question rather than two: the answer
-    starts the game they already chose instead of returning them to the shelf
-    to choose it again.
-  */
-  const [pending, setPending] = useState<string | null>(null);
-  /*
-    Whether the join box asks for a name as well, decided once on arrival and
-    not while somebody is typing.
-
-    Asking for it is right: somebody arriving on a code they were sent may
-    never have been here before, and the room needs to be able to say who just
-    joined. Asking for it *live* is not. Written as "show the field while there
-    is no name", the field vanished on the first letter typed into it, taking
-    the cursor with it. One answer per visit.
-  */
-  const [askName] = useState(!initialName.trim());
-  const nameField = useRef<HTMLInputElement>(null);
-  const codeField = useRef<HTMLInputElement>(null);
-  const trimmed = name.trim();
-
-  /*
-    A panel that opens without the cursor in it is a panel somebody has to find
-    their way into after asking for it.
-
-    Which field gets the cursor is the question the panel still has left. Off an
-    invite link the code is already filled in, so the cursor belongs in the name
-    beside it rather than at the end of four letters nobody has to type.
-  */
-  useEffect(() => {
-    if (panel === "name") nameField.current?.focus();
-  }, [panel]);
-
-  /*
-    Arriving on an invite link that did not open by itself.
-
-    The join box is on the page either way, so nothing has to be opened for
-    them; what is left is the cursor, which belongs in the box that is already
-    filled in rather than at the top of the page. Once only, on the first
-    render: moving it later would take it out of whatever they have started
-    typing.
-  */
-  useEffect(() => {
-    if (pendingCode) codeField.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /*
-    The shelf, with the game you last sat down to standing above it.
-
-    Falling back to the head of the list covers a first visit and a stored id
-    from a game that has since been removed. Both are "no game on top", and
-    neither is worth an empty frame.
-
-    The three shelves come from `shelvedGames`, which also takes the featured
-    game out of them -- in the manifest rather than here, so the tally in a
-    shelf's heading is counted from the same list the cards under it are drawn
-    from.
-  */
-  const tables = gameList();
-  const featured = tables.find((game) => game.id === lastGameId) ?? tables[0];
-  const shelves = shelvedGames(featured.id);
-
-  const togglePanel = (which: Exclude<Panel, null>) => {
-    setPanel(panel === which ? null : which);
-    setPending(null);
-  };
-
-  const start = (gameId: string) => {
-    if (!trimmed) {
-      setPending(gameId);
-      setPanel("name");
-      return;
-    }
-    play("tap");
-    onStart(trimmed, null, gameId);
-  };
-
-  const submitName = () => {
-    if (!trimmed) {
-      nameField.current?.focus();
-      return;
-    }
-    onName(trimmed);
-    const table = pending;
-    setPending(null);
-    setPanel(null);
-    if (table) {
-      play("tap");
-      onStart(trimmed, null, table);
-    }
-  };
-
-  const join = () => {
-    if (!trimmed || code.length !== CODE_LENGTH) return;
-    onStart(trimmed, code, null);
-  };
-
-  // Escape closes whichever panel is open, which is what Escape does to
-  // anything that opened over the page.
-  const onEscape = (e: React.KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    setPanel(null);
-    setPending(null);
-  };
-
-  const pendingName = pending ? gameEntry(pending)?.name : undefined;
-
-  return (
-    <main className="app setup">
-      {/* The whole of the old left-hand column, folded onto one line: who you
-          are, and the one control somebody arriving with a code came for. */}
-      <header className="lobby-bar">
-        <h1 className="wordmark">
-          <BrandMark />
-        </h1>
-        {/* Who you are and what is keeping it, stacked as one card at the far
-            end of the bar. The way in to an account used to be a line of lobby
-            furniture down beside the tagline, which is the wrong place for it:
-            it is the account control, and the account control belongs on the
-            thing that already says your name. Stacked rather than a third chip
-            on the line, because three chips at 375px take the wordmark down to
-            an ellipsis -- see `css.test.ts`, "the lobby bar". */}
-        <div className="account">
-          <button
-            type="button"
-            className="whoami"
-            aria-expanded={panel === "name"}
-            onClick={() => togglePanel("name")}
-          >
-            <span className="av" aria-hidden="true">
-              {(trimmed || "?").slice(0, 1).toUpperCase()}
-            </span>
-            <span className="who">{trimmed || "Add your name"}</span>
-          </button>
-
-          {/* The quiet half. It is a label for a state, not a pitch: the pitch
-              is the reminder down in the lobby, and the panel behind this
-              button says the rest. The one loud state -- words actually due --
-              stays down there too, where a 1.7rem number has room to be the
-              reason to come back. */}
-          <button
-            type="button"
-            className="acct-link"
-            aria-expanded={panel === "profile"}
-            onClick={() => togglePanel("profile")}
-          >
-            {signed ? "Your account" : "Create an account"}
-          </button>
-        </div>
-
-        {/* Anchored under the chip that opened it rather than laid across the
-            page. As a block in the flow it was a full-width card that shoved
-            the join box, the tagline and the whole shelf down the screen to
-            ask for one word; out of flow it costs the page no height at all
-            and appears where the press was. */}
-        {panel === "name" && (
-        <form
-          className="panel panel-pop"
-          onKeyDown={onEscape}
-          onSubmit={(e) => {
-            e.preventDefault();
-            submitName();
-          }}
-        >
-          <label>
-            {/* Naming the table they pressed, because they pressed it a second
-                ago and this question arrived on top of it. */}
-            {pendingName ? `Sitting down at ${pendingName}. Your name` : "Your name"}
-            <input
-              ref={nameField}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Amelia"
-              maxLength={20}
-            />
-          </label>
-          <button className="primary" disabled={!trimmed}>
-            {pendingName ? "Deal me in" : "Save"}
-          </button>
-        </form>
-        )}
-      </header>
-
-      {/* Two columns on a wide lobby: the code and the copy on the left, the
-          shelf on the right. As one column the join box, the tagline and the
-          reminder were three full-width bands stacked above the games, and on
-          a laptop that is most of the first screen spent on the thing almost
-          nobody came for. On a phone `.lobby-cols` is still one column and the
-          order is unchanged. */}
-      <div className="lobby-cols">
-        <div className="lobby-aside">
-          {/* The one thing on this screen with a deadline: somebody is holding
-              four letters somebody else read out. It is never behind a press. */}
-          <JoinBox
-            code={code}
-            onCode={setCode}
-            field={codeField}
-            name={name}
-            onName={setName}
-            askName={askName}
-            onEditName={() => togglePanel("name")}
-            onJoin={join}
-          />
-
-          {/* Six words for the whole product, in the order it happens.
-
-              It used to list three things this is not -- no ads, no account,
-              no catch -- which is a defence, and nobody had accused it of
-              anything yet. The accounts line in particular was arguing with a
-              feature the page now offers two controls for. */}
-          <p className="tagline">Pick a game, send the link, play.</p>
-
-          {/* The due prompt, and it is the only thing left in this column that
-              is allowed to be loud, because it is the only one anybody came
-              back for. The idle states it used to also carry -- "Your words",
-              "Keep track of what you learn" -- are the account control, and
-              that now lives on the account card in the bar.
-
-              Cached rather than live, because the lobby has no socket. See
-              `profileCache.ts` for why a count that can only understate is the
-              right trade. */}
-          {profile && profile.due > 0 && (
-            <button
-              type="button"
-              className="myword myword-due"
-              aria-expanded={panel === "profile"}
-              onClick={() => togglePanel("profile")}
-            >
-              <span className="myword-n">{profile.due}</span>
-              <span className="myword-of">
-                {profile.due === 1 ? "word due for review" : "words due for review"}
-              </span>
-            </button>
-          )}
-
-          {/* The reminder, and it deliberately does not repeat the button that
-              opens it. "Create an account" up in the bar says what pressing it
-              does; this says what the account is for, and the words are only
-              half of that -- the streaks and the tallies are the half the old
-              copy never mentioned. Absent once there is an account, because
-              then it is describing something you already have. */}
-          {!signed && (
-            <p className="acct-why">
-              An account remembers the words you have found and the ones you
-              owe a review on, and keeps your stats and streaks across every
-              game. No email, nothing to fill in.
-            </p>
-          )}
-
-          {panel === "profile" && (
-            <Profile profile={profile} onChanged={refreshAccount} />
-          )}
-        </div>
-
-      {/* One element around the shelf, which `base.css` reads: the two recovery
-          screens wear `.app.setup` too, and the desktop layout is for the lobby
-          rather than for a wordmark and a button. */}
-      <div className="shelves">
-        {/* The other half of the fork, and it had never been named.
-
-            The code above it is a question with a rule under it; this is the
-            answer for everybody who has not got one. Two named halves is the
-            whole of what makes the lobby read as a choice rather than as a
-            form with a shop underneath it -- and it is set a step above the
-            shelf labels below, which name kinds of game rather than the thing
-            you are doing. */}
-        <h2 className="start-head">Start a new room</h2>
-        <HeroCard table={featured} onStart={start} />
-
-        {shelves.map((shelf) => (
-          <section key={shelf.id} className="shelf" aria-labelledby={`shelf-${shelf.id}`}>
-            <h2 className="shelf-head" id={`shelf-${shelf.id}`}>
-              {shelf.label}
-              {/* For the eye, which is deciding whether this shelf is the one
-                  worth reading. Anybody listening has the section's heading and
-                  then the cards themselves, which is a better count than a
-                  number read out ahead of them. */}
-              <span className="tally" aria-hidden="true">
-                {shelf.games.length}
-              </span>
-            </h2>
-            <div className="games">
-              {shelf.games.map((game) => (
-                <TableCard key={game.id} table={game} onStart={start} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-      </div>
-
-      <div className="preferences">
-        <button className="swap" onClick={onSwapPalette}>
-          {swapLabel}
-        </button>
-        <button className="swap" aria-pressed={sound} onClick={onToggleSound}>
-          Sound {sound ? "on" : "off"}
-        </button>
-      </div>
-    </main>
-  );
-}

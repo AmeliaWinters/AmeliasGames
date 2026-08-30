@@ -143,6 +143,11 @@ export const GAME_MANIFEST = {
     shelf: 'words', minutes: 5,
     blurb: 'See the clue, race them to the word.',
   },
+  ghost: {
+    id: 'ghost', name: 'Superghost', minPlayers: 2, maxPlayers: 2,
+    shelf: 'words', minutes: 10,
+    blurb: 'Grow it either end. Finish a word, lose.',
+  },
 } as const;
 
 export const DEFAULT_GAME_ID: string = GAME_MANIFEST.connect4.id;

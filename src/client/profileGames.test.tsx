@@ -12,7 +12,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Profile } from './Profile.js';
+import { Stats } from './Stats.js';
 import type { GameTally, ProfileView } from '../shared/profile.js';
 
 declare global {
@@ -44,15 +44,19 @@ function view(games: GameTally[]): ProfileView {
   return {
     id: 'acct',
     name: 'Amelia',
-    xp: 120,
-    level: 2,
-    nextLevel: 300,
     streak: { days: 0, lastDay: 0, rests: 0 },
+    playedToday: false,
+    rank: { level: 1, levelAt: 0, nextLevel: 60 },
+    xp: 0,
     words: 0,
+    learned: 0,
     due: 0,
     byLang: [],
     games,
     recent: [],
+    spendable: 0,
+    showcase: [],
+    claimed: 0,
   };
 }
 
@@ -60,19 +64,20 @@ let host: HTMLDivElement | null = null;
 let root: Root | null = null;
 
 /**
- * Draw the panel for an account that exists.
+ * Draw the games list, on the screen it actually lives on.
  *
- * `hasAccount` reads the key out of storage, so the panel would otherwise show
- * a signed-out stranger the offer of an account and none of this. One line of
- * storage rather than a mock, because the real read is the thing being
- * satisfied.
+ * It used to be reached by rendering the account menu and pressing its Stats
+ * row. Stats is a screen of its own now -- see `Stats.tsx` for why a section
+ * that grows without limit is the wrong thing to hang in a menu -- so this
+ * renders it directly, and there is no key to satisfy: the screen draws the
+ * `ProfileView` it is handed and asks storage nothing.
  */
 function draw(profile: ProfileView): HTMLElement {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
   act(() => {
-    root!.render(createElement(Profile, { profile, onChanged: () => {} }));
+    root!.render(createElement(Stats, { profile, onBack: () => {} }));
   });
   const panel = host.querySelector('.prof-games');
   if (!panel) throw new Error('the games panel was not drawn');
@@ -87,28 +92,6 @@ afterEach(() => {
 });
 
 describe('the games panel', () => {
-  beforeAll(() => {
-    // A key in storage, so the panel is drawn rather than the offer of an
-    // account. Its contents never leave this file; only `hasAccount` looks.
-    //
-    // The store is stood up by hand because neither storage in scope here can
-    // hold it: Node's own `localStorage` wins the global lookup under jsdom
-    // and throws unless the process was started with a file to back it, and
-    // jsdom's is not reachable past it. Four methods is the whole of what
-    // `account.ts` uses.
-    const store = new Map<string, string>();
-    Object.defineProperty(window, 'localStorage', {
-      configurable: true,
-      value: {
-        getItem: (key: string) => store.get(key) ?? null,
-        setItem: (key: string, value: string) => void store.set(key, value),
-        removeItem: (key: string) => void store.delete(key),
-        clear: () => store.clear(),
-      },
-    });
-    window.localStorage.setItem('ag.account', JSON.stringify({ pub: 'x', priv: 'y' }));
-  });
-
   it('leads with the game played most recently, not the one played most', () => {
     const panel = draw(
       view([

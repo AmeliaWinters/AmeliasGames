@@ -48,6 +48,18 @@ const MAX_SENSES = 3;
 interface Sense {
   show: string;
   key: string;
+  /**
+   * `show` with only the articles off: what two senses have to share before
+   * one of them is dropped as a repeat.
+   *
+   * Not `key`, and the difference is the clue on the screen. `key` folds
+   * *alright* and *OK* together so both are accepted, which is the point of
+   * `SAME_MEANING` -- but deduping on it would print the clue for `dobra` as
+   * "alright" where the dictionary wrote "alright, OK", and a learner reading
+   * one wording is worse off than one reading two. Index loosely, print
+   * exactly.
+   */
+  bare: string;
 }
 
 /**
@@ -66,6 +78,114 @@ const BRACKETED = /\([^)]*\)/g;
 
 /** What English puts in front of a word that carries no meaning of its own. */
 const LEADING = /^(?:to|a|an|the)\s+/;
+
+/**
+ * English words that end in `s` and are not a plural of anything.
+ *
+ * `singular` is a blunt instrument and these are the words it maims. `dobre`
+ * is glossed *goods; property* and `wiadomości` *news*, so without this list
+ * the clue "good" starts accepting a word that means merchandise and "new"
+ * starts accepting the evening bulletin. Both were real, both found by running
+ * the index before and after.
+ */
+const NOT_PLURAL = new Set([
+  'news', 'goods', 'means', 'series', 'species', 'clothes', 'glasses', 'scissors',
+  'always', 'perhaps', 'yes', 'thus', 'across', 'unless', 'less', 'this', 'has',
+  'was', 'gas', 'bus', 'plus',
+]);
+
+/**
+ * One English word, stripped of the ending that only says how many.
+ *
+ * The index compares sense strings, so `wie` glossed *knows* and `wiedzieć`
+ * glossed *know* were two unrelated meanings, and a learner who typed the
+ * commoner of the two for the other's clue was marked wrong for conjugating.
+ * Same for *year* against *years*, *thank* against *thanks*, *say* against
+ * *says*. Sixty-one of the top thousand Polish clues gain a right answer from
+ * this one rule.
+ *
+ * Deliberately stops at number. The obvious next steps -- dropping `-ing` and
+ * `-ed`, or dropping prepositions so a multi-word gloss reduces to its verb --
+ * were tried and are wrong: they make *holding* mean *hold*, *evening* mean
+ * *even*, *give up* mean *give*, *have to* mean *have* and *of course* mean
+ * *course*. Every word of a sense survives; only its number is flattened.
+ */
+function singular(word: string): string {
+  if (NOT_PLURAL.has(word)) return word;
+  if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
+  // `goes` and `does` lose the whole `es`, `makes` only the `s`. Getting this
+  // wrong is not a wrong answer, it is a key nothing else in the index reaches.
+  if (word.length > 3 && /(o|x|z|ch|sh|ss)es$/.test(word)) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith('s') && !/(ss|us|is)$/.test(word)) {
+    return word.slice(0, -1);
+  }
+  return word;
+}
+
+/**
+ * English wordings that are one meaning, hand written.
+ *
+ * The lists are built from six sources and each of them picked its own English
+ * for the same idea, which the index reads as different meanings. `dobra` is
+ * glossed *alright, OK* and `dobrze` *well, fine*; they are the same word in
+ * most of the sentences a learner will meet, and typing the commoner one got
+ * "wrong, the answer was dobra", which is the game teaching a distinction that
+ * is not there.
+ *
+ * Hand written and short on purpose. This is the one place in the module where
+ * a human decides that two English strings mean the same thing, so every line
+ * has to be one somebody would defend out loud. Anything doing real work
+ * belongs in `singular` or in `scripts/build-wordchain.ts` instead.
+ *
+ * Each row is a set of equal wordings; the first is the one they all fold to.
+ * They are matched on the whole sense, after `singular`, so *all right* joins
+ * the row and *right* does not.
+ *
+ * No wording appears in two rows, and that is a rule rather than a tidiness:
+ * the last row written wins, so *complete* listed under both **finish** and
+ * **whole** quietly made "whole, entire" accept `kończyć`, which means to end
+ * something. Two rows that want the same word are one row or neither.
+ */
+const SAME_MEANING: readonly (readonly string[])[] = [
+  ['ok', 'okay', 'alright', 'all right', 'fine', 'well'],
+  ['maybe', 'perhaps', 'possibly'],
+  ['begin', 'start', 'commence'],
+  ['finish', 'end', 'complete'],
+  ['small', 'little', 'tiny'],
+  ['big', 'large'],
+  ['fast', 'quick', 'rapid'],
+  ['happy', 'glad', 'pleased'],
+  ['angry', 'mad', 'furious'],
+  ['whole', 'entire'],
+  ['also', 'too', 'as well'],
+  ['child', 'kid'],
+  ['buy', 'purchase'],
+  ['difficult', 'hard'],
+  ['easy', 'simple'],
+  ['almost', 'nearly'],
+  ['often', 'frequently'],
+  ['immediately', 'at once', 'right away'],
+  ['beautiful', 'lovely'],
+  ['scared', 'afraid', 'frightened'],
+];
+
+/** Every wording in `SAME_MEANING`, pointing at the one its row folds to. */
+const CANON = new Map<string, string>(
+  SAME_MEANING.flatMap((row) => row.map((wording) => [wording, row[0]] as const)),
+);
+
+/**
+ * What a printed sense is filed under.
+ *
+ * Three steps, each undoing a way the six sources disagree about English while
+ * meaning the same thing: the infinitive marker and the articles, number, and
+ * the wording itself. Only the index sees this. `show` is untouched, because
+ * the clue on the screen should read as a dictionary wrote it.
+ */
+function senseKey(bare: string): string {
+  const flat = bare.split(' ').map(singular).join(' ');
+  return CANON.get(flat) ?? flat;
+}
 
 /**
  * A gloss, split into the senses it is actually made of.
@@ -94,10 +214,10 @@ function senses(gloss: string): Sense[] {
     // wants a flattened form, and only the index gets one.
     const show = raw.replace(BRACKETED, ' ').replace(/\s+/g, ' ').trim();
     if (!/^[a-z][a-z ]*$/i.test(show) || show.length < 2) continue;
-    const key = show.toLowerCase().replace(LEADING, '').trim();
-    if (key.length < 2) continue;
-    if (out.some((sense) => sense.key === key)) continue;
-    out.push({ show, key });
+    const bare = show.toLowerCase().replace(LEADING, '').trim();
+    if (bare.length < 2) continue;
+    if (out.some((sense) => sense.bare === bare)) continue;
+    out.push({ show, key: senseKey(bare), bare });
   }
   return out;
 }
@@ -330,7 +450,7 @@ export function vocabQuestion(
  * end of a thousand-card deck is ranks a fifteen-round game will never reach.
  *
  * Phrase mode reads the same way and keeps the same guarantee for a different
- * reason: only forty-five of the thousand dealt ranks are phrases at all, so
+ * reason: only a hundred and thirty of the thousand dealt ranks are phrases at all, so
  * the qualifying ones are scattered the whole length of the deck and the far
  * end is no more the next few rounds than the near end is.
  *

@@ -441,6 +441,47 @@
   color: var(--ink);
 }
 
+/* The hint ladder, under the label that says what the word has to start with
+   and above the box it goes in. Panelled like the reveal, and quieter than it:
+   the two are the same claim about the same word, but one arrives mid-turn
+   beside a running clock and must not read as the answer having been given. */
+.wc-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+}
+.wc-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.wc-hint-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wc-hint strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+/* The blanks are the hint, so they are set where they can be counted at a
+   glance: monospaced, and spaced out enough that four underscores are not one
+   rule. */
+.wc-hint-shape {
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
+}
+
 /* The reveal. Shown large and with its meaning rather than tucked into the
    status line, because a minute spent failing to think of a word is the moment
    the answer sticks, and this is the only chance to spend it. */

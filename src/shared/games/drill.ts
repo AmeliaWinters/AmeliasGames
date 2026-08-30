@@ -336,6 +336,12 @@ export const drill: GameDefinition<DrillState, DrillMove> = {
 
   isOver: isFinished,
 
+  // Played alone, so there is nobody to beat. Null is the honest answer and
+  // the end screen falls back to the tally, which is what a drill is for.
+  winner() {
+    return null;
+  },
+
   status(state) {
     if (state.phase === 'over') {
       const counted = tally(state);

@@ -34,9 +34,53 @@ import { describe, expect, it } from 'vitest';
  * cover -- correctly, since the app would not load it either.
  */
 const STYLES = new URL('./styles/', import.meta.url);
-const css = [...readFileSync(new URL('index.css', STYLES), 'utf8')
-  .matchAll(/@import\s+"\.\/([^"]+)"/g)]
-  .map((m) => readFileSync(new URL(m[1], STYLES), 'utf8'))
+const BOARDS = new URL('./games/', import.meta.url);
+
+/** The sheets `index.css` still pulls in, in the order it pulls them. */
+const eager = [...readFileSync(new URL('index.css', STYLES), 'utf8')
+  .matchAll(/@import\s+"\.\/([^"]+)"/g)].map((m) => m[1]);
+
+/**
+ * The game sheets that now arrive with their board, found the way the browser
+ * finds them: by reading the import out of the board component.
+ *
+ * Thirteen of the fifteen left `index.css` so that a player opening the lobby
+ * stops downloading every game's CSS to look at a shelf of cards. They are
+ * still part of one stylesheet as far as this file is concerned, and they have
+ * to be, because the tests below reason about the whole cascade -- the
+ * disabled-button rule and the phone-width arithmetic both answer differently
+ * with a game sheet missing, and would answer *green* rather than failing.
+ *
+ * Read from the board sources rather than globbed, for the reason the old
+ * comment here gave: a sheet nobody imports is a sheet the app never loads,
+ * and it should not be covered. That property is now worth more than it was,
+ * since forgetting the import is a whole game rendering unstyled, so
+ * `every game sheet` below asserts it directly.
+ */
+function lazySheets(): string[] {
+  const found: string[] = [];
+  for (const name of readdirSync(BOARDS)) {
+    if (!name.endsWith('.tsx') || name.endsWith('.test.tsx')) continue;
+    const source = readFileSync(new URL(name, BOARDS), 'utf8');
+    for (const [, path] of source.matchAll(/import\s+"\.\.\/styles\/([^"]+\.css)"/g)) {
+      if (!eager.includes(path)) found.push(path);
+    }
+  }
+  // Sorted for a stable read, and sorting is honest here in a way it would not
+  // have been for `index.css`: these are separate chunk stylesheets, appended
+  // after the entry sheet in whatever order the player opens games, so the
+  // browser does not fix an order between them either. Nothing may depend on
+  // one -- every one of these files is prefixed to its own game.
+  return [...new Set(found)].sort();
+}
+
+/**
+ * The whole stylesheet as one string: what `index.css` blocks the first paint
+ * with, and then the per-board sheets, which is the order a browser ends up in
+ * -- a chunk's CSS is appended after the entry sheet's.
+ */
+const css = [...eager, ...lazySheets()]
+  .map((path) => readFileSync(new URL(path, STYLES), 'utf8'))
   .join('');
 
 /**
@@ -65,6 +109,7 @@ const CONTROLS = new Set([
   'vr-speak-clue', // the spoken clue itself, on a listening round
   'vr-speak-small', // replaying the answer, on the reveal
   'yz-pick',
+  'gh-give-up', // giving the round up, under Superghost's keyboard
 ]);
 
 /** Board and dice components -- the files that draw a playing surface. */
@@ -530,40 +575,222 @@ describe('the lobby bar', () => {
   });
 
   /*
-    The chip is inside a card now, and the card is what the bar sees. Both
-    carry the cap: the chip's is the one measured in a browser and pinned
-    above, and the card's is what actually holds the bar together, because a
-    17-character "Create an account" under an unclipped chip would otherwise
-    set the width. Measured at 320 with a 19-character name: the lockup stays
-    whole and the name is the thing that ellipsises, which is the contract.
+    The chip is inside a card now, and the card is what the bar sees. The card
+    holds two pills -- the purse and the chip -- so its cap is the pair's,
+    while the chip keeps the 40vw measured in a browser and pinned above,
+    because that is what the name ellipsises against. Measured at 320 with a
+    19-character name: the lockup stays whole and the name is the thing that
+    ellipsises, which is the contract.
   */
   it('caps the account card the chip now sits in', () => {
-    expect(rule('.account')).toContain('max-width: 40vw');
+    expect(rule('.account')).toContain('max-width: min(62vw, 360px)');
+    // Never shrunk by the bar: the lockup is an image, and an image's flex
+    // base size is its natural width -- 1076px for this file -- not the width
+    // its 3em height comes to. The bar thought it was overflowing and shrank
+    // this card to 84px on a 1280 lobby with 800px of empty bar beside it.
+    // The wordmark is the item that gives, which is what its `min-width: 0`
+    // and hidden overflow up here were always for.
+    expect(rule('.account')).toContain('flex: none');
   });
 
   /*
-    The way in to an account is the quietest thing on the bar and is set at
-    11.5px, which is well under the 18.66px where 3:1 would do. Measured in
-    the browser against both grounds -- 6.03 dark, 5.32 light -- but the
-    colour is the thing a change would move, so it is the colour that is
-    pinned: `--muted` is the token those two numbers belong to.
+    The avatar is a definite square, and that is the other half of the same
+    bug. It was `align-self: stretch` with `width: auto` and `aspect-ratio: 1`
+    -- height off the flex line, width off the height -- which is a cycle, and
+    Chrome resolves it by leaving the avatar out of the chip's max-content
+    width. The chip measured 84px and the name came out as "Am", clipped by the
+    column rather than ellipsised by the text; 111px from the same markup once
+    the square was definite.
+
+    Pinned because both symptoms point away from the cause: what is visibly
+    wrong is a name, and nothing about a name mentions the avatar.
   */
-  it('leaves the account link on the muted token', () => {
-    expect(rule('.acct-link')).toContain('color: var(--muted)');
+  it('gives the chip avatar a definite square rather than an aspect ratio', () => {
+    const av = rule('.whoami .av');
+    expect(av).toContain('width: 34px');
+    expect(av).toContain('height: 34px');
+    // The declarations, not the words: the block explains the cycle it
+    // replaced, and the explanation is the point of it.
+    expect(av).not.toMatch(/^\s*aspect-ratio:/m);
+    expect(av).not.toMatch(/^\s*align-self: stretch/m);
   });
 
   /*
-    The second word is set in the channel colour, which clears 3:1 against the
-    ground but not 4.5:1. Bold at 20px it is large text, where 3:1 is the bar
-    it has to clear; below 18.66px it is not, and the same colour quietly
-    fails.
+    What the chip is worth, and what it gives up to say it.
+
+    Measured at 320: the bar is 288 wide and the lockup wants 147. The purse
+    pill and the chip's avatar are fixed, and the name column is the only
+    elastic thing on the row, so the name ellipsises and nothing else moves.
+    The old rule hid the name outright at this width; the ellipsis is the
+    better half of that trade, because four characters still say which account
+    this is and the whole name is on the button's label either way.
+
+    Pinned because the failure is invisible on a desktop viewport: somebody
+    widening the purse or the type here would only see it re-break at a width
+    they are not looking at.
   */
-  it('keeps the accented word at large-text size', () => {
+  it('ellipsises the name rather than dropping it at a phone width', () => {
+    const name = rule('.whoami .who');
+    expect(name).toContain('text-overflow: ellipsis');
+    expect(name).toContain('overflow: hidden');
+    const column = rule('.whoami .whocol');
+    // A flex item defaults to `min-width: auto` and refuses to shrink below
+    // its content, which is how a long name used to take the brand's width.
+    expect(column).toContain('min-width: 0');
+
+    const phone = css.slice(css.indexOf('@media (max-width: 400px)'));
+    const block = phone.slice(0, phone.indexOf('\n}'));
+    // Nothing is hidden at a phone width any more, the purse included: an
+    // icon with no figure beside it is a currency nobody has learned yet.
+    expect(block).not.toContain('display: none');
+    // 41vw is what the pair may have if the lockup is to keep its 147. The
+    // card carries it, not the chip, because the purse is inside the card, and
+    // the rule sits below `.account` rather than up here with the others --
+    // at equal specificity the later block wins, and this one has to.
+    // The arithmetic rather than a percentage that matched it at one width:
+    // 16px of gutter either side, the 147 the lockup needs to read "Rebellia"
+    // whole, and the 8px between them. 133 at 320, 188 at 375, 203 at 390,
+    // where a flat 41vw gave 131, 154 and 160 and threw the rest away.
+    expect(rule('.account')).toContain('max-width: calc(100vw - 187px)');
+  });
+
+  /*
+    The bar the level fills is drawn from a variable set per profile, and an
+    unset variable has to read as an empty bar rather than a full one: the
+    chip is the one place in the app that claims progress nobody asked it to
+    prove.
+  */
+  /*
+    The account menu is a dropdown again, and the requirement it lost as a page
+    is the one pinned here: as big as it needs to be, hung off the chip, and
+    never wider than the phone it is on.
+
+    `width: max-content` between a floor and a ceiling is what "as big as it
+    needs to be" is in CSS, and both bounds are `min(...)` against the viewport
+    because the same rule is the phone layout -- there is no second one. The
+    height is bounded only so a menu taller than the screen scrolls itself
+    rather than running off the bottom with no way to reach the end.
+
+    Measured nowhere, because there is nothing to measure: the failure this
+    guards is somebody giving the popover a fixed width or a fixed height, and
+    that is visible in the stylesheet before it is visible anywhere else.
+  */
+  it('hangs the account menu off the chip at the size it needs', () => {
+    const pop = rule('.acct-pop');
+    expect(pop).toContain('position: absolute');
+    // Right-aligned: the chip is at the right-hand end of the bar, and this is
+    // what keeps the card's left edge inside the gutter at 320.
+    expect(pop).toContain('right: 0');
+    expect(pop).toContain('width: max-content');
+    // Both bounds against the viewport, so 320px needs no rule of its own.
+    expect(pop).toContain('max-width: min(340px, calc(100vw - 24px))');
+    expect(pop).toContain('min-width: min(260px, calc(100vw - 24px))');
+    // No fixed height anywhere: only a cap, and it scrolls when it is hit.
+    expect(pop).not.toMatch(/height: (?!auto)/);
+    expect(pop).toContain('overflow-y: auto');
+  });
+
+  /*
+    The chest is an icon button in both headers, and the purse is a readout
+    beside it. They were one pill -- chest, balance and a progress bar through
+    one border -- so a press on the number and a press on the chest were the
+    same press wearing two faces, and the number read as a thing that was
+    loading.
+  */
+  it('keeps the chest square and the purse a readout', () => {
+    // The bar is gone. It drew the currency as a thing that was loading, and
+    // how close the next chest is belongs on the chest screen, where there is
+    // room to say it in words.
+    expect(css).not.toContain('.chestbtn-bar');
+    const chest = rule('.chestbtn');
+    expect(chest).toContain('min-width: 44px');
+    expect(chest).toContain('min-height: 44px');
+    // No border and no background on the purse: that is what separates a
+    // readout from the two pressable things either side of it.
+    expect(rule('.pursepill')).not.toContain('border:');
+  });
+
+  /*
+    Under 360 the chip is the face and nothing else, and it has to be the face
+    rather than a column with the name clipped out of it. The card is 133px at
+    320 and the purse and the chest take 100 of it; what is left is an avatar
+    and a 0px column, which is the "Am" this block was written for. The name is
+    on the button's label and on the first row of the panel it opens.
+  */
+  it('drops the name column rather than clipping it under 360', () => {
+    const narrow = css.slice(css.indexOf('@media (max-width: 359px)'));
+    const block = narrow.slice(0, narrow.indexOf('\n}\n'));
+    expect(block).toContain('.whoami .whocol');
+    expect(block).toContain('display: none');
+  });
+
+  /*
+    The one animation in the app that runs unprompted, and the one rule that
+    makes that acceptable. Somebody who has asked for less motion still gets
+    the accent border and the badge, which is the whole of the message.
+  */
+  it('stops the ready chest pulsing for anyone who asked motion to stop', () => {
+    // Every reduced-motion block in the sheet, not the tail of the file from
+    // the first one: this app has several, and slicing to the end would pass
+    // on a rule written anywhere below the first of them.
+    const head = '@media (prefers-reduced-motion: reduce) {';
+    const blocks: string[] = [];
+    for (let at = css.indexOf(head); at !== -1; at = css.indexOf(head, at + 1)) {
+      blocks.push(css.slice(at, css.indexOf('\n}', at)));
+    }
+    const mine = blocks.find((block) => block.includes('.chestbtn[data-ready="yes"]'));
+    expect(mine, 'a reduced-motion block covering the chest pill').toBeDefined();
+    expect(mine).toContain('animation: none');
+  });
+
+  it('empties the level bar when nothing has set its fill', () => {
+    expect(rule('.whoami .rank-bar::before')).toContain('var(--fill, 0%)');
+  });
+
+  /*
+    The bar is down to one control, and everything the second one reached is
+    inside the panel it opens. The rows of that panel are the menu items, and
+    the smallest type in there is the value carried on the row: `--muted`
+    against `--surface`, which is the pairing measured in a browser for the
+    link this replaced -- 6.03 dark, 5.32 light. The colour is the thing a
+    change would move, so it is the colour that is pinned.
+  */
+  it('leaves the value on a menu row on the muted token', () => {
+    expect(rule('.prof-row-value')).toContain('color: var(--muted)');
+  });
+
+  /*
+    A menu row is the press target, so it carries the floor every touch target
+    in this app is held to. It is a full-bleed row rather than a chip, which is
+    exactly the shape that looks fine at any height and is 30px tall.
+  */
+  it('holds a menu row to the touch-target floor', () => {
+    expect(rule('.prof-row')).toContain('min-height: 44px');
+  });
+
+  /*
+    The brand is now the supplied image, and its height is set in `em` off this
+    one font-size -- so the font-size is still what sizes the logo even though
+    nothing here is type any more. Left as a font-size because the bar's other
+    rules are measured against it, and a stray change to it silently resizes
+    the mark; this pins it.
+  */
+  it('keeps the brand image sized off the bar font-size', () => {
     const mark = rule('.brandmark');
     const size = mark.match(/font-size: ([\d.]+)rem/);
     expect(size, mark).not.toBeNull();
     expect(Number(size![1]) * 16).toBeGreaterThanOrEqual(18.66);
-    expect(mark).toContain('font-weight: 700');
+    expect(rule('.brandmark .logo')).toMatch(/height: [\d.]+em/);
+  });
+
+  /*
+    The wordmark's ink is near black in the file, so stage gets the swapped
+    copy. If either palette ends up drawing both, the bar shows the logo twice.
+  */
+  it('draws exactly one of the two logo files per palette', () => {
+    expect(rule(':root[data-palette="stage"] .brandmark .logo.daylight')).toContain('display: none');
+    expect(rule(':root[data-palette="stage"] .brandmark .logo.stage')).toContain('display: block');
+    expect(rule('.brandmark .logo.stage')).toContain('display: none');
   });
 });
 
@@ -979,5 +1206,471 @@ describe('a board at a phone width', () => {
     // assertion above would be one assertion run three times over.
     const boxes = PHONES.map((width) => trackAt([], width));
     expect(new Set(boxes).size, `all three widths measured ${boxes[0]}px`).toBe(3);
+  });
+});
+
+describe('the chest screen at a phone width', () => {
+  /*
+    The chest grid is `auto-fill` over a minimum, which `trackAt` cannot model:
+    it solves a known column count and `auto-fill` decides one from the width.
+    So this asserts the two things that actually go wrong on a 320 phone rather
+    than pretending to measure a track.
+  */
+
+  it('cannot overflow the narrowest phone, whatever the minimum is', () => {
+    /*
+      `minmax(13rem, 1fr)` on its own overflows a 320px viewport once the app's
+      padding is counted, and it does it silently: the page grows a horizontal
+      scrollbar and every card is cut off at the same place. Wrapping the
+      minimum in `min(100%, ...)` is the whole fix, and it is one easily lost
+      to a tidy-up that reads it as redundant.
+    */
+    const grid = declsAt('.chest-grid', 320).get('grid-template-columns') ?? '';
+    expect(grid, '.chest-grid has no columns').not.toBe('');
+    expect(grid, `${grid} can be wider than the phone it is on`).toMatch(/min\(\s*100%/);
+  });
+
+  it('keeps every control on it above the touch floor', () => {
+    // The screen is reached from a menu on a phone and its whole job is to be
+    // pressed. `min-height` rather than `height`, so a label that wraps grows
+    // the button instead of clipping it.
+    for (const control of ['.chest-open', '.chest-retry']) {
+      const decls = declsAt(control, 320);
+      const floor = px(decls.get('min-height'), varsAt(320));
+      expect(floor, `${control} is ${floor}px tall`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('never gives a pressable thing an aspect ratio', () => {
+    /*
+      The trap CLAUDE.md opens with, checked here for the one screen that mixes
+      square art with buttons. `button` carries `min-height: 44px`; a minimum
+      beats `aspect-ratio`, so a square control narrower than 44px comes out
+      44px tall in a narrower column and overlaps its neighbours. The art on
+      this screen is square on purpose, so the rule is that the square things
+      are not the pressable things.
+    */
+    for (const square of ['.chest-art', '.chest-drop-art']) {
+      const decls = declsAt(square, 320);
+      expect(decls.get('aspect-ratio'), `${square} should be square`).toBe('1');
+      expect(
+        BUTTON_CLASSES.has(square.slice(1)),
+        `${square} is square and pressable, which is the overlap bug`,
+      ).toBe(false);
+    }
+  });
+
+  it('reveals the drop in an order, and lets it all through at once', () => {
+    /*
+      The order is `roll.css`'s now, because the gacha buys the same thing for
+      the same hundred and used to arrive in one pop. So this reads the shared
+      classes: what the chest's markup wears is asserted where the markup is.
+    */
+    /*
+      The reveal is staged: the panel, then the item with an overshoot, then
+      what it was and what it left. It is spelled with `animation-delay` rather
+      than timers precisely so it can be asserted here -- the Browser pane never
+      composites a frame, so nobody can look at this, and an unlooked-at
+      animation is one a tidy-up deletes.
+
+      The delays are asserted as an *order* rather than as four numbers, because
+      the numbers are taste and the order is the design. What is not taste is
+      that every one of them ends up visible: `both` is what holds the item on
+      screen after its 420ms is up, and losing it is an item that flashes and
+      goes.
+    */
+    const stages = ['.roll-panel', '.roll-land', '.roll-say', '.roll-say-late'];
+    const delays = stages.map((stage) => {
+      const shorthand = declsAt(stage, 320).get('animation') ?? '';
+      expect(shorthand, `${stage} does not animate`).not.toBe('');
+      expect(shorthand, `${stage} does not hold its end state`).toMatch(/\bboth\b/);
+      // Two durations in the shorthand: the second time is the delay.
+      const times = [...shorthand.matchAll(/([\d.]+)ms/g)].map((hit) => Number(hit[1]));
+      return times.length > 1 ? times[1] : 0;
+    });
+
+    for (let i = 1; i < delays.length; i++) {
+      expect(
+        delays[i],
+        `${stages[i]} at ${delays[i]}ms does not follow ${stages[i - 1]} at ${delays[i - 1]}ms`,
+      ).toBeGreaterThan(delays[i - 1]);
+    }
+    // And the whole of it is over inside a second. A reveal somebody has to
+    // wait out is one they learn to press through, and they open several in a
+    // row.
+    expect(delays[delays.length - 1]).toBeLessThan(1000);
+  });
+
+  it('stops every one of them for somebody who asked it to', () => {
+    /*
+      The spin repeats forever, which is exactly the shape this setting exists
+      for, and the staged reveal withholds a present from somebody who has said
+      they do not want things moving. Nothing is lost by dropping them: the
+      order goes, and it is all there at once.
+
+      One list, covering both spends. It used to be two -- this block and a
+      near-identical one for the gacha further down -- and two lists of the
+      same thing are two chances to update one of them.
+    */
+    // Read off the source rather than through `declsAt`, which models width and
+    // nothing else on purpose. Same shape as the toast's rule above.
+    const block = /@media \(prefers-reduced-motion: reduce\) \{([^}]*\{[^}]*\}[^}]*)*?\}\s*\}/g;
+    const quiet = [...css.matchAll(block)].map((hit) => hit[0]).join(' ');
+    for (const stage of [
+      '.roll-art-spin',
+      '.roll-panel',
+      '.roll-land',
+      '.roll-say',
+      '.roll-say-late',
+    ]) {
+      expect(quiet, `${stage} still moves`).toContain(stage);
+    }
+    expect(quiet).toMatch(/\.roll-say-late \{\s*animation:\s*none/);
+    expect(quiet).toMatch(/\.roll-art-spin \{\s*filter:\s*none/);
+  });
+});
+
+/*
+  The gacha, at the three phone widths.
+
+  Two shapes on this screen can cross the number CLAUDE.md opens with. The
+  showcase is a fixed three-column grid that must not collapse, so a third of a
+  320px phone has to stay a legal touch target; and the collection tiles are
+  buttons wrapping a portrait, which is the exact arrangement where
+  `min-height: 44px` beats `aspect-ratio` and takes the width with it.
+
+  Measured rather than looked at, for the reason the block above gives at
+  length: what goes wrong is a number crossing 44, and the number is derivable
+  from the declarations.
+*/
+describe('the lobby seat list', () => {
+  it('leaves a name room to be read beside the figure and the faces', () => {
+    /*
+      The trap CLAUDE.md opens with, in the one place this change could spring
+      it. The seat carries three fixed-width things now -- a 44px figure and a
+      fan of three 34px faces -- and only the name gives.
+
+      This is why the list went to one column at a phone width. The same
+      arithmetic on the old two-column grid leaves a name about 10px, which is
+      not an ellipsis, it is nothing; the assertion below is what says so
+      rather than somebody looking at it later.
+
+      Measured rather than looked at. What the browser is left for the name is
+      the track, less the card's padding, less the figure and the gaps, less
+      the strip.
+    */
+    for (const width of PHONES) {
+      const vars = varsAt(width);
+      const card = declsAt('.player', width);
+      const face = px(declsAt('.seat-face', width).get('width'), vars);
+      const overlap = px(declsAt('.seat-face + .seat-face', width).get('margin-inline-start'), vars);
+      const figure = px(declsAt('.seat-figure', width).get('width'), vars);
+      const gap = px(card.get('gap'), vars);
+
+      const strip = face * 3 + overlap * 2;
+      const seat = trackAt(['.seats'], width);
+      const name = seat - paddingInline(card, vars) - figure - gap * 2 - strip;
+
+      // Enough for a short name and an ellipsis rather than an initial. Six
+      // characters of the 0.88rem this row is set in, which is "Amelia".
+      expect(name, `a name has ${name.toFixed(1)}px at ${width}`).toBeGreaterThanOrEqual(52);
+    }
+  });
+
+  /*
+    The two things the seat list exists to show are the two things that used to
+    be too small to see, so their sizes are pinned rather than left to drift
+    back: an avatar nobody could make out and three 18px beads were the state
+    this change was asked to fix.
+  */
+  it('draws the figure and the faces at a size somebody can read', () => {
+    for (const width of PHONES) {
+      const vars = varsAt(width);
+      // 44, the number this stylesheet is already full of, used here as a
+      // measurement rather than as a touch target: a seat is not pressable.
+      expect(px(declsAt('.seat-figure', width).get('width'), vars)).toBeGreaterThanOrEqual(44);
+      expect(px(declsAt('.seat-face', width).get('width'), vars)).toBeGreaterThanOrEqual(32);
+      // Square, both of them. A frame of the wrong shape does not letterbox
+      // the avatar's stage, it stretches it -- see `Avatar.tsx`.
+      expect(declsAt('.seat-figure', width).get('height')).toBe(
+        declsAt('.seat-figure', width).get('width'),
+      );
+      expect(declsAt('.seat-face', width).get('height')).toBe(
+        declsAt('.seat-face', width).get('width'),
+      );
+    }
+  });
+
+  /*
+    And the reason both of the above are affordable: one seat per row at a
+    phone width. A grid that goes back to two columns takes the name below an
+    initial, which the test above would catch -- this one names the cause, so
+    the failure says what to change rather than only what broke.
+  */
+  it('gives a seat a whole row at a phone width', () => {
+    for (const width of PHONES) {
+      expect(declsAt('.seats', width).get('grid-template-columns')).toBe('minmax(0, 1fr)');
+    }
+  });
+});
+
+describe('the account menu', () => {
+  it('leaves the collection row mostly words', () => {
+    /*
+      The row is a label, a value and a strip of faces, and only the value
+      gives: `.prof-row-value` is the ellipsised half and the strip is
+      `flex: none`. So the strip has to be small enough that "2 of 3 on show"
+      is still readable beside it on the narrowest phone. A third of the row is
+      the line drawn here, which at 320 is about 96px against a strip of 60.
+
+      Not a touch-target check: the whole row is the button and it carries the
+      44px floor already. This is about the words.
+    */
+    for (const width of PHONES) {
+      const vars = varsAt(width);
+      const face = px(declsAt('.prof-row-face', width).get('width'), vars);
+      const overlap = px(
+        declsAt('.prof-row-face + .prof-row-face', width).get('margin-inline-start'),
+        vars,
+      );
+      const row = declsAt('.prof-row', width);
+      const inner = trackAt([], width) - paddingInline(row, vars);
+      const strip = face * 3 + overlap * 2;
+      expect(strip, `the strip is ${strip}px of a ${inner.toFixed(1)}px row at ${width}`)
+        .toBeLessThanOrEqual(inner / 3);
+    }
+  });
+});
+
+/*
+  The pull dialog, at the three phone widths.
+
+  It is a fixed-width panel inside a fixed-position ground, so the one number
+  that can go wrong is what is left for the row of three buttons at the bottom
+  of the narrowest phone. Two of them share whatever the roll does not take,
+  and both are touch targets.
+
+  The portrait is checked the way every other portrait in this app is: the
+  ratio has to be on the image, because `button` carries `min-height: 44px` and
+  a minimum beats `aspect-ratio`. See CLAUDE.md.
+*/
+describe('the pull dialog', () => {
+  it('leaves both ways out wide enough to press', () => {
+    /*
+      `px` above reads pixels, and every length in this dialog is in rem --
+      it is a panel rather than a board, so it is set in the type scale like
+      the rest of the chrome. Sixteen to the rem is the root size `base.css`
+      leaves alone, and the arithmetic below is the browser's.
+    */
+    const rem = (value: string | undefined): number =>
+      value === undefined ? 0 : Number(value.match(/(-?[\d.]+)rem/)?.[1] ?? 0) * 16;
+    const padding = (decls: Map<string, string>): number => {
+      const parts = (decls.get('padding') ?? '').trim().split(/\s+/);
+      return rem(parts.length === 1 ? parts[0] : parts[1]) * 2;
+    };
+
+    for (const width of PHONES) {
+      const ground = declsAt('.gacha-back', width);
+      const panel = declsAt('.gacha', width);
+      const acts = declsAt('.gacha-acts', width);
+      // min(24rem, 100%) of what the ground leaves, less the panel's padding.
+      const outer = width - padding(ground);
+      const inner = Math.min(24 * 16, outer) - padding(panel);
+      // The roll takes the whole first row; the other two split the second.
+      const each = (inner - rem(acts.get('gap'))) / 2;
+      expect(each, `a secondary is ${each.toFixed(1)}px at ${width}`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('puts the portrait ratio on the image and never on a button', () => {
+    expect(declsAt('.gacha-art', 320).get('aspect-ratio')).toBe('3 / 4');
+    for (const button of ['.gacha-roll', '.gacha-shelf', '.gacha-close']) {
+      expect(declsAt(button, 320).get('aspect-ratio'), `${button} sets a ratio`).toBeUndefined();
+      expect(px(declsAt(button, 320).get('min-height'), varsAt(320)) || 44).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('takes its movement from the shared file and keeps none of its own', () => {
+    /*
+      The pull and the chest are the same hundred GP spent on the same press,
+      and they moved like two different apps until `roll.css`. This is the
+      guard on that: a bespoke keyframe or a second reduced-motion answer in
+      here is exactly how they drifted the first time, and the stillness itself
+      is asserted once, in the chest block above, on the shared classes.
+
+      The face swap stays a JavaScript ticker and is skipped in the component
+      as well -- it is the one timeline in this app, because CSS cannot walk a
+      list of portraits -- but its pacing is `roll.ts`, shared too.
+    */
+    /*
+      The file itself, rather than a slice of the concatenation. It used to be
+      `css.slice(indexOf('.gacha-back'), indexOf('.waifu-back'))`, and there is
+      no `.waifu-back` anywhere in this app: that second index was -1, so the
+      slice ran from the gacha to the end of the whole stylesheet, and the test
+      passed only because `gacha.css` happened to be the last @import. It is
+      not last any more -- the game sheets are appended after it now -- and the
+      first thing it did was fail on a reduced-motion block belonging to a
+      game. Reading the one file asks the question the comment above says it is
+      asking, and cannot be moved again by a change to the running order.
+    */
+    const own = readFileSync(new URL('gacha.css', STYLES), 'utf8');
+    expect(own, 'the gacha grew a keyframe of its own again').not.toContain('@keyframes gacha-');
+    expect(own, 'the gacha answers reduced motion twice').not.toContain(
+      'prefers-reduced-motion',
+    );
+  });
+});
+
+describe('the collection screen', () => {
+  it('keeps three showcase slots on a row at every phone width', () => {
+    for (const width of PHONES) {
+      const slot = trackAt(['.waifu', '.waifu-showcase'], width);
+      // The floor every touch target in this app is held to. A slot is a
+      // button, and a third of the narrowest phone is where this is tightest.
+      expect(slot, `a showcase slot is ${slot.toFixed(1)}px at ${width}`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('never lets the showcase drop to fewer than three columns', () => {
+    // The empty outlines are the sentence "there are three of these and you
+    // have one". A row that wrapped on a narrow phone would stop saying it, so
+    // the column count is pinned rather than left to `auto-fill`.
+    for (const width of PHONES) {
+      expect(declsAt('.waifu-showcase', width).get('grid-template-columns')).toBe(
+        'repeat(3, 1fr)',
+      );
+    }
+  });
+
+  it('puts the portrait ratio on the image and never on the button', () => {
+    /*
+      The trap this whole file exists for. `button` carries `min-height: 44px`,
+      a minimum beats `aspect-ratio`, and a tile whose ratio lived on the
+      button would square up on a desktop and go tall and thin on a phone from
+      one declaration. Asserted both ways round: the image has it, and neither
+      button that contains one does.
+    */
+    expect(declsAt('.waifu-art', 320).get('aspect-ratio')).toBe('3 / 4');
+    for (const button of ['.waifu-tile', '.waifu-slot-full']) {
+      expect(declsAt(button, 320).get('aspect-ratio'), `${button} sets a ratio`).toBeUndefined();
+    }
+  });
+
+  it('leaves a collection tile wide enough to press', () => {
+    for (const width of PHONES) {
+      const tile = trackAt(['.waifu', '.waifu-grid'], width);
+      expect(tile, `a tile is ${tile.toFixed(1)}px at ${width}`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('reveals a pull in an order, and lets it all through at once', () => {
+    /*
+      The same bargain the chest reveal above strikes, and deliberately the
+      same numbers: the two screens spend one balance and sit beside each other
+      in the menu, so a pull landing at a different tempo from a drop would
+      read as a different app.
+
+      An order rather than four numbers, because the numbers are taste. `both`
+      is not taste: it is what holds the face on screen after its 420ms is up,
+      and losing it is a character who flashes and goes.
+    */
+    const stages = [
+      '.waifu-reveal',
+      '.waifu-reveal .waifu-art',
+      '.waifu-reveal .waifu-pull-name',
+      '.waifu-reveal .waifu-pull-acts',
+    ];
+    const delays = stages.map((stage) => {
+      const shorthand = declsAt(stage, 320).get('animation') ?? '';
+      expect(shorthand, `${stage} does not animate`).not.toBe('');
+      expect(shorthand, `${stage} does not hold its end state`).toMatch(/\bboth\b/);
+      const times = [...shorthand.matchAll(/([\d.]+)ms/g)].map((hit) => Number(hit[1]));
+      return times.length > 1 ? times[1] : 0;
+    });
+    for (let i = 1; i < delays.length; i++) {
+      expect(
+        delays[i],
+        `${stages[i]} at ${delays[i]}ms does not follow ${stages[i - 1]} at ${delays[i - 1]}ms`,
+      ).toBeGreaterThan(delays[i - 1]);
+    }
+    // Over inside a second, for the reason the chest's twin gives: somebody
+    // rolls several in a row and learns to press through anything longer.
+    expect(delays[delays.length - 1]).toBeLessThan(1000);
+  });
+
+  it('stops the reveal for somebody who asked it to', () => {
+    /*
+      The blocks are found by counting braces rather than by the pattern the
+      chest's twin above uses. That one needs two rules inside a block to
+      match, which is an accident of the regex rather than anything about the
+      CSS, and it silently finds nothing for a block holding one rule -- a test
+      that passes by looking at the wrong text is worse than no test.
+    */
+    const quiet = reducedMotionBlocks(css).join(' ');
+    for (const stage of [
+      '.waifu-reveal',
+      '.waifu-reveal .waifu-art',
+      '.waifu-reveal .waifu-pull-name',
+      '.waifu-reveal .waifu-pull-acts',
+    ]) {
+      expect(quiet, `${stage} still moves`).toContain(stage);
+    }
+  });
+
+  it('gives a portrait a ground to arrive on', () => {
+    // AniList is a third-party CDN and a slow one is the ordinary case on a
+    // phone. Without this the grid is a field of holes while it loads.
+    expect(declsAt('.waifu-art', 320).get('background')).toBe('var(--rule)');
+  });
+});
+
+/**
+ * Every `prefers-reduced-motion: reduce` block in the sheet, as text.
+ *
+ * Brace-counted, because a block is nested rules and a regex over `[^}]` can
+ * only ever guess at how many. Comments are not stripped: nothing in this
+ * sheet puts a brace in one, and the callers only ever ask whether a selector
+ * is named in here.
+ */
+function reducedMotionBlocks(sheet: string): string[] {
+  const found: string[] = [];
+  const opener = /@media \(prefers-reduced-motion: reduce\) \{/g;
+  for (const hit of sheet.matchAll(opener)) {
+    let depth = 1;
+    let at = hit.index + hit[0].length;
+    while (at < sheet.length && depth > 0) {
+      if (sheet[at] === '{') depth++;
+      else if (sheet[at] === '}') depth--;
+      at++;
+    }
+    found.push(sheet.slice(hit.index, at));
+  }
+  return found;
+}
+
+/**
+ * Every game's stylesheet is loaded by something.
+ *
+ * The cost of moving thirteen sheets out of `index.css` and into their boards:
+ * the running order used to be one list somebody would notice a game missing
+ * from, and now the import sits in the board file where a new game gets copied
+ * from a neighbour and edited. Forgetting it is not subtle -- the whole board
+ * draws unstyled -- but it is exactly the sort of thing that reaches a phone
+ * rather than a test, so it is a test.
+ */
+describe('every game sheet', () => {
+  it('is imported by its own board, or is still in the running order', () => {
+    const loaded = new Set([...eager, ...lazySheets()]);
+    const orphans = readdirSync(new URL('games/', STYLES))
+      .filter((name) => name.endsWith('.css'))
+      .map((name) => `games/${name}`)
+      .filter((path) => !loaded.has(path));
+
+    expect(
+      orphans,
+      `nothing loads ${orphans.join(', ')}. A game's sheet is imported at the ` +
+        'top of its board component, so that it rides in that chunk, or ' +
+        'listed in `styles/index.css` if something outside the game reads it.',
+    ).toEqual([]);
   });
 });

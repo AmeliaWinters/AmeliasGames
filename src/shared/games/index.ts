@@ -14,6 +14,7 @@ import { letterpress } from './letterpress.js';
 import { wordChain } from './wordChain.js';
 import { vocab } from './vocab.js';
 import { drill } from './drill.js';
+import { ghost } from './ghost.js';
 
 /**
  * Adding a game means writing one reducer, listing it in `manifest.ts`, and
@@ -38,6 +39,7 @@ export const GAMES: Record<string, GameDefinition<any, any>> = {
   [wordChain.id]: wordChain,
   [vocab.id]: vocab,
   [drill.id]: drill,
+  [ghost.id]: ghost,
 };
 
 export { DEFAULT_GAME_ID, GAME_MANIFEST, canSeat, clampSeats, gameEntry, gameList } from './manifest.js';

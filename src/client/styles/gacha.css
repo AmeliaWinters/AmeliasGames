@@ -1,0 +1,205 @@
+/* The pull, as a dialog over the shop. See `WaifuRoll.tsx`.
+
+   Palette tokens, no hex, flat. The portraits are the only colour in here that
+   is not from the palette, which is what they are for.
+
+   Two things are load bearing rather than decorative.
+
+   **The stage has a fixed height and the portrait is sized by it.** The spin
+   swaps `src` twenty times, the pictures come off a third-party CDN at
+   whatever size that CDN feels like, and a stage sized by its contents would
+   jump on every tick and take the buttons under it with it. One height, and
+   the image is `object-fit: cover` inside it.
+
+   **The movement is not in this file.** A pull and a chest are the same
+   hundred GP spent on the same press, and they used to move like two different
+   apps -- this one blurred and stopped dead, the chest cycled nothing and
+   staged its reveal over three steps. Both take their spin and their reveal
+   from `roll.css` now, and their timing from `roll.ts`. What is left here is
+   this dialog's layout. */
+
+.gacha-back {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--hole) 82%, transparent);
+  overflow-y: auto;
+}
+
+.gacha {
+  display: grid;
+  gap: 0.75rem;
+  width: min(24rem, 100%);
+  padding: 1rem;
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+  /* The dialog is taller than a short phone once a reveal is in it, so it
+     scrolls itself rather than pushing its own buttons off the bottom. */
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.gacha-head {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.gacha-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  color: var(--ink);
+}
+
+.gacha-what {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.gacha-terms {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.gacha-balance {
+  margin: 0;
+  color: var(--ink);
+}
+
+.gacha-balance b {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.gacha-worth,
+.gacha-have {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* The one fixed box on the screen. See the note at the top: without a height
+   here every tick of the spin resizes the dialog. */
+.gacha-stage {
+  display: grid;
+  place-items: center;
+  gap: 0.25rem;
+  min-height: 15rem;
+  padding: 0.5rem;
+  border-radius: var(--panel-radius);
+  background: var(--board);
+}
+
+.gacha-art {
+  width: 9rem;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: calc(var(--panel-radius) / 2);
+  /* A ground under the picture, so a portrait that has not arrived is a shape
+     rather than a hole. The CDN is somebody else's and slow is ordinary. */
+  background: var(--rule);
+}
+
+/* The spin and the busy ring are `roll-art-spin` and `roll-stage-spin`, worn
+   by the markup. The face swap itself is the ticker in `WaifuRoll.tsx`, which
+   is the one JavaScript timeline in this app and cannot be anything else:
+   cycling three hundred portraits is a change of `src`, and CSS cannot walk a
+   list. Its pacing is `roll.ts`, shared with the chest.
+
+   The reveal is `roll-panel` on this box and `roll-land` / `roll-say` /
+   `roll-say-late` on what is inside it. It used to be one 320ms pop for the
+   whole block, which put the name and the series on screen at the same instant
+   as the face -- so the picture the hundred bought had nothing of its own, and
+   the chest, which cost the same, gave its drop a beat to itself. */
+.gacha-pull {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: center;
+}
+
+.gacha-name {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.1rem;
+  color: var(--ink);
+  text-align: center;
+}
+
+.gacha-series {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.gacha-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Where she went, said on the thing that is about to close. The dialog does no
+   arranging, so this line is the only place the shelf is named after a pull. */
+.gacha-landed {
+  color: var(--ink);
+}
+
+.gacha-line {
+  margin: 0;
+  padding: 0 0.5rem;
+  color: var(--ink);
+  text-align: center;
+}
+
+.gacha-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gacha-acts button {
+  min-height: 44px;
+}
+
+/* The roll takes the row and the two ways out share what is left, which is the
+   ranking in one declaration rather than in three font sizes. */
+.gacha-roll {
+  flex: 1 1 100%;
+}
+
+.gacha-shelf,
+.gacha-close {
+  flex: 1 1 0;
+  border: 1px solid var(--rule-hi);
+  border-radius: var(--panel-radius);
+  background: transparent;
+  color: var(--ink);
+}
+
+.gacha-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.gacha-retry {
+  min-height: 44px;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+}
+
+.gacha-short {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* No reduced-motion block here on purpose. Everything that moves in this
+   dialog moves because of a `roll-*` class, and that is where it is stilled --
+   one answer for both screens, rather than two that can drift apart. The face
+   swap is skipped in JavaScript as well; see `still` in `WaifuRoll.tsx`. */

@@ -1,0 +1,301 @@
+/* ---------------------------------------------------------------- Superghost
+   A fragment with two open ends, a keyboard, and the reveal that is the point
+   of losing. Three blocks, in the order the eye takes them.
+
+   Everything here is measured at 320 first. The keyboard is ten keys across on
+   the narrowest phone this app supports, which is the constraint every number
+   below answers to, and `button { min-height: 44px }` beats anything smaller
+   whatever this file says -- see the trap at the top of CLAUDE.md. So the keys
+   are sized by the floor rather than against it. */
+.gh {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--board);
+}
+
+.gh-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* The score
+   Not a seat strip: the shell already draws who is here. This is the only
+   number in the game, and it is a word being spelled at you. */
+.gh-score {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.gh-seat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  background: var(--surface);
+  /* The seat on the leading edge, the same 3px rule .wc-link and .vr-score
+     draw. One convention, now four places. */
+  border-left: 3px solid var(--seat-1);
+}
+.gh-seat:first-child {
+  border-left-color: var(--seat-0);
+}
+/* Whose move it is, said on the score rather than in a second line of status:
+   the two things a player checks between turns are the same two boxes. */
+.gh-seat.on {
+  background: var(--rule);
+}
+/* The name has to come up with the fill. --muted on --surface is 5.4:1 and on
+   --rule it is 4.33, which is under AA for 0.72rem type -- so the seat that is
+   marked as active would be the one whose name got harder to read. Measured in
+   a real browser at 320, not assumed. */
+.gh-seat.on .gh-who {
+  color: var(--ink);
+}
+
+.gh-who {
+  color: var(--muted);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.gh-ghost {
+  display: flex;
+  gap: 3px;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.gh-ghost i {
+  font-style: normal;
+  /* An unspent letter is the shape of the loss without being the loss, so it
+     recedes rather than disappearing: a row of nothing would not read as four
+     rounds still in hand. */
+  color: var(--motif-off);
+}
+.gh-ghost i.lit {
+  color: var(--accent);
+}
+
+/* The fragment
+   The two ends are the side switch, so they have to look like places rather
+   than like settings. A slot, a hairline, and the chosen one filled. */
+.gh-frag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 8px;
+  background: var(--surface);
+}
+
+.gh-letters {
+  display: flex;
+  gap: 2px;
+  font-family: var(--display);
+  /* Clamped rather than fixed: a fragment can reach a dozen letters, and a
+     size that fits four of them at 320 puts twelve off both edges. */
+  font-size: clamp(1.3rem, 7vw, 2.1rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.gh-letters i {
+  font-style: normal;
+}
+/* The letter a round ended on, so the reveal underneath is about something the
+   eye can find. Underlined rather than recoloured: the fragment is one word
+   being read, and a letter in another colour breaks it into two. */
+.gh-letters i.played {
+  border-bottom: 2px solid var(--accent);
+}
+
+.gh-end {
+  flex: none;
+  /* Wider than tall, because that is what a slot for a letter looks like. The
+     44px floor still applies and is what sets the height. */
+  width: 34px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 1px dashed var(--rule);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--display);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.gh-end.chosen {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--rule);
+  color: var(--ink);
+}
+
+.gh-left {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* The keyboard
+   Copied in shape from Word Duel's, and deliberately not sharing its rules:
+   that keyboard carries three mark colours and this one carries none, and the
+   two would drift into each other's business. What is shared is the floor.
+   Polish adds a fourth row of nine, which is centred rather than stretched so
+   the accented letters stay the size of the letters above them. */
+.gh-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gh-keys-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.gh-key {
+  flex: 1 1 auto;
+  /* Ten across at 320 is the binding case, and a key cannot grow past the
+     widest row or the nine-key Polish row would sit wider than the ten above
+     it. */
+  max-width: 44px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 2px;
+  border-color: var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(0.72rem, 3.1vw, 0.95rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+/* Disabled is the whole keyboard at once (it is not your turn), so it must not
+   read as thirty-five individually broken buttons. Same rule .wd-keys makes. */
+.gh-keys:has(.gh-key:disabled) {
+  opacity: 0.55;
+}
+
+.gh-give-up {
+  align-self: center;
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* The reveal
+   The screen the game is built to arrive at. The gloss is not a caption here:
+   it is the reason the round was played, so it gets real size and real
+   contrast, exactly as .wc-gloss does. */
+.gh-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+}
+
+.gh-why {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.gh-word {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+.gh-word strong {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* The dictionary form, where Polish has one and it is not the word itself.
+   Quieter than the word and louder than the rank: `jestem` is what was on the
+   table and `być` is what a profile will file it under, and a learner needs
+   both without having to be told which is which. */
+.gh-lemma {
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-style: italic;
+}
+
+.gh-gloss {
+  flex-basis: 100%;
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.gh-rank {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The escapes, split by which end they go on.
+
+   Chips rather than a sentence, because a list of letters is read as a set and
+   a sentence is read as prose. Grouped rather than tagged: the first cut wrote
+   them as `E_` and `_U`, which is the affix convention a Polish learner already
+   knows and is still a puzzle to solve before it is a hint. A heading over each
+   group says the same thing and says it once. */
+.gh-outs-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gh-outs-head {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.gh-outs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.gh-outs-label {
+  /* Fixed, so the two rows of letters line up in a column rather than starting
+     wherever "In front" happens to end. */
+  min-width: 5.5em;
+  color: var(--muted);
+}
+.gh-outs i {
+  padding: 2px 6px;
+  background: var(--rule);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-style: normal;
+  text-transform: uppercase;
+}

@@ -1,0 +1,535 @@
+/* The opening screen's bar: the brand, who you are, and what you are carrying.
+
+   Cut off the front of `controls.css` along the "Opening screen" banner it
+   already carried, and imported straight after it, so the cascade is unchanged
+   -- these rules have always come after the button rules and still do.
+
+   Everything here is header furniture rather than a control: the identity
+   chip, the level gauge under it, the chest pill and the beat the purse takes
+   when points arrive. It ends where the lobby proper starts. */
+
+/* Opening screen
+   Nine per cent of the viewport used to stand above the wordmark, because the
+   screen under it was a form and a form wants air over it. The screen under it
+   is a shelf now: the first thing on it is a bar, the second is the game you
+   played last, and pushing both of those down the page to make the brand feel
+   important costs the visitor the thing they came for. */
+.setup {
+  padding-top: 14px;
+  gap: 11px;
+}
+
+/* The bar: the brand, and who you are. Two things now -- the way in for
+   somebody holding a code left it, because that person's one job does not
+   belong behind a button, and it is the box directly under this bar.
+
+   It is not sticky. A lobby is scrolled once, on purpose, and a bar that
+   follows the thumb down thirteen cards would be covering two of them the
+   whole way. The one button left on it opens a panel directly beneath, so the
+   thing it opens is never off-screen when it is pressed. */
+.lobby-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: nowrap;
+  /* The anchor for the name popover, which hangs off the chip at the far end
+     of this bar. */
+  position: relative;
+}
+.lobby-bar .wordmark {
+  margin: 0 auto 0 0;
+  /* Both, or the lockup simply overflows the heading and runs under the name
+     chip: `min-width: 0` is what lets the flex item shrink at all, and the
+     hidden overflow is what keeps what is left inside the bar. A 20-character
+     name at 320px is the case that found this. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The brand: one image, sized off the bar's own font-size.
+
+   It used to be a monogram tile plus "Rebellia" over "Games" set in type, and
+   the two were kept in step by hand. The supplied lockup carries both halves,
+   so the font-size here now does nothing but set the logo's height -- kept as
+   a font-size rather than a pixel height because the bar's other rules and the
+   room's chip are still measured against it.
+
+   No `max-width`: the height drives the width, which at this size is about
+   115px for a 1076x438 file. That is narrower than the two lines of type it
+   replaced, so the 320px case the heading's `overflow: hidden` was added for
+   is further off than it was, and a percentage cap would only put the aspect
+   ratio at the mercy of a flex item that already carries `min-width: 0`. */
+.brandmark {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  min-width: 0;
+}
+.brandmark .logo {
+  height: 3em;
+  width: auto;
+  flex: none;
+}
+/* One of the two is drawn, and which one is the palette's business. The other
+   is removed rather than hidden, so it takes no space in the flex row. */
+.brandmark .logo.stage,
+:root[data-palette="daylight"] .brandmark .logo.stage {
+  display: none;
+}
+:root[data-palette="stage"] .brandmark .logo.stage {
+  display: block;
+}
+:root[data-palette="stage"] .brandmark .logo.daylight {
+  display: none;
+}
+
+/* Who you are: an avatar, a name, and a press to change either.
+
+   A chip rather than a field, because a name is typed once and read on every
+   visit after that. The field it replaced was the first control on the screen
+   and was already filled in for nine visits out of ten -- an answered question
+   sitting in front of the shelf, being asked again.
+
+   Nothing about it says "edit": it is a button, it says your name, and pressing
+   the thing that says your name to change your name is the whole of the
+   affordance. `aria-expanded` carries the rest, since what it opens is a panel
+   directly below it. */
+.whoami {
+  display: inline-flex;
+  /* Stretch, not centre: the avatar sizes itself off the flex line, and with
+     the line centred it was 34px in a 44px pill -- a face floating in the
+     middle of the chip rather than the left end of it. */
+  align-items: stretch;
+  gap: 9px;
+  flex: 0 0 auto;
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink);
+  background: none;
+  border-color: var(--rule-hi);
+  border-radius: 999px;
+  /* Four pixels top and bottom, not six: the avatar stretches to the content
+     box, and the difference between a face that touches both ends of the pill
+     and one that floats inside it is those two pixels. */
+  padding: 4px 13px;
+  /* The floor every touch target here is held to. */
+  min-height: 44px;
+}
+.whoami {
+  padding-left: 4px;
+  /* The far end of the bar, said on the chip as well as by the heading's auto
+     margin beside it. Two ways of saying the same thing, because this is the
+     one property of the bar anybody notices when it goes: a name sitting in
+     the brand's lap reads as part of the logo. */
+  margin-left: auto;
+  /* The chip is capped so the brand beside it is never the thing that gives
+     way. It was 46vw, which at 320px left the lockup ten pixels short of
+     "Rebellia" and clipped the brand to fit a name nobody reads twice. */
+  max-width: 40vw;
+}
+.whoami .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The person, full height of the chip.
+
+   It was a 26px dot beside a line of type. The chip now carries three rows --
+   name, level, bar -- and an avatar sized to one of them reads as a bullet
+   point in front of a list rather than as the face the rows are about. Square
+   rather than round at this size: the bust crop has a jaw in it, and a circle
+   at 34px takes the jaw off.
+
+   `align-self: stretch` with a fixed width, so the height is whatever the
+   stack next to it comes to and the two can never disagree. */
+.whoami .av {
+  flex: none;
+  /* A definite square, and it has to be definite.
+     It was `align-self: stretch` with `width: auto` and `aspect-ratio: 1`, so
+     the height came off the flex line and the width came off the height --
+     which is a cycle, and Chrome resolves it by leaving the avatar out of the
+     chip's max-content width. The chip then measured 84px on a 1280 lobby with
+     800px of empty bar beside it and the name came out as "Am", clipped by the
+     column rather than ellipsised by the text. Measured: 84 with the cycle,
+     111 with a fixed square, from the same markup.
+     34 is what the stretch used to work out to: the 44px floor less the 4px
+     padding either side and the 1px border, so the face still touches both
+     ends of the pill and the chip is still exactly the floor tall. */
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  /* Round, as it has always been here: it is the same face the seat strip
+     draws in a room, and it should be recognisable as them before the game
+     starts. */
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--ground);
+}
+/* Name, level, bar, stacked and left-aligned against the avatar.
+
+   Each row is about the one above it, so there is no rule and no gap doing
+   the grouping: the level is the caption of the name and the bar is the gauge
+   of the level. `min-width: 0` is what lets the name ellipsise rather than
+   forcing the chip past its cap -- a flex item's default `min-width: auto`
+   refuses to shrink below its content, which is how a long name used to take
+   the brand's width at 320px. */
+.whoami .whocol {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1.05;
+}
+.whoami .rank-lv {
+  /* Never two lines. At 320 the name column is under thirty pixels wide and
+     "Level 12" wrapped there, which took the chip to 59px and the bar with
+     it -- a lobby that grows a row when somebody reaches level 10. */
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+/* Under the level, the width of the column: it is the level's gauge, and a bar
+   that stopped short of the name above it would read as a third thing. */
+.whoami .rank-bar {
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--rule-hi);
+  overflow: hidden;
+}
+.whoami .rank-bar::before {
+  content: "";
+  display: block;
+  height: 100%;
+  /* Set inline per profile. Defaulted here so a bar with no variable is empty
+     rather than full, which is the direction a bug should fail in. */
+  width: var(--fill, 0%);
+  border-radius: inherit;
+  background: var(--accent);
+}
+.whoami[aria-expanded="true"] .rank-bar {
+  /* On the inverted chip the resting rule would vanish into the ink. */
+  background: color-mix(in srgb, var(--ground) 35%, transparent);
+}
+.whoami[aria-expanded="true"] .rank-bar::before {
+  background: var(--ground);
+}
+
+/* The chests, as a pill in the header: a chest, the balance, and a bar.
+
+   This is where the purse pill used to be, and it is the purse plus the way to
+   spend it. The purse on its own was a number you could read and not act on;
+   the chests on their own were the fifth row of a menu three presses away,
+   which is where a reward loop goes to be forgotten. One control, in the two
+   headers, in both of the places somebody is standing when the number moves.
+
+   `flex: none` so the name chip beside it is always the thing that gives way,
+   which is the bargain the purse made and the one the block inside the chip
+   made before that.
+
+   See `ChestButton.tsx` for the three states. Two of them are drawn here and
+   they are drawn as different objects rather than as one object with a badge:
+   `[data-ready="no"]` is a quiet pill that has to survive being looked past
+   for a fortnight, and `[data-ready="yes"]` is the only thing in this app that
+   asks to be noticed without being asked first. */
+.chestbtn {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44 square, in both headers. It is an icon button now rather than a pill
+     with type in it, and the icon is 19px wide -- without a floor it measured
+     37 across, under what every other control in these bars keeps, and it is
+     a bar somebody reaches for with a board under their thumb. */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 1px solid var(--rule-hi);
+  border-radius: 999px;
+  background: none;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+  /* The badge hangs off the corner of the icon and the glow sits outside the
+     border; neither may be clipped by the pill. */
+  position: relative;
+  overflow: visible;
+}
+
+/* The icon, and the anchor the badge is positioned against. */
+.chestbtn-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.chest-mark {
+  width: 19px;
+  height: 15px;
+}
+.chest-lid,
+.chest-body {
+  fill: var(--muted);
+  /* Both change colour on the ready state, and the lid also lifts. Named here
+     rather than on the ready selector so the transition runs in both
+     directions -- a chest that snaps on and eases off is a chest that looks
+     broken the first time it is spent. */
+  transition:
+    fill 200ms ease,
+    transform 200ms ease;
+}
+.chest-clasp {
+  fill: var(--surface);
+}
+
+/* The purse: the balance, as a readout beside the chest.
+
+   It was inside the chest pill, with a progress bar under it, and that pill
+   said three things through one border -- what the currency is, how much of it
+   there is, and how close the next chest is -- so the number read as a thing
+   that was loading. The bar is gone entirely; how close the next chest is
+   lives on the chest screen, where it can be said in words, and the chest
+   button says the only part of it anybody acts on by turning accent when there
+   is one to open.
+
+   No border and no background: it is type on the bar, which is what separates
+   a readout from the two pressable things either side of it. */
+.pursepill {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--display);
+  line-height: 1;
+  color: var(--ink);
+}
+.gp-skull {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: var(--accent);
+}
+.pursepill b {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+/* No unit on the pill. The skull is the unit, and at 320px the two characters
+   "GP" would take are the difference between a name that ellipsises to three
+   letters and one that shows none. The words "goth points" are on the pill's
+   accessible label and all over the chest screen. */
+
+/* Ready. The pill takes the accent, the lid lifts off the body, and a badge
+   appears with the count in it.
+
+   The badge is absent at zero rather than reading "0", because a badge that
+   is always there is a badge nobody reads. Capped at "9+": two characters is
+   what the corner of a 19px icon holds, and the exact number past nine is not
+   a thing anybody is deciding on. */
+.chestbtn[data-ready="yes"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.chestbtn[data-ready="yes"] .chest-lid,
+.chestbtn[data-ready="yes"] .chest-body {
+  fill: var(--accent);
+}
+.chestbtn[data-ready="yes"] .chest-lid {
+  /* Lifted, not opened: the chest screen does the opening, and a glyph that
+     is already open is a chest that has been had. */
+  transform: translateY(-1.5px);
+}
+.chestbtn-n {
+  position: absolute;
+  top: -7px;
+  right: -8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  /* The pair the primary button already uses, rather than accent-on-ground:
+     the badge is 10px bold, which is small text and wants 4.5:1, and ground on
+     accent measures 3.98 in Daylight. `--action-text` is the token each
+     palette tunes for exactly this -- type sitting on the accent. */
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 0.63rem;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* The one animation in this app that runs without being asked for.
+
+   Every other piece of motion here answers a press or a move arriving. This
+   answers neither, which is exactly why it is allowed: the state it marks is
+   one the player has already earned and is not looking at. It is a slow pulse
+   on a four second cycle rather than a loop, so it reads as a thing breathing
+   in the corner of an eye rather than as a thing demanding the eye -- and it
+   stops entirely for anyone who has asked motion to stop, where the accent
+   border and the badge still say the whole of it. */
+@keyframes chest-ready {
+  0%,
+  60%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+    transform: none;
+  }
+  70% {
+    /* A press, played backwards: the pill dips the way it would under a
+       thumb and comes back up. Two pixels, which is the smallest movement
+       that still reads as an invitation rather than as a rendering fault. */
+    transform: translateY(-2px);
+  }
+  88% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent);
+    transform: none;
+  }
+}
+.chestbtn[data-ready="yes"] {
+  /* Three seconds, not four, and with the dip in it: the pill is 44px in the
+     corner of a bar now that the balance is a separate readout beside it, so
+     the ring alone is a smaller signal than it was on the wide pill. Still a
+     pulse rather than a loop -- it marks a state that has been earned and is
+     not being looked at, and a thing that moves continuously is a thing people
+     learn to look past. */
+  animation: chest-ready 3s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chestbtn[data-ready="yes"] {
+    animation: none;
+  }
+}
+
+/* Points arriving
+   The purse only ever moves at the end of a game, and it used to move between
+   two frames: one number before, a larger one after, and nothing in between
+   for anybody to notice. The first game of the day pays fifteen ordinary games
+   in one lump (see `POINTS_FIRST_GAME_OF_DAY`) and it was the least visible
+   thing in the app.
+
+   One beat, upward, in the accent. Deliberately the *same* gesture the result
+   panel's name lands with -- a short drop and one overshoot -- because this
+   app has one idea about how a number arriving looks, and a second idea here
+   would read as a different kind of event. Nine hundred milliseconds and then
+   it is a readout again.
+
+   Only ever on the way up. `useRise` in `ChestButton.tsx` is where that is
+   decided, and the note there says why spending is not celebrated. */
+@keyframes purse-rise {
+  0% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-5px) scale(1.12);
+  }
+  55% {
+    transform: translateY(1px) scale(0.99);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+.pursepill[data-rise="yes"] {
+  animation: purse-rise 900ms cubic-bezier(0.2, 1.3, 0.5, 1) both;
+  /* The colour is the other half of it, and it outlasts the movement by
+     nothing: both end together, so the pill does not sit warm afterwards
+     looking like a state rather than an event. */
+  border-color: var(--accent);
+}
+
+.pursepill[data-rise="yes"] b {
+  color: var(--accent);
+}
+
+/* In a room there is no purse in the header -- see the comment on the topbar
+   in `App.tsx` -- so the chest is the only thing there that can say the number
+   moved. It does not pulse for this; it takes the same single beat, so the
+   two headers say the same thing in the same way. */
+.chestbtn[data-rise="yes"] .chestbtn-icon {
+  animation: purse-rise 900ms cubic-bezier(0.2, 1.3, 0.5, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing is being withheld: the number itself is the news and it is drawn
+     either way. Only the arrival is dropped. */
+  .pursepill[data-rise="yes"],
+  .chestbtn[data-rise="yes"] .chestbtn-icon {
+    animation: none;
+  }
+}
+
+/* At a phone width everything stays, and the name pays for it.
+
+   Measured at 320: the bar is 288 wide and the lockup wants 147 of it. What is
+   left goes to the chest pill, which is fixed-width type, and to the chip,
+   whose avatar and gutters are fixed and whose name column is the only elastic
+   thing on the row -- so a long name ellipsises and nothing else moves. That
+   is the trade the old rule made by hiding the name outright; the ellipsis is
+   the better half of it, because four characters of a name still say which
+   account this is, and the whole name is one press away in the panel and on
+   the button's accessible label throughout.
+
+   Measured again at 375 and 390. */
+@media (max-width: 400px) {
+  .whoami {
+    padding-left: 3px;
+    padding-right: 7px;
+    gap: 5px;
+  }
+  /* The one place the avatar is not full height. Square at 48 it is a third of
+     the card here and the name gets nothing; at 30 there are three characters
+     and an ellipsis, which is enough to tell two accounts apart. */
+  .whoami .av {
+    width: 28px;
+    height: 28px;
+  }
+  .pursepill {
+    gap: 4px;
+  }
+  .pursepill b {
+    font-size: 0.75rem;
+  }
+  .gp-skull {
+    width: 13px;
+    height: 13px;
+  }
+  .chest-mark {
+    width: 17px;
+    height: 13px;
+  }
+}
+
+/* Pressed open, it reads as pressed: the panel underneath is the other half of
+   this control, and a bar button that opened something without changing is a
+   button people press twice. */
+.whoami[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--ground);
+  border-color: var(--ink);
+}
+.whoami[aria-expanded="true"] .av {
+  background: var(--ground);
+  color: var(--ink);
+}

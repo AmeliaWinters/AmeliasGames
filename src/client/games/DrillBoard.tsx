@@ -27,6 +27,9 @@ import {
 } from "../../shared/games/drillDisplay.js";
 import { useServerNow } from "../clock.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/drill.css";
+
 /** The countdown on the open card. */
 function Clock({ state, now }: { state: DrillState; now: number }) {
   const left = msLeftFor(state, now);

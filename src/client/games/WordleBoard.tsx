@@ -27,6 +27,9 @@ import { useServerNow } from "../clock.js";
 import type { BoardProps } from "./boards.js";
 import { namer } from "./names.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/wordle.css";
+
 type Props = BoardProps<WordleState, WordleMove>;
 
 /** Under this much left on the shot clock, it starts shouting about it. */

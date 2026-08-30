@@ -46,7 +46,7 @@ body {
    meant the primitive's border and radius were being set and then overridden a
    file later, which reads as if a card were still a panel with exceptions. It
    is a different object now, and the list should say so. */
-.code,
+.bigcode,
 .banner,
 .player,
 .wof-puzzle,

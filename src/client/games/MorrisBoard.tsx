@@ -21,6 +21,9 @@ import type { MmMove, MmState } from "../../shared/games/morrisDisplay.js";
 
 import type { BoardProps } from "./boards.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/morris.css";
+
 type Props = BoardProps<MmState, MmMove>;
 
 /**

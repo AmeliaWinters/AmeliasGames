@@ -9,9 +9,10 @@ import {
   type RoomView,
   type ServerMessage,
 } from '../shared/protocol.js';
-import type { ProfileView } from '../shared/profile.js';
+import type { Known, LearnLang, ProfileView } from '../shared/profile.js';
 import type { RoomPeek } from '../shared/session.js';
 import { claimFor } from './account.js';
+import { loadAvatar } from './avatar/store.js';
 
 /**
  * `connecting` is the first attempt, `closed` is a connection we had and lost.
@@ -166,6 +167,17 @@ export interface UseRoom {
   dismissError(): void;
   /** Ask for the profile again. Silently does nothing for a guest. */
   refreshProfile(): void;
+  /**
+   * The word rows for one language, once they have been asked for.
+   *
+   * Null until the first answer arrives and again for a language nobody has
+   * asked about, which the Vocabulary screen draws as "loading" rather than as
+   * "no words": the two look identical on an empty list and only one of them
+   * is worth apologising for.
+   */
+  vocab: { lang: LearnLang; words: Known[] } | null;
+  /** Fetch one language's rows. Silently does nothing for a guest. */
+  requestVocab(lang: LearnLang): void;
 }
 
 export function useRoom(opts: {
@@ -183,6 +195,7 @@ export function useRoom(opts: {
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
   const [errorSeq, setErrorSeq] = useState(0);
   const [profile, setProfile] = useState<ProfileView | null>(null);
+  const [vocab, setVocab] = useState<{ lang: LearnLang; words: Known[] } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   /**
@@ -330,6 +343,12 @@ export function useRoom(opts: {
             // Connect Four" at a room that is not.
             gameId: createRef.current ? gameId : '',
             account,
+            // Read at send time rather than held in state, and read again on
+            // every reconnect, because the customiser is a different screen
+            // and this socket does not hear about it. The seat is rewritten by
+            // the rejoin anyway, so the reconnect is where a change made
+            // mid-game catches up.
+            avatar: avatarJson(),
           };
           socket.send(JSON.stringify(hello));
         });
@@ -372,6 +391,11 @@ export function useRoom(opts: {
           setRoom(msg.room);
         } else if (msg.t === 'profile') {
           setProfile(msg.profile);
+        } else if (msg.t === 'vocab') {
+          // Replaced rather than merged, and the language rides along on the
+          // state for the same reason it rides along on the message: two
+          // requests in flight must not be drawn under each other's heading.
+          setVocab({ lang: msg.lang, words: msg.words });
         } else if (msg.t === 'error') {
           setError(msg.message);
           setErrorKind(msg.kind);
@@ -463,5 +487,30 @@ export function useRoom(opts: {
     // is ignored at the far end and there is no second place holding an
     // opinion about whether this client is signed in.
     refreshProfile: useCallback(() => post({ t: 'profile' }), [post]),
+    vocab,
+    requestVocab: useCallback(
+      (lang: LearnLang) => {
+        // Cleared before asking, so the screen shows the spinner it is about
+        // to earn rather than the previous language's words under the new
+        // language's heading for however long the round trip takes.
+        setVocab(null);
+        post({ t: 'vocab', lang });
+      },
+      [post],
+    ),
   };
+}
+
+/**
+ * What this browser is wearing, as JSON, or undefined.
+ *
+ * Re-serialised rather than sending the stored string on: `loadAvatar` drops a
+ * loadout naming art this build cannot draw, and sending one anyway would put
+ * a figure on everybody else's seat list that this player cannot see on their
+ * own. Undefined for somebody who has never opened the customiser, which is
+ * the same seat a guest gets.
+ */
+function avatarJson(): string | undefined {
+  const worn = loadAvatar();
+  return worn ? JSON.stringify(worn) : undefined;
 }

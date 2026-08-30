@@ -47,12 +47,39 @@
 
 /* With something due it stops being a link and becomes the reason to be here:
    solid edge, ink type, and the number in the accent. Without, it stays quiet
-   -- a person with nothing to review should be looking at the shelf. */
+   -- a person with nothing to review should be looking at the shelf.
+
+   It used to be drawn on a grey `--rule-hi` edge with nothing behind it, which
+   read as a caption somebody had boxed rather than as the one thing on the
+   lobby worth pressing: the accent lived only in the digit, and the digit is
+   the part that changes, not the part that invites. So the accent now owns the
+   whole chip -- a faint wash of it as ground, its own colour as the edge --
+   and the chevron says the press goes somewhere. The wash is 10% so the muted
+   label keeps its contrast against it in both palettes; the accent is a seat
+   colour and some of the thirteen are bright. */
 .myword-due {
   color: var(--ink);
-  padding: 8px 14px;
-  border: 1px solid var(--rule-hi);
+  padding: 9px 12px 9px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   text-decoration: none;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+/* The chevron. Baseline-aligned type in a flex row leaves it sitting on the
+   label's baseline, which is where it belongs beside the words rather than
+   beside the digit. */
+.myword-due::after {
+  content: "";
+  align-self: center;
+  margin-inline-start: 2px;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
 }
 
 .myword-n {
@@ -65,6 +92,31 @@
 
 .myword-of {
   font-size: 0.95rem;
+}
+
+.myword-due:active {
+  transform: translateY(1px);
+}
+
+@media (hover: hover) {
+  /* The generic `button:hover` rule takes the border to `--ink`, which would
+     drop the accent edge this chip is built on. Answer in the accent instead:
+     the wash deepens and the chevron leans on. */
+  .myword-due:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .myword-due:hover:not(:disabled)::after {
+    transform: rotate(45deg) translate(1px, -1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .myword-due,
+  .myword-due::after {
+    transition: none;
+  }
 }
 
 .myword[aria-expanded="true"] {
@@ -128,14 +180,20 @@
   letter-spacing: 0.02em;
 }
 
-/* The level, on one line, deliberately small. */
+/* The level, on one line, deliberately small.
+
+   It lives inside a language's row now rather than above the lists: the curve
+   is per language, and a single level for the account was an average of two
+   things nobody is doing at the same rate. Full width of the row's grid, so
+   the bar has somewhere to go on a phone. */
 .prof-level {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 18px;
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
   font-family: var(--display);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
@@ -177,10 +235,10 @@
 
 .prof-langs li,
 .prof-games li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 3px 12px;
   padding: 8px 0;
   border-top: 1px solid var(--rule);
 }
@@ -422,6 +480,31 @@
   color: var(--muted);
 }
 
+/* The purse, and the largest number on the end screen.
+
+   It is above the XP and bigger than it on purpose. Every game pays into the
+   purse and only two of the thirteen pay experience, so for eleven of them
+   this line is the entire answer to "what did that get me" -- and it was the
+   line that did not exist, which is how a night of Backgammon came to look
+   like it paid nothing at all. */
+.takings-points {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  color: var(--accent);
+}
+
+/* The once-a-day bonus, named. Small, because it is the footnote to the number
+   above it rather than a second number, and it only ever appears once a day. */
+.takings-daily {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
 .takings-xp {
   font-family: var(--display);
   font-weight: 600;
@@ -483,3 +566,5 @@
 .lobby-aside .myword {
   align-self: start;
 }
+
+

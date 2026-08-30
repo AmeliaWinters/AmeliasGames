@@ -93,7 +93,9 @@ describe('filing a game', () => {
     };
     expect(answer.profile.id).toBe(ID);
     expect(answer.profile.words).toBe(1);
-    expect(answer.profile.xp).toBeGreaterThan(0);
+    // Under the language the game taught, which is the only place experience
+    // goes now. See `Profile.xp`.
+    expect(answer.profile.byLang.find((row) => row.lang === 'pl')?.xp).toBeGreaterThan(0);
   });
 
   it('keeps it across a restart, which is the whole point of the object', async () => {
@@ -118,7 +120,7 @@ describe('filing a game', () => {
     const again = (await (await call(ctx, PLAYER_PATHS.harvest, post('run#1'))).json()) as {
       profile: ProfileView;
     };
-    expect(again.profile.xp).toBe(first.profile.xp);
+    expect(again.profile.byLang).toEqual(first.profile.byLang);
     expect(again.profile.games.find((g) => g.gameId === 'wordchain')?.played).toBe(1);
   });
 
@@ -210,7 +212,11 @@ describe('getting it back out', () => {
     const answer = (await (await call(ctx, PLAYER_PATHS.profile)).json()) as { profile: ProfileView };
     // Just produced, so it is scheduled forward and not due yet.
     expect(answer.profile.due).toBe(0);
-    expect(answer.profile.byLang).toEqual([{ lang: 'pl', words: 1, due: 0 }]);
+    // The level fields ride along on every language row now, so this is
+    // matched loosely: the point of the assertion is the counts, and pinning
+    // an experience total here would fail the day `xpFor` is retuned for
+    // reasons that have nothing to do with what is due.
+    expect(answer.profile.byLang).toMatchObject([{ lang: 'pl', words: 1, due: 0, learned: 0 }]);
   });
 });
 
@@ -235,9 +241,32 @@ describe('refusals', () => {
     const ctx = newPlayer();
     ctx.state.store.set('profile', { version: 0, xp: 99, words: 'not an array' });
     const answer = (await (await call(ctx, PLAYER_PATHS.profile)).json()) as { profile: ProfileView };
-    expect(answer.profile.xp).toBe(99);
+    // The pooled total is split by word count and this profile has no words,
+    // so the whole of it lands under English rather than being thrown away or
+    // invented three ways. See `splitXp`, which argues that at length.
+    expect(answer.profile.byLang.find((row) => row.lang === 'en')?.xp).toBe(99);
     expect(answer.profile.words).toBe(0);
     expect(answer.profile.id).toBe(ID);
+  });
+
+  /**
+   * The collection screen draws the balance beside the list and stores what
+   * comes back, so a read that answers with the ids alone hands it
+   * `undefined` and it blanks the purse it was about to spend. This route did
+   * exactly that while the dev server's `serveAccount` appended a profile to
+   * every account response, which is why the balance read zero in production
+   * and never once in development.
+   */
+  it('answers the collection with the summary beside it, as the dev server does', async () => {
+    const ctx = newPlayer();
+    await call(ctx, PLAYER_PATHS.harvest, post('run#1'));
+    const answer = (await (await call(ctx, PLAYER_PATHS.collection)).json()) as {
+      claimed: string[];
+      profile?: ProfileView;
+    };
+    expect(answer.claimed).toEqual([]);
+    expect(answer.profile?.id).toBe(ID);
+    expect(typeof answer.profile?.spendable).toBe('number');
   });
 
   it('takes the address it was reached at as the id, over anything stored', async () => {

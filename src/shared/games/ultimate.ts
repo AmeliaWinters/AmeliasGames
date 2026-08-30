@@ -211,6 +211,10 @@ export const ultimate: GameDefinition<UtState, UtMove> = {
 
   isOver,
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (seat: 0 | 1) => names[seat] ?? `Player ${seat + 1}`;
     const [zero, one] = tally(state);

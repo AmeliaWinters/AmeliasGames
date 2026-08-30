@@ -574,6 +574,35 @@ function buildPolish(
  * fifty-thousand-word list with the same confidence it read from a
  * twenty-five-thousand-word one.
  */
+/**
+ * English words added by hand, appended to the end of the list.
+ *
+ * Two filters stand between a word and the English list, and each of them
+ * drops a word the other would keep: OpenSubtitles will not have a word nobody
+ * says out loud, and `words.ts` will not have one its source never collected.
+ * Between them they lose a small number of words a player would swear are
+ * words, and this is where those go back.
+ *
+ * Appended rather than merged, so they sort as the rarest words in the list.
+ * That is the honest place for them: they are here because they are rare
+ * enough to have fallen out, and the reveal reads from the top, so nothing
+ * here can ever be offered as "the commonest word you could have said".
+ *
+ * Keep it short. This is a patch list, not a second dictionary: a long one is
+ * a sign the filters want changing instead, and every entry here is a word
+ * whose spelling nobody checked but me.
+ */
+const EN_EXTRA = [
+  // Both filters drop it: `words.ts` has `callous` and `callously` but not the
+  // noun, and it is too rare in subtitles to survive on frequency.
+  'callousness',
+  // The long-word joke. Not in `words.ts` in either spelling, and it will
+  // never be the commonest anything, but a player who types it has earned the
+  // twenty-six points.
+  'antiestablishmentarianism',
+  'antidisestablishmentarianism',
+];
+
 function buildEnglish(freq: Map<string, number>, valid: ReadonlySet<string>): string[] {
   const out: string[] = [];
   for (const w of freq.keys()) {
@@ -581,6 +610,20 @@ function buildEnglish(freq: Map<string, number>, valid: ReadonlySet<string>): st
     if (w.length >= MIN_LENGTH && /^[a-z]+$/.test(w) && valid.has(w.toUpperCase())) out.push(w);
   }
   return out;
+}
+
+/**
+ * The hand-written words, minus any the corpus turned out to have after all.
+ *
+ * Deduplicated rather than trusted, because a word that arrives twice is a
+ * word the chain would refuse the second time somebody says it, and the
+ * duplicate would be sitting at the bottom of the list where nobody would ever
+ * see it happen. Applied after `LIMIT.en` has already cut the list, so an
+ * extra is never what pushes a real word off the end.
+ */
+function withExtras(en: string[]): string[] {
+  const have = new Set(en);
+  return [...en, ...EN_EXTRA.filter((w) => !have.has(w))];
 }
 
 /* ---------------------------------------------------------------------- emit */
@@ -657,7 +700,7 @@ async function main() {
   const weight = weighPolish(plCount, lemmas);
 
   const { allWords } = await import('../src/shared/games/words.js');
-  const en = buildEnglish(enFreq, allWords()).slice(0, LIMIT.en);
+  const en = withExtras(buildEnglish(enFreq, allWords()).slice(0, LIMIT.en));
   const pl = buildPolish(weight, lemmas, dict, new Set(en.slice(0, EN_COMMON)));
 
   const glossed = pl.filter((r) => r.gloss).length;

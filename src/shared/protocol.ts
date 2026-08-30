@@ -1,5 +1,5 @@
 /** Wire format shared by client and server. */
-import type { ProfileView } from './profile.js';
+import type { Known, LearnLang, ProfileView } from './profile.js';
 
 /**
  * Bumped whenever a message shape changes incompatibly. A tab left open across
@@ -25,8 +25,42 @@ import type { ProfileView } from './profile.js';
  * an older client cannot be told about a profile it has no field for, and a
  * newer client that quietly went unrecognised would sit there having earned
  * nothing and never find out why.
+ *
+ * 9 splits experience per language and adds `vocab`, which fetches the actual
+ * word rows for one language rather than the summary. The summary's shape
+ * changed with it -- `xp`, `level` and `nextLevel` came off the top level and
+ * went onto `byLang` -- and that is the part that forces the bump: an older
+ * client reads `profile.xp`, finds nothing, and draws a level bar full of
+ * `NaN` over somebody's vocabulary. See `LangView`.
+ *
+ * 10 puts `showcase` on `PlayerView`, so the seat list can draw the characters
+ * somebody is showing. Additive, and an older client would simply ignore the
+ * field -- but a newer client reads `p.showcase.map(...)` against an older
+ * server and finds undefined, which is a seat list that throws rather than a
+ * seat list missing some pictures. The bump is for that direction.
+ *
+ * 11 puts `avatar` on `PlayerView` and on `hello`, so the seat list can draw
+ * the figure somebody built as well as the characters they collected. Same
+ * direction as 10 and the same argument: a newer client reads `p.avatar`
+ * against a 10 server, finds undefined, and draws an initial forever for
+ * people who do have one.
+ *
+ * It is a *string* on the wire, and that is the interesting part. A loadout is
+ * a client type -- it names parts out of an art manifest that only the client
+ * compiles in -- so `shared/` deliberately does not learn its shape. The
+ * server carries the JSON from one seat to the others without opening it, the
+ * receiving client parses it through the same guard `loadAvatar` uses, and a
+ * loadout naming art this build has never heard of falls back to the initial.
+ * That guard is what makes an opaque string safe to relay; see
+ * `avatar/store.ts`.
+ *
+ * 12 adds `winner` to `RoomView`, so the end screen can put the winner's
+ * figure, name and characters where a sentence used to stand alone. The same
+ * direction again: a newer client reading `room.winner` off an 11 server finds
+ * undefined, and `undefined` is not `null` -- it would draw the hero panel for
+ * nobody, or worse, for seat `undefined`.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 12;
 
 /**
  * Why a request failed, so the client can choose its own framing. The message
@@ -52,6 +86,29 @@ export interface PlayerView {
   seat: number;
   name: string;
   connected: boolean;
+  /**
+   * The character ids this player has on show, newest last, at most
+   * `SHOWCASE_MAX` of them. Empty for a guest, for anybody who has not rolled,
+   * and for a room restored from before this field existed.
+   *
+   * Ids rather than art: the client compiles the roster in already (see
+   * `waifuRoster.ts`), so sending URLs would be paying for them twice on every
+   * view, and every view goes out after every move.
+   *
+   * This is the whole point of the showcase being called one. It was private
+   * to the account menu, which made three slots nobody else could see, and a
+   * collection nobody sees is a collection nobody starts.
+   */
+  showcase: string[];
+  /**
+   * The figure this player built, as the JSON of a client loadout, or null for
+   * anybody who has never opened the customiser.
+   *
+   * Opaque here on purpose, and capped rather than trusted: see
+   * `PROTOCOL_VERSION` 11 for why the wire holds a string, and
+   * `RoomEngine.setAvatar` for the cap.
+   */
+  avatar: string | null;
 }
 
 export interface RoomView {
@@ -88,6 +145,17 @@ export interface RoomView {
   canAct: boolean;
   status: string;
   over: boolean;
+  /**
+   * The seat that won, once `over`, and null the rest of the time.
+   *
+   * Decoration, not authority: the end screen draws this player's figure,
+   * name and showcase, and nothing is decided from it. Null is a real answer
+   * and a common one -- a draw, a tie at the top of a four-handed table, or
+   * Drill, which is played alone -- and the end screen falls back to `status`
+   * for every one of those, since that sentence already says why nobody is
+   * named. See `GameDefinition.winner`.
+   */
+  winner: number | null;
   /** True while the room is still gathering people and has not been dealt. */
   waiting: boolean;
   /**
@@ -98,6 +166,13 @@ export interface RoomView {
   canStart: boolean;
   /** The most this game seats, so the lobby can say how many more may come. */
   capacity: number;
+  /**
+   * The fewest this game will start with, so the waiting room can mark which
+   * of its empty seats have to be filled before anything can happen. The
+   * lobby used to know only the ceiling, which meant "1/8" said nothing about
+   * whether pressing start was minutes or one person away.
+   */
+  minimum: number;
   /**
    * The server's clock when this view was built, in epoch milliseconds.
    *
@@ -136,6 +211,21 @@ export type ClientMessage =
        * is what checks it.
        */
       account?: unknown;
+      /**
+       * The loadout this browser has equipped, as JSON, or absent.
+       *
+       * Sent by the client rather than read from a profile because that is
+       * where it lives: the equipped loadout is `localStorage` today (see
+       * `avatar/store.ts`, which says out loud that its home is meant to be
+       * the profile). Until it moves, the only thing that knows what somebody
+       * is wearing is the tab they are wearing it in.
+       *
+       * Which means it is a claim, not a fact, and it is treated as one: the
+       * server never parses it, and every client that draws it re-checks it
+       * against its own art. The worst a hostile one can do is show its own
+       * player a shape, and pay the cap for it.
+       */
+      avatar?: unknown;
     }
   | { t: 'move'; move: unknown }
   | { t: 'rematch' }
@@ -181,7 +271,21 @@ export type ClientMessage =
    * The client asks on joining, and the server also pushes an unasked-for
    * answer when a game it played has just been filed — see `profile` below.
    */
-  | { t: 'profile' };
+  | { t: 'profile' }
+  /**
+   * Show me the actual words, for one language.
+   *
+   * The second request `ProfileView` says would be needed "when somebody
+   * actually opens the ledger", and this is it. Per language rather than the
+   * whole ledger, because the whole ledger is the 600KB the summary exists to
+   * avoid and because the screen that asks is already showing one language at
+   * a time.
+   *
+   * Answered only for a socket whose account claim verified, exactly like
+   * `profile`, and for the same reason: there is no id on it, so it can only
+   * ever name your own.
+   */
+  | { t: 'vocab'; lang: LearnLang };
 
 export type ServerMessage =
   | { t: 'welcome'; seat: number; room: RoomView }
@@ -208,7 +312,20 @@ export type ServerMessage =
    * A **summary**, never the ledger: five thousand words is around 600KB and
    * this would carry it on every join. See `ProfileView`.
    */
-  | { t: 'profile'; profile: ProfileView };
+  | { t: 'profile'; profile: ProfileView }
+  /**
+   * The words themselves, for one language. Answer to `vocab`.
+   *
+   * Never pushed. The summary is pushed because a number moving at the end of
+   * a game is worth seeing; a list of two thousand rows arriving unasked-for
+   * on a phone is not, and the screen that wants it is a screen somebody had
+   * to open on purpose.
+   *
+   * `lang` is echoed rather than assumed, because a player who switches
+   * language twice quickly has two requests in flight and the second answer
+   * must not be drawn under the first heading.
+   */
+  | { t: 'vocab'; lang: LearnLang; words: Known[] };
 
 /**
  * The heartbeat frames as bytes, because Cloudflare's auto-responder matches

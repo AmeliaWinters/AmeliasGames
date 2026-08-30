@@ -1,0 +1,343 @@
+/* The lobby under the bar: joining a room, and the panels either bar button
+   opens.
+
+   The middle third of the old `controls.css`, imported in its old position.
+   The join box is the half of the lobby that is not the shelf of cards, and
+   the room code field is the fiddliest thing in the app -- a real input laid
+   transparently over the boxes that show what it holds -- so it is worth
+   having somewhere findable. */
+
+
+/* Joining a room: type on the ground, not a card.
+
+   This was a panel, and then briefly a ticket stub, and both were wrong in the
+   same way. The lobby answers two questions -- start one, or get into somebody
+   else's -- and drawing the second one as a card made it the fifteenth card on
+   a page of fourteen, competing with the shelf on the shelf's own terms and
+   losing. The distinction now comes from material rather than from decoration:
+   the shelf is objects, raised, coloured, pressable; this is type standing on
+   the page ground with nothing behind it. The eye sorts those two before it
+   reads a word of either.
+
+   Which is also how a code actually arrives. Four letters read across a table
+   or written on the back of a hand are not a form somebody filled in, and the
+   container was the whole of what made this look like one. */
+.joinbox {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 0;
+}
+/* Between a phone and the two-column lobby the page is one wide column, and
+   four letters stretched across 1100px of it would be the loudest thing on the
+   screen for the smallest job on it. It keeps a phone's measure and stays at
+   the left margin, where the heading above it starts. Inert past 1040px, where
+   the aside is a 320px column already. */
+@media (min-width: 760px) {
+  .joinbox {
+    max-width: 420px;
+  }
+}
+/* One of the lobby's two names, and it is set exactly like the other one --
+   see `.start-head`. It used to be a muted label a size down, which read as a
+   caption on the shelf below rather than as the other half of a choice, and
+   people who had a code went and started a room instead. Two headings of equal
+   weight is the whole of the fix: neither is the page's title, so the eye has
+   to pick. */
+.joinbox h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-align: left;
+}
+/* The letters and the way in, on one line. Bottom-aligned, so the button's
+   baseline sits on the same rule the letters stand on. */
+.join-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.join-row .cells {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A word, not a slab. The primary button is what the shelf's cards resolve to
+   and this is deliberately not that -- but it is still a control a thumb has
+   to find, so it keeps the full 44px and pays for it in padding rather than in
+   background.
+
+   Set in ink on an accent rule rather than in accent type, and that is a
+   contrast decision rather than a taste one: this is 15px of bold display
+   face, which is under the 18.66px where AA would let it take the 3:1 a large
+   heading gets, and the ember channel measures 4.33:1 on the daylight ground
+   -- a fail on the one control this line exists to offer. Ink clears 16:1 in
+   both palettes and the accent moves to the rule under it, where it is a mark
+   and not a letter, and where it rhymes with the four rules beside it. */
+.join-go {
+  flex: none;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 0 2px;
+  /* The 44px it owes a thumb, taken above the rule so the rule itself lands on
+     the same baseline the letters stand on. */
+  height: 44px;
+  cursor: pointer;
+}
+/* Nothing has failed here, there is simply nothing to join yet: two of the
+   four letters are missing. So it goes quiet rather than greying out into a
+   disabled slab, and it is still announced as disabled to anything reading. */
+.join-go:disabled {
+  color: var(--muted);
+  border-bottom-color: var(--rule-hi);
+  cursor: default;
+}
+.join-go:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* The status line, and it is only ever rendered once there is a status. */
+.joinbox .hint {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.joinbox .join-as {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+/* What the lookup found. The game's name is the half worth reading, so it is
+   the half set in ink; the count beside it is context. */
+.join-found strong {
+  color: var(--ink);
+}
+/* Not an error state, and not drawn as one: nothing has failed and nothing was
+   refused, somebody has a letter wrong. The Join control stays live, because
+   the socket is the thing that actually decides. */
+.join-missing {
+  color: var(--muted);
+}
+
+/* A button that has to read as part of a sentence, for the one case where a
+   name is already known and this is not the person it belongs to. */
+.linky {
+  font: inherit;
+  /* `font: inherit` does not carry text-transform, so this read as NOT YOU? --
+     a shout in the middle of a sentence. It has to be said separately. */
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* What either bar button opens: one panel, under the bar, holding only the
+   question that was asked. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 14px;
+}
+/* The same card, hung off the control that opened it instead of taking a
+   slice out of the page. Right-aligned to the chip and width-capped, because
+   the chip is at the right-hand end of the bar and the panel holds one field.
+
+   `position: fixed` is what a popover wants on a scrolling page, but this bar
+   is not sticky and the lobby is scrolled once: absolute keeps it attached to
+   the bar it belongs to, with no scroll listener to keep in step. */
+.panel-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  margin-top: 8px;
+  width: min(320px, calc(100vw - 32px));
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+}
+
+.panel h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.panel .hint {
+  margin: 0;
+  text-align: center;
+}
+
+/* The code, at the size of the thing being held.
+   Four letters read out across a room went into a 90px field with a 0.68rem
+   label over it -- the smallest control on the screen for the one job its
+   owner came to do. Four boxes instead, big enough to check a letter at a
+   time against somebody reading them out.
+
+   Drawn as four slots cut into the stub rather than four dashed outlines. A
+   dashed box is the web's "nothing here yet" mark -- it is what a file drop
+   zone and an unfilled form field are drawn with -- and four of them in a row
+   read as an incomplete form, on the one card whose whole job is to be filled
+   in. A slot is a hole with a letter sitting in it: empty is a legitimate
+   state of a hole, and the row reads the same before and after typing.
+
+   The boxes are drawn from the value and the input lies transparently over
+   them; see `CodeCells` in `App.tsx` for why it is one field and not four. */
+.cells {
+  position: relative;
+  display: flex;
+  /* Left, with the heading above it, rather than centred in whatever width the
+     column happens to be: the two are one lockup and a centred row of letters
+     under a left-set label reads as two unrelated things. */
+  justify-content: flex-start;
+  gap: 10px;
+}
+.cells .cell {
+  position: relative;
+  /* Share the row rather than holding 50px each. At 320px the column leaves
+     272px for four letters and three gaps, which four fixed 50s fit only by
+     luck; a fraction each fits by construction, and the cap keeps them from
+     turning into letterboxes in a 420px measure. */
+  flex: 1 1 0;
+  max-width: 72px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-style: normal;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  background: none;
+  /* One rule per letter, and nothing else. A box -- dashed, solid or cut into
+     the surface -- is a field, and a field is what this stopped being: these
+     are four letters standing on the page the way they were written down.
+
+     2px on --rule-hi rather than a hairline on --rule, because that is the
+     entire drawing. The one place this design can fail is by being too quiet
+     to find, and it has no border, no fill and no shadow left to spend: the
+     rules measure 1.8:1 on the ground in both palettes, which is a mark and
+     not a legible thing, and what carries the row on arrival is the accent
+     under the first slot -- an empty field puts the caret at index 0, so there
+     is always exactly one lit rule leading the eye in. Take that away and this
+     needs a louder token. */
+  border: 0;
+  border-bottom: 2px solid var(--rule-hi);
+  border-radius: 0;
+}
+/* Where the next letter lands. It is a state and not an event, so it is drawn
+   as one: the rule under it lights up, and nothing blinks. A caret would be
+   the only moving thing on this screen. */
+.cells .cell.caret {
+  border-bottom-color: var(--accent);
+}
+/* The real field, over the whole row: transparent text, so the boxes show what
+   was typed, and a full-size box so a thumb landing anywhere on the row puts
+   the cursor where it expects. */
+.cells-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 2rem;
+  text-align: center;
+  letter-spacing: 0.5em;
+}
+.cells-field:focus-visible {
+  outline: none;
+}
+/* The ring goes round the boxes, because the field cannot be seen. */
+.cells:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.setup .wordmark {
+  font-family: var(--display);
+  font-size: clamp(2.8rem, 13vw, 4rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 0.9;
+  text-transform: uppercase;
+  margin: 0;
+}
+.setup .wordmark .tail {
+  color: var(--accent);
+}
+
+.tagline {
+  margin: 0;
+  color: var(--muted);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+input {
+  font-family: var(--body);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface);
+  padding: 11px 12px;
+}
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -1px;
+}
+
+.setup .swap {
+  padding-left: 0;
+}
+
+/* The two things you can set, side by side. Both are `.swap`: they are the
+   same kind of thing, a preference remembered between visits, and giving the
+   second one its own treatment would say it was not. */
+.preferences {
+  display: flex;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  margin-top: 6px;
+}
+
+

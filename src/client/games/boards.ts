@@ -1,8 +1,13 @@
-import type { ComponentType } from "react";
+import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import { GAME_MANIFEST } from "../../shared/games/manifest.js";
-// Every import below is type-only but the last, so no reducer and no word list
-// follows any of them into the bundle. The state and move types happen to live
-// beside the rules for several games; `import type` erases the whole module.
+// Every import below is type-only, so no reducer and no word list follows any
+// of them into the bundle. The state and move types happen to live beside the
+// rules for several games; `import type` erases the whole module.
+//
+// The boards themselves used to be imported here too, and that is the line
+// that made this file expensive: fifteen eager imports meant 334KB of board
+// source in the entry chunk, downloaded and parsed by everyone opening the
+// lobby to play Connect Four. They are `lazy` now. See `BOARDS`.
 import type { C4State, C4Move } from "../../shared/games/connect4.js";
 import type { BgState, BgMove } from "../../shared/games/backgammon.js";
 import type { WofState, WofMove } from "../../shared/games/wheel.js";
@@ -17,20 +22,7 @@ import type { LpState, LpMove } from "../../shared/games/letterpressDisplay.js";
 import type { WcState, WcMove } from "../../shared/games/wordChainDisplay.js";
 import type { VocabState, VocabMove } from "../../shared/games/vocabDisplay.js";
 import type { DrillState, DrillMove } from "../../shared/games/drillDisplay.js";
-import { Connect4Board } from "./Connect4Board.js";
-import { BackgammonGame } from "./BackgammonBoard.js";
-import { WheelBoard } from "./WheelBoard.js";
-import { WordleBoard } from "./WordleBoard.js";
-import { YahtzeeBoard } from "./YahtzeeBoard.js";
-import { BattleshipBoard } from "./BattleshipBoard.js";
-import { LiarsDiceBoard } from "./LiarsDiceBoard.js";
-import { WordHuntBoard } from "./WordHuntBoard.js";
-import { MorrisBoard } from "./MorrisBoard.js";
-import { UltimateBoard } from "./UltimateBoard.js";
-import { LetterpressBoard } from "./LetterpressBoard.js";
-import { WordChainBoard } from "./WordChainBoard.js";
-import { VocabBoard } from "./VocabBoard.js";
-import { DrillBoard } from "./DrillBoard.js";
+import type { GhostState, GhostMove } from "../../shared/games/ghostDisplay.js";
 
 /** Every id the manifest offers. */
 export type GameId = keyof typeof GAME_MANIFEST;
@@ -75,6 +67,7 @@ export interface GameStates {
   wordchain: WcState;
   vocab: VocabState;
   drill: DrillState;
+  ghost: GhostState;
 }
 
 /** The other half of the pair. See `GameStates`. */
@@ -93,6 +86,7 @@ export interface GameMoves {
   wordchain: WcMove;
   vocab: VocabMove;
   drill: DrillMove;
+  ghost: GhostMove;
 }
 
 /**
@@ -122,7 +116,7 @@ export interface BoardProps<S, M> {
   /**
    * Which seats still have somebody on the end of the socket, by seat index.
    *
-   * Only a board drawing its own seat strip needs this, see `OWNS_SEATS`. The
+   * Only a board drawing its own seat strip needs this, see `ownsSeats.ts`. The
    * shell's strip usually says "away", and a board that replaces it has to be
    * able to say it too, or reconnecting is the one piece of news that goes
    * missing on exactly the tables that hid the strip.
@@ -133,53 +127,87 @@ export interface BoardProps<S, M> {
   onMove(move: M): void;
 }
 
-/**
- * Games whose board draws the players itself, so the shell does not draw them
- * too.
- *
- * The shell's strip is chip, name, "you", "away". The Wheel's purses are chip,
- * name, and the two totals that *are* the score of that game, which made the
- * top of a Wheel table two rows of the same four names, one carrying the money
- * and one carrying nothing the other could not. At four players that is a
- * hundred and forty pixels of duplicate on a phone, and the duplicate is why
- * the keyboard was below the fold.
- *
- * A set rather than a flag on the board component, because the shell has to
- * answer this *before* it has a board: the strip is drawn above the point where
- * a game is dealt, and an undealt room has no board at all.
- */
-const OWNS_SEATS: ReadonlySet<string> = new Set<GameId>(["wheel"]);
-
-/** Whether this game's board draws its own seat strip. See `OWNS_SEATS`. */
-export function ownsSeats(gameId: string): boolean {
-  return OWNS_SEATS.has(gameId);
-}
-
 export type Board<K extends GameId> = ComponentType<BoardProps<GameStates[K], GameMoves[K]>>;
+
+/**
+ * How a board arrives now: a `lazy` wrapper around the real component, which
+ * is a `ComponentType` as far as every caller is concerned and a separate
+ * chunk as far as the network is concerned.
+ */
+export type LazyBoard<K extends GameId> = LazyExoticComponent<Board<K>>;
 
 /**
  * The one place that knows which board goes with which game. Everything above
  * it (the lobby, seating, reconnection, the rematch) is game-agnostic, so
  * adding a game means an entry here and a line in each map above.
+ *
+ * A thunk per board rather than an import, so each board is its own chunk and
+ * a player downloads the one game they opened rather than all fifteen. The
+ * `.then` unwrapping a named export is what `lazy` asks for below, and it is
+ * not ceremony: it is also where the compiler still checks the pairing this
+ * file exists for, because each thunk's resolved type has to satisfy
+ * `{ default: Board<K> }` for that same `K`, so a board taking another game's
+ * state fails here exactly as it did when these were plain imports.
+ *
+ * The rendering side of the bargain is a `Suspense` boundary in
+ * `screens/Room.tsx`; without one, a lazy board suspends into whatever
+ * boundary happens to be above it, which would be the whole app.
  */
-const BOARDS: { [K in GameId]: Board<K> } = {
-  connect4: Connect4Board,
+const LOADERS: { [K in GameId]: () => Promise<{ default: Board<K> }> } = {
+  connect4: () => import("./Connect4Board.js").then((m) => ({ default: m.Connect4Board })),
   // One component for board and controls: they share whether the dice have
   // stopped, and two copies of that could disagree.
-  backgammon: BackgammonGame,
-  wheel: WheelBoard,
-  wordle: WordleBoard,
-  liarsdice: LiarsDiceBoard,
-  battleship: BattleshipBoard,
-  yahtzee: YahtzeeBoard,
-  wordhunt: WordHuntBoard,
-  morris: MorrisBoard,
-  ultimate: UltimateBoard,
-  letterpress: LetterpressBoard,
-  wordchain: WordChainBoard,
-  vocab: VocabBoard,
-  drill: DrillBoard,
+  backgammon: () => import("./BackgammonBoard.js").then((m) => ({ default: m.BackgammonGame })),
+  wheel: () => import("./WheelBoard.js").then((m) => ({ default: m.WheelBoard })),
+  wordle: () => import("./WordleBoard.js").then((m) => ({ default: m.WordleBoard })),
+  liarsdice: () => import("./LiarsDiceBoard.js").then((m) => ({ default: m.LiarsDiceBoard })),
+  battleship: () => import("./BattleshipBoard.js").then((m) => ({ default: m.BattleshipBoard })),
+  yahtzee: () => import("./YahtzeeBoard.js").then((m) => ({ default: m.YahtzeeBoard })),
+  wordhunt: () => import("./WordHuntBoard.js").then((m) => ({ default: m.WordHuntBoard })),
+  morris: () => import("./MorrisBoard.js").then((m) => ({ default: m.MorrisBoard })),
+  ultimate: () => import("./UltimateBoard.js").then((m) => ({ default: m.UltimateBoard })),
+  letterpress: () => import("./LetterpressBoard.js").then((m) => ({ default: m.LetterpressBoard })),
+  wordchain: () => import("./WordChainBoard.js").then((m) => ({ default: m.WordChainBoard })),
+  vocab: () => import("./VocabBoard.js").then((m) => ({ default: m.VocabBoard })),
+  drill: () => import("./DrillBoard.js").then((m) => ({ default: m.DrillBoard })),
+  ghost: () => import("./GhostBoard.js").then((m) => ({ default: m.GhostBoard })),
 };
+
+/**
+ * The same fifteen, wrapped for rendering. Built from `LOADERS` rather than
+ * written out a second time, so there is one list and the mapped type above is
+ * the only place the pairing has to hold.
+ */
+const BOARDS = Object.fromEntries(
+  Object.entries(LOADERS).map(([id, load]) => [id, lazy(load)]),
+) as { [K in GameId]: LazyBoard<K> };
+
+/**
+ * Fetch a board's chunk without rendering it.
+ *
+ * `lazy` starts the download on the first render, which is the moment the
+ * player is already looking at the fallback. Anything that knows sooner which
+ * game is about to be drawn can call this and have the chunk in flight during
+ * the wait it was going to have anyway.
+ *
+ * Returns nothing for an unknown id, on the same reasoning as `boardFor`: an
+ * old tab against a newer server is a real thing and not a reason to throw.
+ */
+export function preloadBoard(gameId: string): Promise<unknown> | undefined {
+  return (LOADERS as Record<string, (() => Promise<unknown>) | undefined>)[gameId]?.();
+}
+
+/**
+ * Every board's chunk, fetched.
+ *
+ * For `boards.test.tsx`, which draws all fifteen and would otherwise be
+ * racing the module loader on every one of its several hundred renders. It is
+ * deliberately not called anywhere in the app: downloading all fifteen boards
+ * is the exact thing the lazy split exists to stop.
+ */
+export function preloadAllBoards(): Promise<unknown[]> {
+  return Promise.all(Object.values(LOADERS).map((load) => load()));
+}
 
 /**
  * The board for a game id, or null for one this build has never heard of: an

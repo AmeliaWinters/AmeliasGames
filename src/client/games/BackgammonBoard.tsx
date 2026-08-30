@@ -18,6 +18,9 @@ import { useLanding } from "../dice/useLanding.js";
 import { wantsStillness } from "../motion.js";
 import type { BoardProps } from "./boards.js";
 
+// In this board's chunk, not the entry sheet. See `styles/index.css`.
+import "../styles/games/backgammon.css";
+
 /** The inner board's own props. The wrapper below takes the standard set. */
 interface Props {
   state: BgState;

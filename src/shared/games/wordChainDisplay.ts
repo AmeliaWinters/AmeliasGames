@@ -63,7 +63,7 @@ export const LANG_NAME: Record<ChainLang, string> = {
  * so a rebuild that changes a list fails there rather than quietly skewing a
  * percentage.
  */
-export const LIST_SIZE: Record<ChainLang, number> = { en: 50_000, pl: 62_669, ja: 12_000 };
+export const LIST_SIZE: Record<ChainLang, number> = { en: 50_003, pl: 62_669, ja: 12_000 };
 
 /**
  * The shortest word the game will take, in every language.
@@ -192,6 +192,160 @@ export function turnMsFor(said: number): number {
 }
 
 /**
+ * How much of the language a seat says they have, chosen once during setup.
+ *
+ * Word Chain's clock is the same for everybody and stays that way: a level
+ * here buys **help finding a word**, not time and not points. A minute of
+ * failing to think of anything is what this game is built around (see the note
+ * at the top of `wordChain.ts`), and that minute teaches a fluent player
+ * something and teaches somebody three weeks in nothing at all: they are not
+ * failing to retrieve a word, they have not got one to retrieve. So a beginner
+ * is walked towards the word the reveal was going to show them anyway, a step
+ * at a time, while there is still a turn left to use it in.
+ *
+ * Three bands rather than a slider, and the same three the vocabulary game
+ * asks for, worded the same way, because a player who has answered this
+ * question on one setup screen should recognise it on the other. They are
+ * separate types on purpose: this one decides a hint ladder and `VocabLevel`
+ * decides which way a question is asked, and a shared union would be one
+ * import away from a change to one game quietly retuning the other.
+ */
+export type ChainLevel = 'new' | 'some' | 'fluent';
+
+export const CHAIN_LEVELS: readonly ChainLevel[] = ['new', 'some', 'fluent'];
+
+export const LEVEL_NAME: Record<ChainLevel, string> = {
+  new: 'Just starting',
+  some: 'Getting there',
+  fluent: 'I speak it',
+};
+
+/**
+ * The level a seat plays at when nobody said otherwise.
+ *
+ * The middle band, so a seat that never touched the control, and a game
+ * restored from before this existed, play the game much as it played before:
+ * the `some` ladder does not open until thirty-five seconds, by which point
+ * most turns are over.
+ */
+export const CHAIN_DEFAULT_LEVEL: ChainLevel = 'some';
+
+/**
+ * When each hint arrives, in milliseconds from the start of the seat's turn.
+ *
+ * Twenty and forty for a beginner. Twenty is long enough that anybody who had
+ * the word has already typed it, and it leaves forty seconds of a full minute
+ * to use what the hint hands over, which is the whole point: a hint that lands
+ * with three seconds left is a spoiler, not a hint. The second rung exists
+ * because a meaning on its own is often not enough in a language you cannot
+ * yet spell in.
+ *
+ * Thirty-five and fifty for the middle band: the same ladder, late enough that
+ * it only ever fires on a turn that was already going badly. Nothing at all
+ * for a fluent seat, who came for the reveal, and for whom an answer at twenty
+ * seconds would be the game playing the turn for them.
+ *
+ * Read against the allowance *that turn* had rather than against the minute,
+ * so the ladder simply stops firing as the chain grows and the clock shrinks
+ * past it (see `turnMsFor`). A five-second turn near the end of a long chain
+ * gets no hints at any level, which is right: there is no time to spend on one.
+ */
+export const HINT_AT: Record<ChainLevel, readonly number[]> = {
+  new: [20 * 1000, 40 * 1000],
+  some: [35 * 1000, 50 * 1000],
+  fluent: [],
+};
+
+/** What `seat` said they were, defaulting for a seat that never said. */
+export function levelOf(state: WcState, seat: number): ChainLevel {
+  return state.levels?.[seat] ?? CHAIN_DEFAULT_LEVEL;
+}
+
+/**
+ * The word the seat on the clock is being walked towards, and nothing about
+ * how far along they are: see `hintsFor` for that.
+ *
+ * The *same* word `revealFor` would show them had the minute gone: same
+ * language, same cooldowns, same review list. That is deliberate. The hint and
+ * the reveal are one claim, "this is what you could have said", and a game that
+ * hinted at one word and then revealed another would read as the game changing
+ * its mind about the answer.
+ *
+ * Recomputed by the server whenever a seat is handed the clock, and blanked for
+ * the other seat by `view`. Null for a fluent seat, for a seat whose language
+ * has nothing behind the letter, and throughout setup.
+ */
+export interface ChainHint {
+  /** Whose turn this belongs to. Never anybody else's, see `view`. */
+  seat: number;
+  /** The word itself, as written. Never sent whole to the screen: see `chainHintSteps`. */
+  word: string;
+  /** Its meaning, or '' where the list has none. English has none at all. */
+  gloss: string;
+}
+
+/** One rung of the ladder: what it says, and what kind of help it is. */
+export interface ChainHintStep {
+  kind: 'meaning' | 'shape';
+  text: string;
+}
+
+/**
+ * A word with everything but its first two letters taken out: `lozko` as
+ * `lo___`, and the accented `lozko` as it is written, `lo` plus three blanks.
+ *
+ * Two letters rather than one because one of them is the letter the chain just
+ * asked for, which the player is already staring at: a hint that repeats the
+ * question is not a hint. The blanks are the other half of it, length being the
+ * cue that most often finishes the retrieval on its own.
+ *
+ * Counted in code points, like `wordPoints`, so a five-letter Polish word masks
+ * to three blanks and not to five.
+ */
+export function maskWord(word: string): string {
+  const letters = [...word];
+  return letters.slice(0, 2).join('') + '_'.repeat(Math.max(0, letters.length - 2));
+}
+
+/**
+ * The rungs of the ladder for a hint, in the order they are handed over.
+ *
+ * Meaning first, shape second: the meaning is the cue that lets a player
+ * produce the word themselves, which is the retrieval worth having, and the
+ * shape is the fallback for when it did not.
+ *
+ * A rung with nothing to say is not offered rather than padded out, which in
+ * practice means **English gets one hint and it is the shape one**: the English
+ * list carries no glosses (see `commonestStarting`), so there is no meaning to
+ * show. Better than a first rung that says nothing, and better than pushing the
+ * shape hint out to forty seconds for the player the ladder exists to help.
+ */
+export function chainHintSteps(hint: ChainHint): ChainHintStep[] {
+  const steps: ChainHintStep[] = [];
+  if (hint.gloss) steps.push({ kind: 'meaning', text: hint.gloss });
+  steps.push({ kind: 'shape', text: maskWord(hint.word) });
+  return steps;
+}
+
+/**
+ * Which rungs `seat` has earned as of `now`, oldest first.
+ *
+ * Empty for everybody but the seat on the clock, which is also the only seat
+ * holding a hint at all. Time is read back off the deadline rather than kept as
+ * a start time, the same bargain `tookUntil` makes in the reducer: the deadline
+ * is the number the whole game already agrees on, and a second field recording
+ * when the turn began could drift from it.
+ */
+export function hintsFor(state: WcState, seat: number, now: number): ChainHintStep[] {
+  const hint = state.hint;
+  if (!hint || hint.seat !== seat || state.deadline === null) return [];
+  if (state.phase !== 'playing' && state.phase !== 'chase') return [];
+  const gone = turnMsFor(state.chain.length) - Math.max(0, state.deadline - now);
+  const at = HINT_AT[levelOf(state, seat)];
+  return chainHintSteps(hint).filter((_step, i) => at[i] !== undefined && gone >= at[i]);
+}
+
+/**
  * What a word is worth: a point a letter.
  *
  * The one rule the players can do arithmetic on mid-turn, which is the whole
@@ -270,44 +424,76 @@ export interface ChainLink {
    * can honestly carry.
    */
   rank: number;
+  /**
+   * Whether a hint was on the screen when this word was typed.
+   *
+   * Recorded rather than derived, for the same reason as `ms`: it is a fact
+   * about the moment the word was said, and the clock it would have to be
+   * recovered from is a single `deadline` the next word overwrites.
+   *
+   * It exists because `record` grades the chain afterwards and has no other
+   * way to tell a word somebody knew from a word the ladder handed them. A
+   * hinted word banked as `produced` promotes the card up the Leitner ladder
+   * past `HINTED_CEILING`, and `answerFor` deliberately hints at a word the
+   * seat already owes a review on, so it is exactly the card that must not be
+   * promoted on a hint. Vocab Race has always graded this `hinted`; this is
+   * the field that lets Word Chain agree with it.
+   *
+   * Optional because a room stored before it existed has links without it, and
+   * absent reads the same as false: an old snapshot grades as it always did.
+   */
+  hinted?: boolean;
 }
 
-/** No lock at all at or above this many words left behind the ending. */
-export const LOCK_FREE = 300;
-
-/** At or below this many, the ending costs the full `MAX_LOCK` turns. */
-export const LOCK_FULL = 150;
+/**
+ * Fewer answers than this behind a letter and handing it over costs the full
+ * `MAX_LOCK` turns. At or above it, handing it over is free.
+ *
+ * Counted the way `MIN_ANSWERS` is, and against the same number: words in the
+ * *answering* seat's language that start with the letter and are still unsaid.
+ * The two bars are the same rule at two strengths. Under `MIN_ANSWERS` the
+ * word is refused outright, because the next player would be losing to the
+ * dictionary; between there and here it is allowed but you may not do it again
+ * for a while, because the next player can answer it but not five times over.
+ *
+ * One number for all three languages, which is a real cost: the Japanese list
+ * is a third the size of the English one, so five hundred catches most of its
+ * alphabet where it catches three letters of English. Chosen anyway, because
+ * "five hundred words" is a claim about how much room the other player has and
+ * that does not change with which list they drew from.
+ */
+export const THIN_START = 500;
 
 /** The longest an ending is ever out of reach, in the seat's own turns. */
 export const MAX_LOCK = 5;
 
 /**
- * How long ending on a letter locks it, given how many words in that language
- * still end on it and have not been said. See `countEnding`.
+ * How long handing a letter over locks it, given how many words the seat who
+ * has to answer it can still start with. See `countStarting`.
  *
- * Straight line between the two thresholds: 300 words left is free, 150 is the
- * full five turns, and 225 is two or three. Below 150 it flattens rather than
- * climbing, because five of your own turns is already most of a game and a
- * letter that kept getting more expensive would in practice be gone for good,
- * which is a different rule wearing this one's clothes.
+ * Flat: under `THIN_START` it is the full five of your own turns, at or above
+ * it there is no lock at all. No ramp, because the rule has to be sayable at
+ * the moment it bites ("you just did that, not again for five") and a sliding
+ * price is a number the player has to be told rather than one they already
+ * know.
  *
- * This replaced a per-seat ladder that charged one turn for the first *-y*,
- * two for the second and up with no ceiling. The ladder was fair and nobody
- * could track it: every letter carried its own private count, invisible until
- * a word was refused, and the only way to play around it was to keep a tally
- * on paper. The pool behind a letter is a fact about the list rather than
- * about your history with it, so both players can see the same number and the
- * board can price a word before it is submitted.
+ * The count that decides it is the one this ending is *worth taxing* for. An
+ * earlier version priced it off `countEnding`, how many words end on the
+ * letter, which measured the wrong side of the exchange and made the rule a
+ * no-op in exactly the case it was written for: 3,987 English words end in
+ * *-y* and only 228 begin with one, so ending on Y -- the classic way to hand
+ * somebody nothing -- was free, every time, forever. The harm is to whoever
+ * has to start on the letter, so the pool that is counted is theirs.
  *
- * A consequence worth naming: the cheap endings stay cheap. There are far more
- * than 300 English words left ending in *-y* for most of a game, so leaning on
- * it is no longer taxed at all, and what is taxed is ending on the letters the
- * list is thin in. That is the trade the simpler rule buys.
+ * It replaced a per-seat ladder before that, which charged one turn for the
+ * first *-y*, two for the second and up with no ceiling. The ladder was fair
+ * and nobody could track it: every letter carried its own private count,
+ * invisible until a word was refused. The pool in front of a letter is a fact
+ * about the list rather than about your history with it, so both players see
+ * the same number and the board can price a word before it is submitted.
  */
-export function lockTurns(wordsLeft: number): number {
-  if (wordsLeft >= LOCK_FREE) return 0;
-  if (wordsLeft <= LOCK_FULL) return MAX_LOCK;
-  return Math.round((MAX_LOCK * (LOCK_FREE - wordsLeft)) / (LOCK_FREE - LOCK_FULL));
+export function lockTurns(startsLeft: number): number {
+  return startsLeft < THIN_START ? MAX_LOCK : 0;
 }
 
 /**
@@ -505,6 +691,16 @@ export interface WcState {
   /** Each seat's language, or null while they are still choosing. */
   langs: (ChainLang | null)[];
   /**
+   * How much of the language each seat says they have, in seat order. See
+   * `ChainLevel`, and `HINT_AT` for the whole of what it buys.
+   *
+   * Public, like `langs`: it decides when hints land on somebody's screen and
+   * a player is entitled to know why their opponent got one. Optional on the
+   * type for one reason only, a room stored before this field existed, which
+   * `levelOf` reads as the default band.
+   */
+  levels?: ChainLevel[];
+  /**
    * How the chain links, decided once when play begins and never after: two
    * players who chose the same language get `strict`, everyone else `loose`.
    *
@@ -565,6 +761,18 @@ export interface WcState {
    * whoever is thinking, not for whoever is reading it.
    */
   available: number | null;
+  /**
+   * The word the seat on the clock is being walked towards, or null when
+   * nobody is being walked anywhere. See `ChainHint`.
+   *
+   * Recomputed by the server every time the clock changes hands, because it is
+   * an answer to *this* letter and stale by the next word. Sent only to the
+   * seat it belongs to (`view` blanks it), which is a stronger rule than the
+   * one on `cooldowns`: this is the answer to the turn in progress, and an
+   * opponent who could read it would know the letter their rival was about to
+   * hand back.
+   */
+  hint: ChainHint | null;
   /** When the current minute runs out, or null before the game is on a clock. */
   deadline: number | null;
   /**
@@ -590,6 +798,8 @@ export interface WcState {
 
 export type WcMove =
   | { type: 'lang'; lang: ChainLang }
+  /** Setup only, and in practice before `lang`: see the reducer's `level` branch. */
+  | { type: 'level'; level: ChainLevel }
   | { type: 'say'; word: string }
   /** Only from the seat on the clock, and only once play has started. */
   | { type: 'give-up' };

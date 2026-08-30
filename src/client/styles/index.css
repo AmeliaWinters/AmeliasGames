@@ -10,11 +10,11 @@
    hues. No gradients, no glows, no glassmorphism.
 
    One thing sits outside that count, and deliberately. The lobby shelf gives
-   each game its own colour: thirteen hues that are identity and nothing else,
+   each game its own colour: fourteen hues that are identity and nothing else,
    used on that game's card and nowhere the game is actually played. Four
-   channels across thirteen games meant three or four cards shared every hue,
+   channels across fourteen games meant three or four cards shared every hue,
    so colour was doing no wayfinding at all and the shelf was found by reading
-   thirteen names. The seats keep meaning exactly what they meant, the card
+   fourteen names. The seats keep meaning exactly what they meant, the card
    hues never touching a piece, and the two sets are kept apart by scope rather
    than by discipline: `--card` is only ever read inside `.game`.
 
@@ -57,9 +57,35 @@
    So: files are named for what is in them, and the list is honest about the
    order it inherited.
 
-   Adding a game means a file in `games/` and a line at the end of this list.
-   Append, do not insert -- the end is the only position that cannot disturb
-   what is already here.
+   What is *not* in this list, and why
+   Thirteen of the fifteen game sheets have left it. They are imported by their
+   own board component instead, so Vite emits them beside that board's chunk
+   and the browser fetches a game's CSS when somebody opens that game. They
+   were 160KB of source in a stylesheet that blocks the first paint of the
+   lobby, downloaded in full by a player who came to play Connect Four.
+
+   Nothing about the cascade changed. A chunk's stylesheet is appended after
+   this one, which is exactly where each of these sat in the old order: after
+   `controls.css` and `hover.css`, whose bare element selectors a game file
+   has always been allowed to outrank by coming later. Their order relative to
+   *each other* is no longer fixed here, and nothing depends on it -- one game
+   is on screen at a time and every one of these sheets is prefixed to itself.
+
+   Two stayed, and both for the same reason: something outside their own game
+   reads them.
+     - `games/connect4.css` carries `.board`, which is the shared box every
+       board sits in, and `.board.placeholder`, which is what the room draws
+       while a board's chunk is still on the wire. Battleships, Letterpress,
+       Vocab Race and Word Chain all wear `.board` too.
+     - `games/ultimate.css` carries `.ut-small`, `.ut-cell` and `.ut-mark`,
+       which the lobby's Ultimate motif reuses on purpose -- `art.tsx` says so
+       in its own comment. The lobby is the page being made fast, so its
+       stylesheet cannot be behind a board nobody has opened.
+
+   Adding a game means a file in `games/` and an import at the top of its board
+   component. If something outside that game ever reads one of its classes, the
+   sheet belongs back in the list below -- appended, not inserted, since the end
+   is the only position that cannot disturb what is already here.
 
    Two files are shared on purpose and a game file must not restyle them:
    `dice.css` (Backgammon, Yahtzee and Liar's Dice draw the same die) and
@@ -76,25 +102,41 @@
 @import "./games/connect4.css";
 @import "./clock.css";
 @import "./controls.css";
-/* Before every game sheet: this is a shared control, and a game that needs to
-   bend it has to be able to. */
+/* The next three were the back three quarters of `controls.css` and are
+   imported in its old position, adjacent and in order: concatenating the four
+   reproduces that file rule for rule. Cut along the section banners already
+   written in it, the same mechanical cut this whole directory came from. */
+@import "./topbar.css";
+@import "./lobby.css";
+@import "./account.css";
+/* Before every game sheet, including the thirteen that now arrive with their
+   own board: this is a shared control, and a game that needs to bend it has to
+   be able to. */
 @import "./choice.css";
 @import "./hover.css";
-@import "./games/backgammon.css";
 @import "./dice.css";
-@import "./games/wheel.css";
 @import "./picker.css";
-@import "./games/wordle.css";
-@import "./games/battleship.css";
-@import "./games/yahtzee.css";
-@import "./games/liarsdice.css";
+/* The back half of the picker: one card motif per game. Adjacent and in order,
+   for the reason above. */
+@import "./picker-motifs.css";
 @import "./endgame.css";
-@import "./games/wordhunt.css";
-@import "./games/morris.css";
 @import "./games/ultimate.css";
-@import "./games/letterpress.css";
-@import "./games/wordchain.css";
-@import "./games/vocab.css";
 @import "./toast.css";
 @import "./profile.css";
-@import "./games/drill.css";
+/* The back half of the profile: the settings menu and the screens it opens.
+   Adjacent and in order, for the reason above. */
+@import "./settings.css";
+@import "./vocabulary.css";
+@import "./avatar.css";
+/* The spin and the reveal both purchases share. Before the two screens that
+   use it, so either of them can still overrule a shared declaration on its
+   own elements rather than by weight. */
+@import "./roll.css";
+@import "./chests.css";
+/* After the chests, because the gacha is the same screen one size along and
+   borrows its balance line. Appended, never inserted: the end is the only
+   position that cannot disturb what is already here. */
+@import "./waifu.css";
+/* The pull, over the shop. A dialog rather than a screen, so it is its own
+   file rather than a tail on either of the two it sits between. */
+@import "./gacha.css";

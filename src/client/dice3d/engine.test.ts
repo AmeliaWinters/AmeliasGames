@@ -39,6 +39,19 @@ beforeAll(async () => {
 
 const TRAY = YAHTZEE_TRAY;
 
+/**
+ * splitmix32, to draw seeds with. A counter is the obvious way to ask for a
+ * few thousand throws and the wrong one, because `s` and `s + 1` stay
+ * neighbours all the way into the simulation; see "do not depend on where the
+ * dice were lying" for the hour that cost. Positive, because a seed is.
+ */
+function mix(n: number): number {
+  let z = (n + 0x9e3779b9) | 0;
+  z = Math.imul(z ^ (z >>> 16), 0x21f0aaad);
+  z = Math.imul(z ^ (z >>> 15), 0x735a2d97);
+  return (z ^ (z >>> 15)) >>> 1;
+}
+
 /** A throw, run out, cleaned up. */
 function thrown(seed: number, opts: { count?: number; from?: Rest3[] | null; held?: boolean[]; tray?: typeof TRAY } = {}) {
   const tray = opts.tray ?? TRAY;
@@ -287,14 +300,39 @@ describe('the odds', () => {
   });
 
   it('do not depend on where the dice were lying when they were thrown', () => {
-    // A second throw from a settled table must be as even as a first one from
-    // an empty one, or the previous hand is leaking into this one.
+    /*
+      A second throw from a settled table must be as even as a first one from
+      an empty one, or the previous hand is leaking into this one.
+
+      6000 dice from *hashed* seeds, and the hashing is the point. This test
+      read 16.28 against a 15.09 ceiling for a while, and nothing was wrong with
+      the dice: it drew its seeds as an arithmetic progression, `s * 1000003 + 7`,
+      and that lattice is not independent of what the throws come out as. The
+      same family read 19.24 at 3000 dice and 12.51 at 6000, reliably hot at
+      every size, while eight *different* multipliers pooled over 12000 dice
+      came to 4.63, and the face a die showed repeated only 16.2% of the time
+      against an even 16.7%. Nothing was carrying over. The seeds were.
+
+      Run through splitmix32 instead, consecutive `s` land nowhere near each
+      other and the number behaves: 9.89 here, 3.24 and 5.07 at two other
+      offsets, against an expected 5. This is the first offset tried rather than
+      the flattest of the three, because picking the flattest is how a test ends
+      up asserting the seed rather than the property.
+
+      Costs about 6s, four times what the old sample did. Worth it: at 300 seeds
+      a couple of per cent of bias moved this statistic by about 4, which is
+      inside the noise it was being compared against, so the ceiling was the
+      only thing standing between an honest die and a loaded one. At 6000 dice
+      the same bias is worth about 25 and the ceiling has something to catch.
+    */
     const counts = [0, 0, 0, 0, 0, 0, 0];
-    for (let s = 0; s < 300; s++) {
-      const first = thrown(s * 1000003 + 7);
-      for (const f of thrown(s * 1000003 + 8, { from: first.rest }).faces) counts[f]++;
+    for (let s = 0; s < 1200; s++) {
+      const seed = mix(s);
+      const first = thrown(seed);
+      for (const f of thrown(seed + 1, { from: first.rest }).faces) counts[f]++;
     }
     const total = counts.slice(1).reduce((a, b) => a + b, 0);
+    expect(total).toBe(6000);
     const want = total / 6;
     const chi = counts.slice(1).reduce((a, c) => a + (c - want) ** 2 / want, 0);
     expect(chi).toBeLessThan(15.09);

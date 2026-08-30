@@ -320,6 +320,10 @@ export const morris: GameDefinition<MmState, MmMove> = {
 
   isOver,
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (seat: 0 | 1) => names[seat] ?? `Player ${seat + 1}`;
 

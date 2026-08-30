@@ -580,6 +580,10 @@ export const backgammon: GameDefinition<BgState, BgMove> = {
     return state.winner !== null;
   },
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
 

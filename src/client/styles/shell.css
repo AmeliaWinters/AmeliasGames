@@ -91,25 +91,37 @@
   padding: 0;
   cursor: pointer;
 }
-.room-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* The code, the sound switch and the connection dot are each the size they
-     need to be; the heading beside them is the part that gives. */
-  flex: 0 0 auto;
-}
+/* The code, at the top of the waiting room and at the size the room is named.
 
-.code {
+   It used to be a 0.92rem caption in the header beside the wordmark, which is
+   the right place for it in a game that has started and the wrong one for a
+   room whose whole job is to be joined: the one thing everybody in a waiting
+   room is trying to read out loud was the smallest ink on the screen. The
+   header carries the account now and this carries the code, so it is still one
+   code in one place -- just the place people are looking.
+
+   Full width, because the press target is "the code" and a four-character
+   button in the middle of a phone is a smaller target than the block it sits
+   in. `clamp` rather than a flat size: 2.4rem is what four monospaced
+   characters with this tracking come to at 320 without touching the gutters,
+   and it stops growing once it is a heading rather than a banner. */
+.bigcode {
+  display: block;
+  width: 100%;
   font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
-  color: var(--muted);
+  font-size: clamp(2.4rem, 15vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  /* The tracking is on the right of the last character too, so the block reads
+     off-centre by half a letter without this. */
+  text-indent: 0.16em;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--ink);
   background: none;
-  /* The single most important action in the waiting state is sharing the room,
-     so it gets a real touch target rather than the size of its label. */
-  min-height: 44px;
-  padding: 6px 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--panel-radius);
+  padding: 14px 8px;
   cursor: pointer;
 }
 
@@ -132,43 +144,6 @@
   text-decoration-color: var(--rule);
 }
 
-/* The sound switch inside a room, where there is no room for the word.
-   Icon to the eye, thumb to the hand: the speaker is 16px and the target
-   around it is the full height of the bar. */
-.mute {
-  display: grid;
-  place-items: center;
-  /* 34px wide against a 44px floor: tall enough and narrow enough at once,
-     which is the same miss as a 44px-tall button 34px across anywhere else. */
-  width: 44px;
-  min-height: 44px;
-  padding: 0;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  cursor: pointer;
-}
-.mute svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/* The speaker body is a solid shape, not an outline of one -- at this size an
-   outlined cone closes up into a blob. */
-.mute .cone {
-  fill: currentColor;
-  stroke-width: 1;
-}
-/* On is the state worth marking, and it is marked the way every other live
-   thing here is: by being in the ink colour rather than the muted one. */
-.mute[aria-pressed="true"] {
-  color: var(--ink);
-}
-
 /* Connection state, shown as a dot because it is glanceable, not read. */
 .dot {
   width: 7px;
@@ -185,6 +160,31 @@
 }
 .dot.closed {
   background: var(--alert);
+}
+/* Worn on the chip, over the top-left corner of the face.
+
+   It is a fact about *you* -- whether this browser is still talking to the
+   room -- and beside three pills on a 320px bar a loose dot read as
+   punctuation between them. Bigger here than the 7px it was, and ringed in the
+   bar's own ground, because a dot sitting on a drawn face has to survive
+   whatever colour is behind it. `absolute` against the chip rather than the
+   avatar so it is unaffected by the avatar's own radius and clipping. */
+.whoami {
+  position: relative;
+}
+.whoami .dot {
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+/* Pressed open the chip fills with ink, so the ring has to follow it: a ring
+   in the bar's colour on an inked chip is a hole punched round the dot. */
+.whoami[aria-expanded="true"] .dot {
+  box-shadow: 0 0 0 2px var(--ink);
 }
 
 /* Messages */
@@ -265,6 +265,165 @@
   color: var(--muted);
   font-size: 0.78rem;
   flex: none;
+}
+
+/* Waiting room */
+/*
+  The seats are the screen while a room is filling, and now they are one to a
+  row on a phone rather than two.
+
+  They were two, to approximate the `.player` strip's 42% basis, and the cost
+  of that was paid entirely by the two things the seat is actually for: a
+  figure somebody built and three characters they collected had to share half a
+  320px phone with a name, so the figure was not drawn at all and the faces
+  were 18px. Half a phone is not a shape those fit in, so the shape changed.
+  One column at a phone width, two from 560, four only from 900 where four
+  still leaves a seat 200px.
+
+  Same list after a game, see `.waitroom.after`: same people, same seats, and
+  nothing underneath it that needs the height.
+*/
+.waitroom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.waitroom-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The tally is the fact, so it is the one part of the heading in ink. */
+.waitroom-head .tally {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.waitroom-need {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.seats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 560px) {
+  .seats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 900px) {
+  .seats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* The seat list after a game. The heading and the spacing are the lobby's, so
+   the two screens are recognisably the same list; only the section is new. */
+.waitroom.after {
+  margin-block-start: 4px;
+}
+
+/* The figure at the head of a seat.
+
+   44 because that is the number this stylesheet is already full of, and it is
+   a measurement here rather than a touch target: a seat is not pressable. It
+   is the size at which the bust crop reads as a face rather than as a bead,
+   which is the whole reason the row got a column of its own.
+
+   Sized in both directions, so the shape the compositor sets inline does not
+   letterbox it, and `flex: none` so a long name shrinks instead. The ground is
+   `--board` for the reason `avatar.css` gives: the illustrated set is light
+   line art that strands on cream.
+
+   The same rule dresses the letter fallback, which is a bare span with no
+   `.avatar` on it: somebody who has never opened the customiser keeps their
+   initial, in a circle the same size, rather than leaving a hole in the row. */
+.seat-figure {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--board);
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+/* The characters a player has on show, on their seat in the lobby.
+
+   Overlapped rather than spaced: three portraits in a line do not fit beside a
+   name in a two-column grid at 320px, and a fan of three reads as a set at
+   about half the width. `flex: none` so the name is the half that gives, and
+   `.who` is already the ellipsised one.
+
+   Not drawn on the in-game `.player` strip. See the comment on that rule: it
+   is two to a row and has already lost a name to a badge once. */
+.seat-showcase {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin-inline-start: auto;
+}
+
+.seat-face {
+  /* 34, up from 18, and the twelve pixels of overlap up from eight. The old
+     pair were what fitted beside a name in half a 320px phone; the seat is a
+     whole row now, so the constraint that set them is gone and the faces are
+     the size somebody can actually tell apart. `css.test.ts` still does the
+     arithmetic -- a name keeps 52px at 320 -- and it is why these are 34 and
+     not 40. */
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* The ring is what separates one face from the one it overlaps; without it
+     three dark portraits on a dark card are one shape. */
+  border: 1.5px solid var(--surface);
+  background: var(--board);
+}
+
+.seat-face + .seat-face {
+  margin-inline-start: -12px;
+}
+
+/* An empty seat is drawn as an outline of one: same box, no fill, and a chip
+   that is a ring rather than a disc. Same trick the lobby cards' seat pips
+   played -- shape, not a second colour -- so it survives both palettes without
+   a new measurement. */
+.seat.needed,
+.seat.open {
+  background: none;
+  border-style: dashed;
+  color: var(--muted);
+}
+.seat.needed .chip,
+.seat.open .chip {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--rule-hi);
+}
+/* A seat the room cannot start without reads as a gap, not as spare room. */
+.seat.needed {
+  border-color: var(--rule-hi);
+  border-style: solid;
+  color: var(--ink);
 }
 
 /* Status */

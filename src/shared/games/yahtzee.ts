@@ -318,6 +318,12 @@ export const yahtzee: GameDefinition<YState, YMove> = {
 
   isOver,
 
+  // Yahtzee ties honestly and often -- two full sheets can total the same --
+  // so `winners` is a list and only a list of one names anybody.
+  winner(state) {
+    return state.winners.length === 1 ? state.winners[0] : null;
+  },
+
   status(state, names) {
     const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
 

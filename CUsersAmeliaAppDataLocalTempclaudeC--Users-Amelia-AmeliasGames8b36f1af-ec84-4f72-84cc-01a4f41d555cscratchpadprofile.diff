@@ -1,0 +1,1017 @@
+diff --git a/src/client/profileCache.ts b/src/client/profileCache.ts
+index ce99c93..8ebad8f 100644
+--- a/src/client/profileCache.ts
++++ b/src/client/profileCache.ts
+@@ -21,11 +21,11 @@
+  *   it. If the two ever disagree, this one is wrong.
+  *
+  * Carries the `?as=` suffix for the same reason `ag.playerId` and the account
+  * key do: two tabs driving both sides of a game are two players.
+  */
+-import type { ProfileView } from '../shared/profile.js';
++import type { LearnLang, ProfileView } from '../shared/profile.js';
+ 
+ function storageKey(): string {
+   const suffix = new URLSearchParams(location.search).get('as') ?? '';
+   return `ag.profile${suffix ? `.${suffix}` : ''}`;
+ }
+@@ -41,14 +41,23 @@ function storageKey(): string {
+ export function loadProfileCache(): ProfileView | null {
+   try {
+     const raw = localStorage.getItem(storageKey());
+     if (!raw) return null;
+     const parsed = JSON.parse(raw) as ProfileView;
+-    // A stored view from an older build can be missing anything. Only the two
+-    // numbers the lobby actually draws are checked, because they are the two
+-    // it would otherwise render as `undefined`.
+-    return typeof parsed?.due === 'number' && typeof parsed?.words === 'number' ? parsed : null;
++    // A stored view from an older build can be missing anything. Only what the
++    // lobby actually draws is checked, because that is what it would otherwise
++    // render as `undefined` -- or, since the chip started wearing a level,
++    // throw on: `rank` arrived after this cache did, so every blob written
++    // before that deploy has none, and `profile.rank.level` on one of those is
++    // a white lobby rather than a missing badge. Dropped and refetched, which
++    // is what this function does with every other kind of stale.
++    return typeof parsed?.due === 'number' &&
++      typeof parsed?.words === 'number' &&
++      typeof parsed?.xp === 'number' &&
++      typeof parsed?.rank?.level === 'number'
++      ? parsed
++      : null;
+   } catch {
+     return null;
+   }
+ }
+ 
+@@ -81,29 +90,48 @@ export function clearProfileCache(): void {
+  * authoritative, and a client that missed the moment simply shows nothing,
+  * which is the honest answer to "what did that game teach you" for somebody
+  * who was not there.
+  */
+ export interface Earned {
++  /** Experience added, across every language. See `langs` for the breakdown. */
+   xp: number;
++  /**
++   * The languages that gained anything, and what each gained.
++   *
++   * Kept apart from the total because a level belongs to a language now, and
++   * "you reached level 4" with no language attached is the sentence the split
++   * was made to stop printing. Empty for a game that taught no words.
++   */
++  langs: Array<{ lang: LearnLang; xp: number; level: number; levelled: boolean }>;
+   /** Words that were not in the ledger before this game. */
+   learned: number;
+   /** Words that came back round, which is the number worth acting on. */
+   due: number;
+   /** True when this game was the day's first review. */
+   streak: boolean;
+ }
+ 
+ export function earnedBetween(before: ProfileView | null, after: ProfileView): Earned | null {
+   if (before === null) return null;
+-  const xp = after.xp - before.xp;
++
++  const was = new Map(before.byLang.map((row) => [row.lang, row]));
++  const langs = after.byLang.flatMap((row) => {
++    const old = was.get(row.lang);
++    const gained = row.xp - (old?.xp ?? 0);
++    return gained > 0
++      ? [{ lang: row.lang, xp: gained, level: row.level, levelled: row.level > (old?.level ?? 0) }]
++      : [];
++  });
++  const xp = langs.reduce((n, row) => n + row.xp, 0);
+   const learned = after.words - before.words;
+   // A game that changed nothing is a game somebody watched, or a repeat that
+   // was recognised and dropped. Either way there is nothing to announce, and a
+   // panel reading "+0" is worse than no panel.
+   if (xp <= 0 && learned <= 0) return null;
+   return {
+     xp,
++    langs,
+     learned,
+     due: after.due,
+     streak: after.streak.days > before.streak.days,
+   };
+ }
+diff --git a/src/shared/players.ts b/src/shared/players.ts
+index 157fd94..f7874f5 100644
+--- a/src/shared/players.ts
++++ b/src/shared/players.ts
+@@ -8,13 +8,25 @@
+  *
+  * The pure part is small and it is the part worth sharing: read whatever was
+  * stored, migrate it forward, apply one game, hand back what to store and what
+  * to send. Everything either adapter adds to that is fetching and writing.
+  */
++import { CHEST_COST, floorOwed, openChest, wardrobeSet } from './chest.js';
+ import { applyRecord, type GameRecord } from './harvest.js';
+-import { levelFor, xpForLevel } from './review.js';
+-import { migrate, newProfile, profileView, type Profile, type ProfileView } from './profile.js';
++import { rankOf } from './review.js';
++import {
++  CHEST_MEMORY,
++  isLearned,
++  migrate,
++  newProfile,
++  profileView,
++  spendable,
++  type Known,
++  type LearnLang,
++  type Profile,
++  type ProfileView,
++} from './profile.js';
+ 
+ /**
+  * What a room posts to a player object when a game ends.
+  *
+  * `now` rides along rather than being read at the far end, because the room's
+@@ -55,11 +67,43 @@ export const PLAYER_PATHS = {
+    * anybody presses start. It is the one player path a *room* asks on its own
+    * behalf rather than on a socket's, which is why it returns keys and not a
+    * profile: a room has no business holding anybody's ledger.
+    */
+   study: '/study',
++  /**
++   * The word rows for one language, for the Vocabulary screen.
++   *
++   * Not `export`, which returns everything including the harvest keys and is
++   * an insurance policy rather than a screen, and not `profile`, which is a
++   * summary with twenty recent words on it. This is the middle size nothing
++   * else needed until there was a list to draw: one language's rows, ordered,
++   * and nothing else off the profile.
++   */
++  vocab: '/vocab',
+   rename: '/rename',
++  /**
++   * Open one chest. The only player path a **browser** can cause.
++   *
++   * Every other path here is reached because a room decided something. This
++   * one is reached because somebody pressed a button in the lobby, which has
++   * no socket (see `net.ts`), so the worker verifies the account's claim and
++   * forwards. That is a real widening of the trust boundary and it is safe for
++   * one reason: the request carries no facts. It says "spend a hundred and
++   * give me something", and the object decides both halves. Compare `/harvest`,
++   * where a client that could post its own results could claim to know any
++   * word it liked.
++   */
++  chest: '/chest',
++  /**
++   * Everything this account owns, for the customiser and the chest screen.
++   *
++   * Its own read rather than a field on `/profile`, because a finished
++   * wardrobe is around 1,100 ids and 25KB and `/profile` is pushed after every
++   * game. Same reasoning as `/vocab`: the summary carries what a menu needs
++   * and the list is fetched by the screen that draws it.
++   */
++  wardrobe: '/wardrobe',
+ } as const;
+ 
+ /**
+  * Read a stored profile, whatever state it is in.
+  *
+@@ -69,11 +113,14 @@ export const PLAYER_PATHS = {
+  * that is deliberate — the first game somebody plays signed in is the thing
+  * that makes the profile exist.
+  */
+ export function loadProfile(stored: unknown, id: string, now: number): Profile {
+   if (stored === undefined || stored === null) return newProfile(id, '', now);
+-  const profile = migrate(stored, now);
++  // `CHEST_COST` is handed to `migrate` rather than imported by it: version
++  // 4's rung pays existing accounts in chests and needs the price, and
++  // `profile.ts` imports nothing. This is the one call site that owes them.
++  const profile = migrate(stored, now, CHEST_COST);
+   // The id is the address the object was reached at, not something the stored
+   // blob gets to claim. A profile whose stored id disagreed with the object
+   // holding it would be a profile that had been moved, and the address wins.
+   return profile.id === id ? profile : { ...profile, id };
+ }
+@@ -94,10 +141,166 @@ export function applyHarvest(profile: Profile, post: HarvestPost): Profile {
+   // do, and `named` is a different object from `profile` only when a name was
+   // filled in — which is itself worth storing.
+   return next === named && named === profile ? profile : next;
+ }
+ 
++/**
++ * One language's rows, in the order the Vocabulary screen wants them.
++ *
++ * Sorted here rather than on the client because it is the same sort every
++ * time and the server is already walking the array: learned words first,
++ * then by how far along they are, then commonest first. A learner opening the
++ * screen sees what they have earned at the top, which is the reason the screen
++ * exists, and the words closest to joining them immediately under it.
++ */
++export function vocabOf(profile: Profile, lang: LearnLang): Known[] {
++  return profile.words
++    .filter((word) => word.lang === lang)
++    .sort(
++      (a, b) =>
++        Number(isLearned(b)) - Number(isLearned(a)) ||
++        b.run - a.run ||
++        b.box - a.box ||
++        (a.rank || Infinity) - (b.rank || Infinity),
++    );
++}
++
+ /** The summary a client is sent. See `ProfileView` for why it is not the profile. */
+ export function viewOf(profile: Profile, now: number): ProfileView {
+-  const level = levelFor(profile.xp);
+-  return profileView(profile, now, level, xpForLevel(level + 1));
++  // `rankOf` rather than a level worked out here, because there is no longer
++  // one level to work out: the curve is applied per language inside
++  // `profileView`, which cannot import it. See `Rank` in `profile.ts`.
++  return profileView(profile, now, rankOf);
++}
++
++/**
++ * What a browser asks for when it opens a chest.
++ *
++ * Two fields, and neither is a fact about the player. The set is a choice and
++ * the nonce is a receipt number; everything that decides the outcome is read
++ * off the stored profile at the far end. See `PLAYER_PATHS.chest`.
++ */
++export interface ChestPost {
++  /** Which set's chest. An unknown one is refused rather than defaulted. */
++  set: string;
++  /**
++   * A one-off id the client mints per press. See `Profile.opens`.
++   *
++   * The client owns this rather than the server because the whole problem is
++   * a *response* that went missing: the request succeeded, the profile was
++   * written, and the browser never heard. Only the sender can recognise its
++   * own retry.
++   */
++  nonce: string;
++}
++
++/** Why a chest could not be opened. Null when one was. */
++export type ChestRefusal = 'no-such-set' | 'too-poor' | 'complete';
++
++export interface ChestResult {
++  /** The profile to store. Identical to the input when nothing was spent. */
++  profile: Profile;
++  /** What the chest gave, or null when it refused. */
++  drop: string | null;
++  /**
++   * The floor handed over alongside the drop.
++   *
++   * The whole floor on a set's first chest and empty on every one after, which
++   * is what turns "open your first Character Maker chest" into 39 items and a
++   * wearable character rather than one hair clip for a set you own nothing
++   * else in.
++   */
++  granted: string[];
++  refusal: ChestRefusal | null;
++  /** True when this was a retry and the drop is the original one. */
++  repeat: boolean;
++}
++
++/** The separator inside an `opens` entry. Neither half can contain a space. */
++const OPEN_SEP = ' ';
++
++
++
++/**
++ * Open one chest. Pure; the adapter stores what comes back.
++ *
++ * Follows `applyHarvest`'s contract: when nothing was spent, `profile` is the
++ * very object passed in, so an adapter skips the write with `result.profile
++ * !== profile` rather than comparing fields. A refusal must never cost
++ * anything, and a completed set must never cost anything either -- that one is
++ * checked *before* the charge rather than after, because the alternative is
++ * taking a hundred experience for nothing on the last chest of a set.
++ */
++export function applyChest(profile: Profile, post: ChestPost, rng: () => number): ChestResult {
++  // `post?.` rather than `post.`: a reducer that throws on the shape it was
++  // handed is one the adapters have to keep honest for it, and both of them
++  // build this object from `String(...)` a few lines before the call.
++  //
++  // The separator is refused here rather than assumed away. Both adapters bound
++  // the nonce to `[A-Z0-9]` so this cannot arrive today, but the receipt format
++  // below splits on a space: a nonce carrying one splits into the wrong halves,
++  // and a later *legitimate* open of the same prefix is then answered as a
++  // repeat and handed a fragment of another item's id. The invariant is stated
++  // one line from the code that depends on it, rather than two layers away.
++  const asked = post?.nonce ?? '';
++  const set = asked && !asked.includes(OPEN_SEP) ? wardrobeSet(post.set) : undefined;
++  if (!set) return { profile, drop: null, granted: [], refusal: 'no-such-set', repeat: false };
++
++  // The retry path, and it comes first so a repeat can never be charged. The
++  // original drop is stored beside the nonce precisely so this can answer with
++  // it: a retry that said "opened, but I forget what you got" is a lost item.
++  //
++  // Matched on the set as well as the nonce. The nonce is chosen by the
++  // client, so the same one arriving for a *different* set is a thing that can
++  // happen, and answering it from the first set's receipt hands back an item
++  // the caller did not ask about and cannot use.
++  // Matched on the set as well as the nonce. The nonce is chosen by the
++  // client, so the same one arriving for a *different* set is a thing that can
++  // happen, and answering it from the first set's receipt hands back an item
++  // the caller did not ask about and cannot wear in the set it named. An id
++  // carries its set (`kit:mouth/surprised`), so the receipt says for itself
++  // which chest it came out of.
++  const seen = profile.opens.find((entry) => {
++    if (entry.split(OPEN_SEP)[0] !== post.nonce) return false;
++    return entry.slice(post.nonce.length + 1).startsWith(`${set.id}:`);
++  });
++  if (seen) {
++    const drop = seen.slice(post.nonce.length + 1);
++    return { profile, drop: drop || null, granted: [], refusal: null, repeat: true };
++  }
++
++  const owned = new Set(profile.owned);
++  const granted = floorOwed(set, owned);
++  for (const id of granted) owned.add(id);
++
++  const drop = openChest(set, owned, rng);
++  if (drop === null) {
++    return { profile, drop: null, granted: [], refusal: 'complete', repeat: false };
++  }
++
++  // Credits are the version 4 catch-up and are spent before experience is
++  // touched, so somebody migrating opens their backlog without watching a
++  // balance they never earned go down.
++  const onCredit = profile.credits > 0;
++  if (!onCredit && spendable(profile) < CHEST_COST) {
++    return { profile, drop: null, granted: [], refusal: 'too-poor', repeat: false };
++  }
++
++  return {
++    profile: {
++      ...profile,
++      owned: [...profile.owned, ...granted, drop],
++      spent: onCredit ? profile.spent : profile.spent + CHEST_COST,
++      credits: onCredit ? profile.credits - 1 : profile.credits,
++      opens: [...profile.opens, `${post.nonce}${OPEN_SEP}${drop}`].slice(-CHEST_MEMORY),
++    },
++    drop,
++    granted,
++    refusal: null,
++    repeat: false,
++  };
++}
++
++/** Everything this account owns. See `PLAYER_PATHS.wardrobe`. */
++export function wardrobeOf(profile: Profile): string[] {
++  return profile.owned;
+ }
+diff --git a/src/shared/profile.ts b/src/shared/profile.ts
+index cd1c874..418b200 100644
+--- a/src/shared/profile.ts
++++ b/src/shared/profile.ts
+@@ -35,12 +35,34 @@
+  * 1: the first shape.
+  * 2: `GameTally` grew `lost` and `last`, so the games panel can show a record
+  *    rather than two numbers. Neither is recoverable from a version 1 profile
+  *    -- a loss was never written down and the individual games are gone -- so
+  *    the rung fills them empty and the counts carry on from where they were.
++ * 3: experience went **per language**, and `Known` grew `run` and `learnedAt`
++ *    so the ledger can say which words are learned rather than only met.
++ *    Neither of the new word fields is recoverable: a consecutive-correct run
++ *    was never written down, and reconstructing one from `got` and `missed`
++ *    would credit somebody who got ten right and ten wrong with a run of ten.
++ *    So every existing row restarts at a run of zero on its next answer, and
++ *    the rung says so out loud rather than guessing. The old scalar `xp` is
++ *    split across languages by word count; see `splitXp`.
++ * 4: the wardrobe stopped being derived and started being **stored**. Chests
++ *    replaced the unlock thresholds, so what somebody owns is no longer a pure
++ *    function of their experience and there is a list of it here: `owned`,
++ *    plus `spent` and the `opens` ring that keeps a retried chest from being
++ *    charged twice.
++ *
++ *    The rung owes existing accounts something, and it cannot pay in items.
++ *    Working out what a threshold had already unlocked means reading the four
++ *    art manifests, and those live on the client precisely so six thousand
++ *    image files never reach a Durable Object. So it pays in **chests**:
++ *    `credits` is `floor(non-English xp / CHEST_COST)`, banked and spent
++ *    before anything else. Honest about what happened, needs no manifest, and
++ *    somebody who had earned the pink hair gets a fistful of chests rather
++ *    than an argument.
+  */
+-export const PROFILE_VERSION = 2;
++export const PROFILE_VERSION = 4;
+ 
+ /**
+  * The languages the ledger can hold a word in.
+  *
+  * The same three Word Chain plays, spelled out here rather than imported from
+@@ -106,10 +128,55 @@ export interface Known {
+   dueAt: number;
+   /** Rung on the ladder. See `BOXES` in `review.ts`. */
+   box: number;
+   /** The quickest you have ever produced it, in ms. Zero until you have. */
+   fastestMs: number;
++
++  /**
++   * How many times in a row it has been answered correctly. Any miss zeroes it.
++   *
++   * A separate count from `box` because the two answer different questions and
++   * conflating them was the first version of this. `box` is *when to ask
++   * again*, and it is deliberately forgiving: a hinted answer climbs, a
++   * recognised one holds, and `gave-up` only falls to rung one. `run` is
++   * *whether we are sure*, and it is deliberately not forgiving, because it is
++   * the claim the Vocabulary screen makes on the player's behalf. A word can
++   * sit on the top rung with a run of one, and that is not a contradiction: it
++   * means we will not ask for ninety days, and we are not yet willing to say
++   * they know it.
++   */
++  run: number;
++
++  /**
++   * When the run first reached `LEARNED_RUN`, or zero. See `isLearned`.
++   *
++   * **It latches.** Once a word is learned it stays learned, and a later miss
++   * drops it back down the ladder for review without taking it out of the
++   * Vocabulary list. The alternative was tried on paper and it is worse: a list
++   * you can be demoted from is a list you check nervously, and one bad answer
++   * on a Tuesday deleting a word you spent two months on reads as the app
++   * having taken something away. The ladder is where a miss is supposed to
++   * hurt, and it already does.
++   */
++  learnedAt: number;
++}
++
++/**
++ * Correct answers in a row before the ledger will say somebody knows a word.
++ *
++ * Ten, and the number is doing less work than it looks like: because a word is
++ * only asked when it comes back round, ten in a row is spread across the whole
++ * ladder and is closer to "right every time for three months" than to ten
++ * turns in an evening. That is the bar the word *learned* has to clear to be
++ * worth printing, and a lower one would fill the screen with words somebody
++ * would fail if you asked them tomorrow.
++ */
++export const LEARNED_RUN = 10;
++
++/** Whether the ledger is willing to say this word is known. See `learnedAt`. */
++export function isLearned(word: Known): boolean {
++  return word.learnedAt > 0;
+ }
+ 
+ /**
+  * How many of a game's results one tally remembers individually.
+  *
+@@ -189,21 +256,37 @@ export interface Profile {
+   id: string;
+   name: string;
+   createdAt: number;
+ 
+   /**
+-   * Experience, and the one number on this object that is a scoreboard rather
+-   * than a measurement.
++   * Experience, per language, and the one field on this object that is a
++   * scoreboard rather than a measurement.
+    *
+    * It is paid for words and only incidentally for games. See `xpFor` in
+    * `review.ts` for the whole argument, which is not really about arithmetic:
+    * Vocab Race already halves a fluent speaker's points so that a learner is
+    * not farmed, and an XP curve that paid for wins would reverse that decision
+    * from outside the reducer while the reducer's comments still claimed
+    * otherwise.
++   *
++   * **Per language, because a level is a claim about a language.** One pooled
++   * total told somebody halfway through their first month of Japanese that
++   * they were level nine, which was true about the account and false about the
++   * only thing they wanted to know. Splitting it costs one migration rung and
++   * makes the number mean what people already read it as meaning.
++   *
++   * The consequence to be honest about: a game that taught no words pays
++   * nothing here. `XP_PER_GAME` is credited to the language a game's words
++   * were in, and eleven of the thirteen games have none, so a night of
++   * Backgammon moves no bar. That is the correct answer to "how much Polish
++   * did that teach you" and the games panel is where a night of Backgammon is
++   * supposed to show up.
++   *
++   * A plain object rather than a Map, like everything else here: it is
++   * persisted, exported and migrated, and it has to survive `JSON.parse`.
+    */
+-  xp: number;
++  xp: Record<LearnLang, number>;
+   streak: Streak;
+   games: GameTally[];
+ 
+   /**
+    * Every word met, in no particular order.
+@@ -230,10 +313,66 @@ export interface Profile {
+    * profile forever to defend against a collision that cannot happen. The keys
+    * carry a random per-room run id rather than just the room code for exactly
+    * that reason — see `harvestKey`.
+    */
+   applied: string[];
++
++  /**
++   * Every part and colour a chest has handed over, plus the floors granted.
++   *
++   * **Stored, and that is the change version 4 is for.** Under the old
++   * thresholds this was a pure function of `xp` and there was nothing to keep:
++   * nothing to reconcile after a sync, and nothing a console could edit to
++   * award a hat nobody had earned. A chest is a roll rather than a comparison,
++   * so the roll's outcome has to be written down, and this is the list.
++   *
++   * Ids only, never art. They are `slot/name` for a part and `#slot:variant`
++   * for a colour; `wardrobeSplit.ts` mints both and is the only thing that
++   * knows what they point at.
++   */
++  owned: string[];
++
++  /**
++   * Experience committed to chests. **Pooled, and never subtracted from `xp`.**
++   *
++   * Two decisions in one number. The first: `xp` stays a lifetime record, so
++   * levels never move backwards. `unlock.ts` made that argument against this
++   * whole feature -- subtract a hoodie and somebody's headline figure falls
++   * after a good week -- and keeping the spend separate is how the argument
++   * survives being overruled. What a chest costs comes off `spendable()`, and
++   * `rankOf` never sees it.
++   *
++   * The second: pooled rather than per language, which is the opposite of what
++   * `xp` does and is deliberate. Splitting `xp` was right because **a level is
++   * a claim about a language** and a pooled one lied. A balance claims nothing
++   * about anything, so splitting it would buy no honesty and would cost
++   * somebody studying two languages a chest they had plainly earned: 60 Polish
++   * and 70 Japanese is 130 and would have bought nothing.
++   */
++  spent: number;
++
++  /**
++   * Recent chest nonces, oldest first. The idempotency record for opening.
++   *
++   * `applied` exists because a harvest is retried; this exists because a chest
++   * **has no natural key**. A dropped response plus a retry would open two
++   * chests and spend two hundred, so the client mints a nonce, this remembers
++   * it, and the second request returns the first drop. Trimmed to
++   * `CHEST_MEMORY` for the same reason `applied` is trimmed.
++   */
++  opens: string[];
++
++  /**
++   * Chests already paid for, spent before `spendable()` is touched.
++   *
++   * Only ever created by the version 4 rung, which owes existing accounts the
++   * items their thresholds had already unlocked and cannot name them. See
++   * `PROFILE_VERSION`. A new account starts at zero and nothing else adds to
++   * it, so this is a migration artefact rather than a mechanic, and it can go
++   * once no version 3 profile is left anywhere.
++   */
++  credits: number;
+ }
+ 
+ /**
+  * How many harvest keys a profile remembers.
+  *
+@@ -241,25 +380,138 @@ export interface Profile {
+  * a second. The number only has to be larger than the number of games a player
+  * can finish between a failed write and its retry, which is one.
+  */
+ export const APPLIED_MEMORY = 100;
+ 
++/** A zeroed experience total for every language. */
++export function zeroXp(): Record<LearnLang, number> {
++  return { en: 0, pl: 0, ja: 0 };
++}
++
++/**
++ * Repair a stored experience total, whatever shape it turns up in.
++ *
++ * Three cases, and the middle one is the migration: a version 3 object is
++ * cleaned key by key, a version 1 or 2 *number* is split by `splitXp`, and
++ * anything else zeroes. Missing languages fill with zero rather than failing,
++ * because this is on the read path of the one object that must never fail to
++ * load.
++ */
++export function xpShape(raw: unknown, words: Known[]): Record<LearnLang, number> {
++  if (typeof raw === 'number') return splitXp(raw, words);
++  const out = zeroXp();
++  if (typeof raw === 'object' && raw !== null) {
++    for (const lang of LEARN_LANGS) {
++      out[lang] = Math.max(0, Number((raw as Record<string, unknown>)[lang]) || 0);
++    }
++  }
++  return out;
++}
++
++/**
++ * Split one pooled experience total across languages, by word count.
++ *
++ * The pool genuinely does not record where it came from, so any split is a
++ * guess and the job is to pick the guess that is least likely to insult
++ * somebody. By word count, because that is the closest surviving proxy for
++ * where the studying went, and the remainder goes to the language with the
++ * most words so the arithmetic still adds up to what the player had.
++ *
++ * A profile with no words at all keeps the whole pool under `en`. It was
++ * earned playing games rather than learning anything, splitting it three ways
++ * would invent two levels nobody worked for, and one is the least wrong.
++ */
++export function splitXp(total: number, words: Known[]): Record<LearnLang, number> {
++  const out = zeroXp();
++  const pool = Math.max(0, Math.floor(total));
++  if (pool === 0) return out;
++
++  const counts = zeroXp();
++  for (const word of words) {
++    if (LEARN_LANGS.includes(word.lang)) counts[word.lang] += 1;
++  }
++  const all = LEARN_LANGS.reduce((n, lang) => n + counts[lang], 0);
++  if (all === 0) {
++    out.en = pool;
++    return out;
++  }
++
++  let given = 0;
++  for (const lang of LEARN_LANGS) {
++    out[lang] = Math.floor((pool * counts[lang]) / all);
++    given += out[lang];
++  }
++  // The remainder, to whichever language has the most words. Never dropped:
++  // this is somebody's total and it has to come out the other side intact.
++  const biggest = LEARN_LANGS.reduce((best, lang) => (counts[lang] > counts[best] ? lang : best), LEARN_LANGS[0]);
++  out[biggest] += pool - given;
++  return out;
++}
++
++/**
++ * Every language's experience added up. For an export, and for the one level
++ * that is about the account rather than about a language.
++ *
++ * The comment here used to say "never for a level", and the account level
++ * below is the deliberate exception rather than a drift: a per-language level
++ * answers "how far into Polish am I", and the lobby chip is asking the other
++ * question, which is "how far in am I". Both are drawn, in the two places that
++ * ask them. See `rank` on `ProfileView`.
++ */
++export function totalXp(profile: Profile): number {
++  return LEARN_LANGS.reduce((n, lang) => n + (profile.xp[lang] || 0), 0);
++}
++
+ /** A fresh profile, for an account that has just been made. */
+ export function newProfile(id: string, name: string, now: number): Profile {
+   return {
+     version: PROFILE_VERSION,
+     id,
+     name,
+     createdAt: now,
+-    xp: 0,
++    xp: zeroXp(),
+     streak: { days: 0, lastDay: 0, rests: 0 },
+     games: [],
+     words: [],
+     applied: [],
++    owned: [],
++    spent: 0,
++    opens: [],
++    credits: 0,
+   };
+ }
+ 
++/**
++ * How many chest nonces a profile remembers. Same bargain as `APPLIED_MEMORY`.
++ *
++ * Smaller, because a chest is opened by hand one at a time and a duplicate
++ * arrives inside a second. It only has to outlast the retry of the request in
++ * front of it.
++ */
++export const CHEST_MEMORY = 20;
++
++/**
++ * Experience that has not been spent, pooled across every language but English.
++ *
++ * **English is excluded here rather than at the till**, so there is one answer
++ * to "how much can I spend" and no screen has to remember the rule. Playing in
++ * English still earns experience and still levels the account; it just does not
++ * open chests, which is the whole of what makes this a reward for language
++ * learning rather than for playing.
++ *
++ * Clamped at zero. A profile edited by hand, or one whose `spent` outlived the
++ * words it was earned on, must not report a negative balance to a screen that
++ * is about to render it.
++ */
++export function spendable(profile: Profile): number {
++  const earned = LEARN_LANGS.reduce(
++    (n, lang) => (lang === 'en' ? n : n + (profile.xp[lang] || 0)),
++    0,
++  );
++  return Math.max(0, earned - profile.spent);
++}
++
+ /** The UTC day a moment falls in. See `Streak`. */
+ export function dayOf(now: number): number {
+   return Math.floor(now / 86_400_000);
+ }
+ 
+@@ -366,10 +618,25 @@ export function dueWords(profile: Profile, now: number, cap: number = STUDY_CAP)
+     if (keys.length > 0) out[lang] = keys;
+   }
+   return out;
+ }
+ 
++/**
++ * How many words the ledger is willing to say are known, per language.
++ *
++ * The headline figure on the Vocabulary screen, and the one deliberately not
++ * called "words". `wordCount` is words *met*, which is a much larger number
++ * and a much weaker claim; showing the two side by side is the whole point of
++ * the screen, so they have to be two functions with two names.
++ */
++export function learnedCount(profile: Profile, lang?: LearnLang): number {
++  return profile.words.reduce(
++    (n, word) => (isLearned(word) && (lang === undefined || word.lang === lang) ? n + 1 : n),
++    0,
++  );
++}
++
+ /** How many words are in the ledger at all, per language. */
+ export function wordCount(profile: Profile, lang?: LearnLang): number {
+   return lang === undefined
+     ? profile.words.length
+     : profile.words.reduce((n, word) => (word.lang === lang ? n + 1 : n), 0);
+@@ -429,10 +696,47 @@ function tallyShape(raw: Partial<GameTally> | null | undefined): GameTally {
+  */
+ export function decided(tally: GameTally): number {
+   return tally.won + tally.lost + tally.drew;
+ }
+ 
++/**
++ * One stored word row, brought up to the current shape. See `PROFILE_VERSION`.
++ *
++ * A version 1 or 2 row has no `run` and no `learnedAt`, and **neither is
++ * recoverable**. The row knows `got` and `missed` as lifetime totals with no
++ * order between them, so a player who answered right ten times and wrong ten
++ * times is indistinguishable from one on a run of ten, and filling `run` from
++ * `got` would hand the second player's badge to the first. The whole value of
++ * the Vocabulary screen is that its claim is true.
++ *
++ * So every existing row starts from zero and earns its way up from the next
++ * answer, which costs a long-standing player some weeks of re-proving words
++ * they do know. That is the price of the list meaning something, and it is
++ * paid once.
++ */
++function wordShape(raw: Partial<Known> | null | undefined): Known {
++  const row = (raw ?? {}) as Partial<Known>;
++  return {
++    lang: (LEARN_LANGS as readonly string[]).includes(String(row.lang)) ? (row.lang as LearnLang) : 'en',
++    key: String(row.key ?? ''),
++    word: String(row.word ?? ''),
++    script: String(row.script ?? ''),
++    lemma: String(row.lemma ?? ''),
++    gloss: String(row.gloss ?? ''),
++    rank: Number(row.rank) || 0,
++    seen: Number(row.seen) || 0,
++    got: Number(row.got) || 0,
++    missed: Number(row.missed) || 0,
++    lastAt: Number(row.lastAt) || 0,
++    dueAt: Number(row.dueAt) || 0,
++    box: Number(row.box) || 0,
++    fastestMs: Number(row.fastestMs) || 0,
++    run: Number(row.run) || 0,
++    learnedAt: Number(row.learnedAt) || 0,
++  };
++}
++
+ /**
+  * Bring a stored profile up to the current shape.
+  *
+  * One rung per version, each doing exactly one step, applied in order from
+  * whatever the stored version says. **Never returns null.** A profile that
+@@ -443,13 +747,15 @@ export function decided(tally: GameTally): number {
+  * Unknown or missing fields are filled from `newProfile`, so a profile written
+  * by a *newer* build (a player who used a second device before this one was
+  * redeployed) loses nothing it does not have to: the fields this build does not
+  * know about ride along untouched.
+  */
+-export function migrate(stored: unknown, now: number): Profile {
++export function migrate(stored: unknown, now: number, costPerChest?: number): Profile {
+   const raw = (typeof stored === 'object' && stored !== null ? stored : {}) as Partial<Profile>;
++  const storedVersion = Number(raw.version) || 1;
+   const base = newProfile(String(raw.id ?? ''), String(raw.name ?? ''), Number(raw.createdAt) || now);
++  const words = Array.isArray(raw.words) ? raw.words.map(wordShape) : [];
+ 
+   const profile: Profile = {
+     ...base,
+     ...raw,
+     // Spread first, then repair: the fields below are the ones an older or
+@@ -457,26 +763,53 @@ export function migrate(stored: unknown, now: number): Profile {
+     // is a crash on the read path of the one object that must never fail to
+     // load.
+     id: base.id,
+     name: base.name,
+     createdAt: base.createdAt,
+-    xp: Number(raw.xp) || 0,
++    words,
++    // After `words`, because a version 1 or 2 profile stores one pooled number
++    // and the only way to split it is by counting the rows. See `splitXp`.
++    xp: xpShape(raw.xp, words),
+     streak: {
+       days: Number(raw.streak?.days) || 0,
+       lastDay: Number(raw.streak?.lastDay) || 0,
+       rests: Number(raw.streak?.rests) || 0,
+     },
+     games: Array.isArray(raw.games) ? raw.games.map(tallyShape) : [],
+-    words: Array.isArray(raw.words) ? raw.words : [],
+-    applied: Array.isArray(raw.applied) ? raw.applied : [],
++    applied: Array.isArray(raw.applied) ? raw.applied.filter((id) => typeof id === 'string') : [],
++    owned: Array.isArray(raw.owned) ? raw.owned.filter((id) => typeof id === 'string') : [],
++    spent: Math.max(0, Number(raw.spent) || 0),
++    opens: Array.isArray(raw.opens) ? raw.opens.filter((id) => typeof id === 'string') : [],
++    credits: Math.max(0, Math.floor(Number(raw.credits) || 0)),
+     version: PROFILE_VERSION,
+   };
+ 
+   // Rungs go here as the shape changes, keyed off `raw.version`. Version 2's
+-  // is `tallyShape` above, applied unconditionally rather than under a version
+-  // check: it is idempotent, and a tally missing `lost` is exactly as broken
+-  // whether the profile claims to be version 1 or has simply been hand-edited.
++  // is `tallyShape` above and version 3's is `wordShape` and `xpShape`, all
++  // three applied unconditionally rather than under a version check: they are
++  // idempotent, and a tally missing `lost` is exactly as broken whether the
++  // profile claims to be version 1 or has simply been hand-edited.
++  //
++  // Version 4's rung is the first that **cannot** be idempotent, because it
++  // creates something out of nothing: a profile that has already been paid its
++  // catch-up chests looks identical to one that is owed them. So this one is
++  // gated on the stored version, and it is the reason `storedVersion` is read
++  // above rather than trusted from the spread.
++  //
++  // `costPerChest` is passed in because this module imports nothing and
++  // `CHEST_COST` lives with the chest logic; see the note at the top of the
++  // file, and `profileView`, which takes `rank` for exactly the same reason.
++  // Omitting it grants nothing, which is what every caller but the real load
++  // path wants.
++  if (storedVersion < 4 && costPerChest && costPerChest > 0) {
++    const earned = LEARN_LANGS.reduce(
++      (n, lang) => (lang === 'en' ? n : n + (profile.xp[lang] || 0)),
++      0,
++    );
++    profile.credits = Math.floor(earned / costPerChest);
++  }
++
+   return profile;
+ }
+ 
+ /**
+  * What a client is told about its own profile.
+@@ -491,26 +824,106 @@ export function migrate(stored: unknown, now: number): Profile {
+  * `due` is the number the whole feature turns on. It is the one figure that
+  * brings a player back, it goes on a screen they already open, and it is worth
+  * more than the experience points and the level put together, because it is the
+  * only one of the three that is about the words.
+  */
+-export interface ProfileView {
+-  id: string;
+-  name: string;
++/**
++ * One language, as the profile screen draws it.
++ *
++ * The level lives here rather than on the summary because that is what going
++ * per-language means: there is no account level any more, and there is
++ * deliberately no field for one. Somebody who wants a single number can add up
++ * `xp`, and `totalXp` is the function for it, but it must not be given a
++ * level — a level over three languages is the number the split was made to
++ * stop showing.
++ */
++export interface LangView {
++  lang: LearnLang;
++  /** Words met. The weak claim. */
++  words: number;
++  /** Words the ledger will say are known. See `LEARNED_RUN`. */
++  learned: number;
++  due: number;
+   xp: number;
+   level: number;
+   /** Total at which the next level begins, so a bar has something to fill. */
+   nextLevel: number;
++  /** Total at which this level began. The bar's other end. */
++  levelAt: number;
++}
++
++export interface ProfileView {
++  id: string;
++  name: string;
+   streak: Streak;
+-  /** Words in the ledger, and how many have come back round. */
++  /** Words in the ledger, how many are known, and how many have come round. */
+   words: number;
++  learned: number;
+   due: number;
+-  /** Per language, in the order `LEARN_LANGS` gives, skipping empty ones. */
+-  byLang: Array<{ lang: LearnLang; words: number; due: number }>;
++  /**
++   * Per language, in the order `LEARN_LANGS` gives.
++   *
++   * A language with no words *and* no experience is left out entirely: three
++   * rows of zeroes would be most of the panel for somebody who has only ever
++   * played Polish. A language with experience but no words left in the ledger
++   * stays, because deleting somebody's level is worse than an odd-looking row.
++   */
++  byLang: LangView[];
+   games: GameTally[];
+   /** The most recently touched words, newest first. See `RECENT`. */
+   recent: Known[];
++
++  /**
++   * Experience left to spend on chests, and chests already paid for.
++   *
++   * Two small numbers rather than the wardrobe itself, and that is the whole
++   * point. A finished `owned` list is around 1,100 ids and 25KB, which would
++   * ride every profile push against the 2KB `RECENT` was sized to; the list
++   * has its own read on `PLAYER_PATHS.wardrobe`, asked for by the two screens
++   * that draw it. These two are here because the account menu wants to say
++   * "3 ready" on a row without fetching anything.
++   */
++  spendable: number;
++  credits: number;
++
++  /**
++   * The account's own level, over **every** language's experience pooled,
++   * English included.
++   *
++   * Separate from the per-language ranks on `byLang` and not derivable from
++   * them -- levels are quadratic, so two languages at level 3 are not level 6
++   * and are not level 3 either. This is the number the lobby chip wears, and
++   * the reason it counts English is that the chip is the one place the app
++   * says "you have been playing": a level that stalled while somebody played
++   * English all week would be reporting on a language rather than on them.
++   *
++   * The chest balance beside it deliberately does *not* count English. Two
++   * numbers with two rules, which is honest because they answer two questions:
++   * this one is what you have done, `spendable` is what you can spend.
++   */
++  rank: Rank;
++
++  /**
++   * The pooled total `rank` was worked out from. On the view because the chip
++   * draws a progress bar, and the fraction cannot be rebuilt from `byLang`:
++   * that list drops a language with nothing in it, so the sum is a lower bound
++   * rather than the total.
++   */
++  xp: number;
++}
++
++/**
++ * Where one experience total sits on the curve.
++ *
++ * Passed in rather than computed, because this module imports **nothing** and
++ * the curve lives in `review.ts`. See the note at the top of the file: the one
++ * convenience import here is the one that puts a dictionary on a phone.
++ */
++export interface Rank {
++  level: number;
++  levelAt: number;
++  nextLevel: number;
+ }
+ 
+ /**
+  * How many words ride along on the summary.
+  *
+@@ -518,30 +931,41 @@ export interface ProfileView {
+  * screen, and few enough that the message stays small. Twenty rows is about
+  * 2KB, against 600KB for the whole ledger.
+  */
+ export const RECENT = 20;
+ 
+-export function profileView(profile: Profile, now: number, level: number, nextLevel: number): ProfileView {
+-  const byLang = LEARN_LANGS.flatMap((lang) => {
++export function profileView(profile: Profile, now: number, rank: (xp: number) => Rank): ProfileView {
++  const byLang = LEARN_LANGS.flatMap<LangView>((lang) => {
+     const words = profile.words.filter((word) => word.lang === lang);
+-    // A language nobody has played is not a row of zeroes on the screen, it is
+-    // a language that is not there. Three empty rows would be most of the
+-    // panel for somebody who has only ever played Polish.
+-    return words.length === 0
+-      ? []
+-      : [{ lang, words: words.length, due: words.reduce((n, w) => (w.dueAt <= now ? n + 1 : n), 0) }];
++    const xp = profile.xp[lang] || 0;
++    if (words.length === 0 && xp === 0) return [];
++    const { level, levelAt, nextLevel } = rank(xp);
++    return [
++      {
++        lang,
++        words: words.length,
++        learned: words.reduce((n, w) => (isLearned(w) ? n + 1 : n), 0),
++        due: words.reduce((n, w) => (w.dueAt <= now ? n + 1 : n), 0),
++        xp,
++        level,
++        levelAt,
++        nextLevel,
++      },
++    ];
+   });
+ 
+   return {
+     id: profile.id,
+     name: profile.name,
+-    xp: profile.xp,
+-    level,
+-    nextLevel,
+     streak: profile.streak,
+     words: profile.words.length,
++    learned: learnedCount(profile),
+     due: dueCount(profile, now),
+     byLang,
+     games: profile.games,
+     recent: [...profile.words].sort((a, b) => b.lastAt - a.lastAt).slice(0, RECENT),
++    spendable: spendable(profile),
++    credits: profile.credits,
++    rank: rank(totalXp(profile)),
++    xp: totalXp(profile),
+   };
+ }

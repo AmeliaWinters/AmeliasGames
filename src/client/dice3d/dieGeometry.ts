@@ -105,21 +105,74 @@ export function dieGeometry(half = DIE_HALF, radius = DIE_ROUND): THREE.BufferGe
     costs nothing at build time and removes a whole class of "one face of the
     die is invisible from outside" bug that only shows up at certain angles.
   */
-  const quad = (a: number, b: number, c: number, d: number) => {
+  /**
+   * The cross product of two of a triangle's edges: its normal, scaled by
+   * twice its area, which is what makes it also the test for having any.
+   */
+  const cross = (a: number, b: number, c: number): Vec => {
     const at: Vec = [position[a * 3], position[a * 3 + 1], position[a * 3 + 2]];
     const bt: Vec = [position[b * 3], position[b * 3 + 1], position[b * 3 + 2]];
     const ct: Vec = [position[c * 3], position[c * 3 + 1], position[c * 3 + 2]];
     const e1: Vec = [bt[0] - at[0], bt[1] - at[1], bt[2] - at[2]];
     const e2: Vec = [ct[0] - at[0], ct[1] - at[1], ct[2] - at[2]];
-    const cross: Vec = [
+    return [
       e1[1] * e2[2] - e1[2] * e2[1],
       e1[2] * e2[0] - e1[0] * e2[2],
       e1[0] * e2[1] - e1[1] * e2[0],
     ];
+  };
+
+  /*
+    Anything below this is a triangle with no area rather than a small one.
+    The quantity is twice an area in the die's own units, where the whole die
+    is 1.6 across, so a real sliver off the corner mesh is around 1e-3 and the
+    collapsed ones are exactly 0. Six orders of magnitude of daylight.
+  */
+  const FLAT = 1e-12;
+
+  const quad = (a: number, b: number, c: number, d: number) => {
     const n: Vec = [normal[a * 3], normal[a * 3 + 1], normal[a * 3 + 2]];
-    const facing = cross[0] * n[0] + cross[1] * n[1] + cross[2] * n[2];
-    if (facing >= 0) index.push(a, b, c, a, c, d);
-    else index.push(a, d, c, a, c, b);
+    /*
+      Which way round this quad has to go, decided from whichever of its two
+      triangles has an area to decide it with.
+
+      It used to be read off `a, b, c` alone, and that is the one triangle
+      here that is allowed to have no area: each corner octant is a sphere
+      patch whose theta = 0 row is the pole repeated, so its first band of
+      quads arrives with `a` and `b` at the same point. The cross product came
+      out `[0, 0, 0]`, `facing` came out exactly 0, and `facing >= 0` took the
+      un-flipped branch -- so the check did not fail, it *abstained*, silently,
+      at the twenty-four cells where it was the only thing deciding.
+
+      On the four octants whose natural ordering is already outward that was
+      the right answer by luck. On the other four -- the ones where sx*sy*sz
+      is positive, which is the mirroring this comment block has warned about
+      since it was written -- it was wrong, and every die in the app has been
+      drawn with a triangle missing from three of its corners.
+    */
+    const abc = cross(a, b, c);
+    const acd = cross(a, c, d);
+    const lead = abc[0] * abc[0] + abc[1] * abc[1] + abc[2] * abc[2] > FLAT ? abc : acd;
+    const facing = lead[0] * n[0] + lead[1] * n[1] + lead[2] * n[2];
+
+    const tris: Array<[number, number, number]> =
+      facing >= 0
+        ? [
+            [a, b, c],
+            [a, c, d],
+          ]
+        : [
+            [a, d, c],
+            [a, c, b],
+          ];
+    for (const [x, y, z] of tris) {
+      // And the flat one is dropped rather than drawn. It paints nothing at
+      // any angle, and the twenty-four of them were a twentieth of the die's
+      // index buffer being sent to the GPU five times a throw.
+      const area = cross(x, y, z);
+      if (area[0] * area[0] + area[1] * area[1] + area[2] * area[2] <= FLAT) continue;
+      index.push(x, y, z);
+    }
   };
 
   const mark = (start: number, material: number) => {

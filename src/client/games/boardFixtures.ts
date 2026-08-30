@@ -33,7 +33,8 @@ import { duelWords } from '../../shared/games/words.js';
 import { commonestStarting } from '../../shared/games/chainDictionary.js';
 import { CATEGORIES } from '../../shared/games/yahtzeeDisplay.js';
 import { FLEET } from '../../shared/games/battleshipDisplay.js';
-import { LANGS } from '../../shared/games/wordChainDisplay.js';
+import { CHAIN_LEVELS, LANGS } from '../../shared/games/wordChainDisplay.js';
+import { GHOST_LANGS, GHOST_SIDES, ghostAlphabet } from '../../shared/games/ghostDisplay.js';
 
 /**
  * A fixed clock, and a fixed one on purpose: three of these games are timed,
@@ -229,6 +230,11 @@ const PROPOSERS: Record<string, Propose> = {
     const used = new Set<string>(state.chain.map((link: any) => link.key));
     const entry = commonestStarting(lang, state.required ?? '', used);
     return [
+      // Levels first, so the walk lands on a seat that has one before it picks
+      // a language and setup ends. Every band is proposed and seats take them
+      // in order, which is what draws the hint ladder at all: a table all on
+      // `fluent` never puts a hint on the screen. See `HINT_AT`.
+      ...CHAIN_LEVELS.map((level) => ({ type: 'level', level })),
       ...LANGS.map((l) => ({ type: 'lang', lang: l })),
       ...(entry ? [{ type: 'say', word: entry.word }] : []),
       { type: 'give-up' },
@@ -245,6 +251,35 @@ const PROPOSERS: Record<string, Propose> = {
   // never draw the mixed board: one seat choosing from four while the seat
   // beside it types. Seats take these in order, so a room of three gets one of
   // each. `new` is the seat that is given its hint rather than sold one.
+  /*
+    Every letter on both ends, and no attempt whatever to pick a good one.
+
+    The walker is meant to be stupid (see the top of this file) and here it can
+    afford to be completely so: a dead letter is not refused by this reducer,
+    it loses the round, which is one of the three screens this game has. So the
+    proposer is the keyboard, twice, and both walks reach the reveal -- the
+    forward one by finishing a word, the conceding one by giving up. Neither
+    needs to know a word of Polish, which is the point: the dictionary is
+    server-side and this file is client-side, and `bundle.test.ts` would fail
+    the build over an import that fixed that.
+
+    One reveal is out of reach here and it is the same rule that puts it there:
+    the walk never *finishes* a word, because building a real four-letter one
+    out of a rotating alphabet is luck, and steering it would mean knowing
+    which letters spell something, which is the word list. So `ghost.test.ts`
+    covers the completed reveal and this covers the other two. Do not fix it by
+    importing the dictionary.
+  */
+  ghost: (state) => [
+    ...GHOST_LANGS.map((lang) => ({ type: 'lang', lang })),
+    { type: 'begin' },
+    { type: 'next' },
+    ...GHOST_SIDES.flatMap((side) =>
+      [...ghostAlphabet(state.lang)].map((letter) => ({ type: 'play', side, letter })),
+    ),
+    { type: 'give-up' },
+  ],
+
   vocab: () => [
     { type: 'settings', lang: 'pl', mode: 'normal' },
     { type: 'level', level: 'new' },
@@ -279,6 +314,11 @@ const FACETS: Record<string, (state: any) => string> = {
   // Everyone's dice hit the table at once, so "still owes a throw" is a
   // different screen from "has thrown and is waiting to bid".
   liarsdice: (state) => (state.rolled?.every(Boolean) ? 'all-in' : 'rolling'),
+  // The three ways a round ends draw three different panels: a completed word
+  // has no escapes under it, and the other two do. Not a phase, they are all
+  // `round`, and filing by phase alone covered whichever one the walk happened
+  // to reach first.
+  ghost: (state) => state.reveals.at(-1)?.reason ?? 'fresh',
   // Sent to a board, or free to play anywhere: the difference is which
   // three-quarters of the board is greyed out.
   ultimate: (state) => (state.sent === null ? 'free' : 'sent'),

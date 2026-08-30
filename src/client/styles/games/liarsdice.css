@@ -21,17 +21,6 @@
   color: var(--muted);
 }
 
-/* Your own five, thrown, at the top of a round. Above the hands rather than
-   among them: it is a thing you do, and they are a thing you read. It is gone
-   the moment the dice land, because the hand below becomes the record and a
-   tray still sitting there would invite a roll the reducer refuses. */
-.ld-throw {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .ld-hands {
   display: flex;
   flex-direction: column;

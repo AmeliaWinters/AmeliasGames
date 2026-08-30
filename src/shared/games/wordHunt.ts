@@ -401,6 +401,10 @@ export const wordHunt: GameDefinition<WhState, WhMove> = {
 
   isOver,
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
 

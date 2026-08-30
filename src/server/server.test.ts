@@ -579,14 +579,97 @@ describe('signing in', () => {
 
     const profile = await host.nextOf('profile');
     expect(profile.profile.id).toBe(who.id);
-    // Connect Four teaches no vocabulary, so this is the small per-game
-    // payment and nothing else — which is exactly the point of it existing.
-    expect(profile.profile.xp).toBeGreaterThan(0);
+    // Connect Four teaches no vocabulary, so it earns **no experience at
+    // all**, and the game is still recorded. That is the per-language split
+    // showing its consequence rather than a regression: experience is a claim
+    // about one language now, the flat per-game payment goes to the language a
+    // game taught in, and this game taught in none. A night of Connect Four
+    // shows up in the games panel, which is where a night of Connect Four is
+    // supposed to show up. See `Profile.xp`.
+    expect(profile.profile.byLang).toEqual([]);
     expect(profile.profile.words).toBe(0);
     expect(profile.profile.games.find((g) => g.gameId === 'connect4')?.played).toBe(1);
 
     host.close();
     guest.close();
+  });
+
+  /**
+   * The `vocab` message, from the outside.
+   *
+   * The reducer that fills the ledger is well covered; this is the plumbing
+   * around it, which is where the two adapters can drift apart. What is being
+   * pinned is that a message with no account id on it can only ever answer for
+   * the socket that proved one, and that nothing a hostile client can put in
+   * `lang` reaches the store.
+   */
+  describe('asking for the words', () => {
+    it('says nothing at all to a socket that never proved an account', async () => {
+      const code = makeRoomCode();
+      const guest = await TestClient.connect();
+      guest.send(hello({ name: 'Guest', code, create: true }));
+      await guest.nextOf('welcome');
+      guest.drain();
+
+      // Silence rather than an error, exactly like `profile`: there is no id
+      // on the wire to refuse, so there is nothing to say.
+      guest.send({ t: 'vocab', lang: 'pl' });
+      await expect(guest.nextOf('vocab')).rejects.toThrow();
+      guest.close();
+    });
+
+    it('says nothing before a room, rather than falling through to the join error', async () => {
+      const alone = await TestClient.connect();
+      // Answered above the `joined` guard on purpose, so this must not come
+      // back as 'Join a room first.' -- the worker answers it without a room
+      // at all, and the two adapters have to agree.
+      alone.send({ t: 'vocab', lang: 'pl' });
+      await expect(alone.nextOf('vocab')).rejects.toThrow();
+      alone.close();
+    });
+
+    it('refuses a language that is not one, whatever shape it arrives in', async () => {
+      const who = await account();
+      const { host, guest } = await playAGame(who);
+      await host.nextOf('profile');
+      host.drain();
+
+      // The values a hostile client would actually try: a path, a number, an
+      // object, and a language this app does not teach. None may reach
+      // `vocabOf`, and none may throw and take the socket down with it.
+      for (const lang of ['../', 'EN', 7, null, {}, ['pl'], 'de']) {
+        host.send({ t: 'vocab', lang } as unknown as ClientMessage);
+      }
+      // A `profile` behind them, and the assertion is that it is the *very
+      // next* frame back. That says both halves at once: none of the seven
+      // produced a `vocab`, and the socket is still alive and still answering,
+      // which a throw on the way to `vocabOf` would have taken out.
+      host.send({ t: 'profile' });
+      const next = await host.next();
+      expect(next.t).toBe('profile');
+      expect((next as Extract<ServerMessage, { t: 'profile' }>).profile.id).toBe(who.id);
+
+      host.close();
+      guest.close();
+    });
+
+    it('answers the account that asked, and echoes the language back', async () => {
+      const who = await account();
+      const { host, guest } = await playAGame(who);
+      await host.nextOf('profile');
+      host.drain();
+
+      host.send({ t: 'vocab', lang: 'pl' });
+      const answer = await host.nextOf('vocab');
+      // Echoed rather than assumed: two requests in flight must not be drawn
+      // under each other's heading. Connect Four teaches nothing, so the list
+      // is empty and that is the point -- the shape is what is being pinned.
+      expect(answer.lang).toBe('pl');
+      expect(Array.isArray(answer.words)).toBe(true);
+
+      host.close();
+      guest.close();
+    });
   });
 
   /**
@@ -622,8 +705,13 @@ describe('signing in', () => {
 
     const second = await playAGame(who);
     const two = await second.host.nextOf('profile');
-    expect(two.profile.xp).toBeGreaterThan(one.profile.xp);
+    // The tally is what carries across two rooms for a game with no words in
+    // it. It was the experience total before the split, and the assertion had
+    // to move rather than be dropped: the point of the test is that the *same
+    // account* was found again, and a second game recorded against it proves
+    // that as well as a rising number did.
     expect(two.profile.games.find((g) => g.gameId === 'connect4')?.played).toBe(2);
+    expect(one.profile.games.find((g) => g.gameId === 'connect4')?.played).toBe(1);
     second.host.close();
     second.guest.close();
   });

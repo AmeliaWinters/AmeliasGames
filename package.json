@@ -10,6 +10,10 @@
     "test": "vitest run",
     "render:throw": "tsx scripts/render-throw3d.ts",
     "render:wheel": "tsx scripts/render-wheel.ts",
+    "render:avatars": "tsx scripts/render-avatars.ts",
+    "extract:kit": "tsx scripts/extract-kit.ts",
+    "build:wardrobe": "tsx scripts/build-wardrobe.ts",
+    "extract:picrew": "tsx scripts/extract-picrew.ts",
     "render:spin": "tsx scripts/render-wheel.ts --spin",
     "build:wordchain": "tsx scripts/build-wordchain.ts",
     "icons": "node scripts/make-icons.mjs",
@@ -20,11 +24,14 @@
     "deploy": "npm run build && wrangler deploy",
     "apk": "vite build --mode android --outDir dist-android && cap sync android && cd android && gradlew.bat assembleDebug",
     "apk:release": "vite build --mode android --outDir dist-android && cap sync android && cd android && gradlew.bat assembleRelease",
-    "apk:install": "cd android && gradlew.bat installDebug"
+    "apk:install": "cd android && gradlew.bat installDebug",
+    "build:waifu": "tsx scripts/build-waifu.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
     "@dimforge/rapier3d-compat": "^0.20.0",
     "qrcode-generator": "^1.5.1",
     "react": "^18.3.1",

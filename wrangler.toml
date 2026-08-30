@@ -10,18 +10,25 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 # Explicit rather than relying on asset-router precedence: /ws matches no file
 # today, but "the whole game breaks" is too large a consequence to leave to the
-# order two subsystems happen to run in.
-run_worker_first = ["/ws"]
+# order two subsystems happen to run in. /peek and /account/* are here on the
+# same argument -- a POST is not something the asset router serves, but the
+# chest's preflight is an OPTIONS the router will happily consider, and "the
+# packaged app cannot open a chest" is the failure that argument was written
+# to prevent.
+run_worker_first = ["/ws", "/peek", "/account/*"]
 
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "GameRoom"
 
 # One object per account, holding that player's profile and vocabulary ledger.
-# Reached only from inside a room -- there is no route to it in the worker's
-# fetch and there must never be one. A client that could post its own results
-# could post any results, and the interesting cheat is not "I won" but "I knew
-# that word".
+# It used to be reachable only from inside a room. `/account/chest` broke that,
+# so the rule it is held to now is the one that was doing the work all along:
+# a browser may reach a path here only if the request carries no facts. A chest
+# names a set and a nonce; the object reads the balance and decides the drop.
+# A client that could post its own results could post any results, and the
+# interesting cheat is not "I won" but "I knew that word". See the header of
+# `src/worker/player.ts`, which states this rule in full.
 [[durable_objects.bindings]]
 name = "PLAYERS"
 class_name = "Player"

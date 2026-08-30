@@ -20,8 +20,18 @@
  */
 import type { LearnLang, Profile, Known, GameTally, TallyResult } from './profile.js';
 import type { Grade } from './review.js';
-import { APPLIED_MEMORY, FORM, bumpStreak } from './profile.js';
-import { XP_PER_GAME, XP_PER_WIN, isMiss, isProduction, schedule, xpFor } from './review.js';
+import { APPLIED_MEMORY, FORM, LEARNED_RUN, bumpStreak, dayOf } from './profile.js';
+import {
+  POINTS_FIRST_GAME_OF_DAY,
+  XP_PER_GAME,
+  XP_PER_WIN,
+  isCorrect,
+  isMiss,
+  isProduction,
+  pointsFor,
+  schedule,
+  xpFor,
+} from './review.js';
 
 /**
  * How a seat finished.
@@ -171,6 +181,8 @@ function blankRow(event: Learned, now: number): Known {
     dueAt: now,
     box: 0,
     fastestMs: 0,
+    run: 0,
+    learnedAt: 0,
   };
 }
 
@@ -178,6 +190,12 @@ function blankRow(event: Learned, now: number): Known {
 function applyGrade(row: Known, event: Learned, now: number): { row: Known; xp: number } {
   const merged = mergeWord(row, event);
   const placement = schedule(merged.box, event.grade, now);
+
+  // A sighting leaves the run exactly where it was -- neither advancing it nor
+  // breaking it -- which is the same answer `schedule` gives for the same
+  // reason. Anything that is not a correct answer and not a sighting is a
+  // miss, and a miss is the whole of what zeroes a run.
+  const run = event.grade === 'seen' ? merged.run : isCorrect(event.grade) ? merged.run + 1 : 0;
 
   const next: Known = {
     ...merged,
@@ -195,6 +213,11 @@ function applyGrade(row: Known, event: Learned, now: number): { row: Known; xp: 
       isProduction(event.grade) && event.ms > 0 && (merged.fastestMs === 0 || event.ms < merged.fastestMs)
         ? event.ms
         : merged.fastestMs,
+    run,
+    // Latches on the way up and is never cleared. See `Known.learnedAt`: a
+    // list you can be demoted from is a list nobody trusts, and the ladder is
+    // where a miss is already paid for.
+    learnedAt: merged.learnedAt || (run >= LEARNED_RUN ? now : 0),
   };
 
   // Paid on the rung reached, so the review that comes back after five weeks
@@ -261,7 +284,12 @@ export function applyRecord(
   const at = new Map<string, number>();
   words.forEach((row, i) => at.set(`${row.lang}:${row.key}`, i));
 
-  let earned = 0;
+  // Experience is banked per language now, so it is a bucket rather than a
+  // running total. See `Profile.xp`.
+  const earned: Partial<Record<LearnLang, number>> = {};
+  // How many word events each language contributed, which is how the flat
+  // game bonus finds a language to be paid into. See below.
+  const events: Partial<Record<LearnLang, number>> = {};
   let reviewed = false;
 
   for (const event of outcome.learned) {
@@ -273,24 +301,73 @@ export function applyRecord(
       // A word only watched go past never creates a row. Counting every word
       // an opponent said as a word you have met would inflate every number on
       // the profile, and the profile's only job is to be worth trusting.
-      if (event.grade === 'seen') continue;
+      //
+      // It does still name the language, though, and that is all `events` is
+      // for: an evening of Word Chain in Polish where every word was somebody
+      // else's is a game of Polish, and the flat game bonus has to land
+      // somewhere. See below.
+      if (event.grade === 'seen') {
+        events[event.lang] = (events[event.lang] ?? 0) + 1;
+        continue;
+      }
       const { row, xp } = applyGrade(blankRow(event, now), event, now);
       at.set(id, words.length);
       words.push(row);
-      earned += xp;
+      earned[event.lang] = (earned[event.lang] ?? 0) + xp;
+      events[event.lang] = (events[event.lang] ?? 0) + 1;
       reviewed = true;
       continue;
     }
 
     const { row, xp } = applyGrade(words[found], event, now);
     words[found] = row;
-    earned += xp;
+    earned[event.lang] = (earned[event.lang] ?? 0) + xp;
+    // A sighting counts here even though it counts nowhere else, and the
+    // difference is deliberate. `events` only decides **which language** the
+    // flat game bonus belongs to, and a word watched go past in Word Chain
+    // says which language the game was in just as well as one produced. It is
+    // still not study, so it still does not touch `reviewed` and still cannot
+    // hold up a streak.
+    events[event.lang] = (events[event.lang] ?? 0) + 1;
     if (event.grade !== 'seen') reviewed = true;
   }
 
+  // The flat game bonus goes to the language the game actually taught in, and
+  // nowhere at all when it taught nothing. Eleven of the thirteen games are in
+  // that second case, so a night of Backgammon moves no bar -- which is the
+  // honest answer to "how much Polish did that teach you", and the games panel
+  // is where a night of Backgammon is supposed to show up. See `Profile.xp`.
+  //
+  // A game that somehow taught two languages pays the bonus once, to whichever
+  // contributed more events, rather than twice: it is one game.
+  const taught = (Object.keys(events) as LearnLang[]).sort((a, b) => (events[b] ?? 0) - (events[a] ?? 0))[0];
+  if (taught) {
+    earned[taught] = (earned[taught] ?? 0) + XP_PER_GAME + (outcome.result === 'won' ? XP_PER_WIN : 0);
+  }
+
+  const xp = { ...profile.xp };
+  for (const lang of Object.keys(earned) as LearnLang[]) {
+    xp[lang] = (xp[lang] || 0) + (earned[lang] ?? 0);
+  }
+
+  // The purse, which is paid for playing rather than for learning and so is
+  // paid here even when nothing above moved. Every finished game pays; see
+  // `pointsFor`.
+  //
+  // The daily bonus rides on the same idempotency check as everything else in
+  // this function -- a re-sent harvest returns at the top -- so it cannot be
+  // collected twice by a retry. It is deliberately keyed off the *first game
+  // harvested* today rather than the first one finished: a game whose result
+  // never reached a profile did not happen as far as the profile is concerned.
+  const day = dayOf(now);
+  const daily = day !== profile.playedDay ? POINTS_FIRST_GAME_OF_DAY : 0;
+  const points = profile.points + pointsFor(Boolean(taught), taught ? (earned[taught] ?? 0) : 0) + daily;
+
   return {
     ...profile,
-    xp: profile.xp + earned + XP_PER_GAME + (outcome.result === 'won' ? XP_PER_WIN : 0),
+    xp,
+    points,
+    playedDay: day,
     // A day counts when a word was actually graded. Finishing a game of
     // Connect Four is not a day of study and must not hold a streak up, or the
     // streak stops being a claim about learning anything.

@@ -16,6 +16,9 @@
  * FreeDict pol-eng (CC-BY-SA 3.0, from Wiktionary via WikDict), EDICT2
  * (CC-BY-SA 4.0, Electronic Dictionary Research and Development Group).
  *
+ * The tail of the English list is `EN_EXTRA`, a handful of words added by hand
+ * because both of that list's filters dropped them. See the script.
+ *
  * Only the server ever reads this. A board renders the word and the gloss the
  * server sent it and never checks anything itself — `bundle.test.ts` holds
  * that line, for the same reason it holds it for `words.ts`.
@@ -82468,5 +82471,5 @@ transactional oxman parada diviner bussed presser impalement jawbreaker
 derma wholehearted alen korma teapots baillie stainer filipina spitballs
 vaporizing headings firebase shooed unbending sturdier crystallization
 linguists saidi haddo chabot fivers churchmen hermaphrodites sequoias
-goalposts
+goalposts callousness antiestablishmentarianism antidisestablishmentarianism
 `;

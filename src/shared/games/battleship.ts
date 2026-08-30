@@ -276,6 +276,10 @@ export const battleship: GameDefinition<BsState, BsMove> = {
 
   isOver,
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (seat: number) => names[seat] ?? `Player ${seat + 1}`;
 

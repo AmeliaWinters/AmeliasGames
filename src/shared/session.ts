@@ -70,6 +70,15 @@ export interface Hello {
    * other: the field with the id in it is the one that has been checked.
    */
   accountId?: string;
+  /**
+   * The loadout the client says it is wearing, as JSON, still unopened.
+   *
+   * Carried the way `claim` is and for a related reason: nothing on this side
+   * can tell whether it is a loadout, because `shared/` does not know what one
+   * is. It is bounded by `RoomEngine.setAvatar` and checked, properly, by the
+   * clients that draw it. See `PROTOCOL_VERSION` 11.
+   */
+  avatar?: unknown;
 }
 
 /**
@@ -144,6 +153,10 @@ export function readHello(
       // reason to seat them as a guest, and `verifyClaim` returning null is how
       // that gets said.
       claim: msg.account,
+      // Same treatment as the claim above, one step further: not validated
+      // here even for shape. A seat's avatar is opaque all the way to the
+      // browsers that draw it.
+      avatar: msg.avatar,
     },
   };
 }

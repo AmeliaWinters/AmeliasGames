@@ -243,6 +243,9 @@
 :root[data-game="wordchain"] { --accent: var(--seat-2); }
 :root[data-game="vocab"] { --accent: var(--seat-2); }
 :root[data-game="drill"] { --accent: var(--seat-2); }
+/* Superghost is the sixth on the word channel. Green means letters here and a
+   board that is one fragment and a keyboard is nothing else. */
+:root[data-game="ghost"] { --accent: var(--seat-2); }
 
 
 /* Card identity
@@ -342,6 +345,28 @@
    arc that closes below. */
 .game[data-game="connect4"] { --card: #be3e24; --card-well: #36150e; }
 /* Word games */
+/* The fifteenth card, and it is Drill's bargain again rather than a re-spaced
+   ring.
+
+   The note above asks for the whole ring to be re-spaced rather than another
+   gap halved, and that was tried first. It does not work: the family is solved
+   to one contrast, so every card sits at nearly one luminance and they are
+   spread around a ring with nowhere to go in the third dimension. Eight word
+   cards across the arc they already occupy comes out at 26.9 apart at its
+   closest pair, under the 30 `cardHues.test.ts` holds, and the greens are where
+   it fails. The whole ring at fifteen is worse. The threshold is not the thing
+   to move; it is close to the ceiling and the test says so.
+
+   So this pays on the second axis, exactly as Drill does: hue 20, at the head
+   of the word arc where Connect Four's ember wraps into Word Chain's amber, at
+   a saturation of 0.32 where those two are 0.68 and 0.82. It reads as its own
+   card at a hue it could not have carried alone, and it lands 58 from its
+   nearest neighbour, which is further than most of the family manages.
+
+   Solved to the same targets as the rest: 5.38 against white, well at 1.33%.
+   If a sixteenth game arrives, the honest answer is a second visual dimension
+   for the shelf rather than a sixteenth hue. */
+.game[data-game="ghost"] { --card: #8d6049; --card-well: #2a1b14; }
 .game[data-game="wordchain"] { --card: #90610e; --card-well: #291d07; }
 .game[data-game="letterpress"] { --card: #66700c; --card-well: #1e2106; }
 .game[data-game="vocab"] { --card: #43771c; --card-well: #15220b; }

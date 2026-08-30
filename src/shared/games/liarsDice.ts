@@ -382,6 +382,10 @@ export const liarsDice: GameDefinition<LdState, LdMove> = {
     return state.over;
   },
 
+  winner(state) {
+    return state.winner;
+  },
+
   status(state, names) {
     const nameFor = (index: number) => names[index] ?? `Player ${index + 1}`;
 

@@ -8,6 +8,26 @@ import type { StudyLists } from './profile.js';
 import type { RoomView } from './protocol.js';
 import type { GameRecord } from './harvest.js';
 
+/**
+ * The most faces one seat may carry.
+ *
+ * `SHOWCASE_MAX` and not imported, deliberately: `waifu.ts` pulls in the whole
+ * roster, and a room that imported it would carry a few hundred character
+ * records and their CDN URLs into every Durable Object for the sake of one
+ * integer. `waifu.test.ts` holds the two to each other instead.
+ */
+const SEAT_SHOWCASE_MAX = 3;
+/**
+ * How long a relayed loadout may be.
+ *
+ * The wire holds one as opaque JSON (see `PROTOCOL_VERSION` 11), so nothing on
+ * this side can tell a loadout from a novel. The largest real one is a set id,
+ * about thirty part ids and as many variant ids, which comes in under a
+ * kilobyte; four gives it room to grow and still bounds what one seat can make
+ * every other seat receive on every view.
+ */
+const SEAT_AVATAR_MAX = 4096;
+
 export interface SeatRecord {
   playerId: string;
   name: string;
@@ -27,6 +47,36 @@ export interface SeatRecord {
    * which is a fair price for not deleting every live room to add a field.
    */
   accountId?: string;
+  /**
+   * The character ids this seat has on show, for the seat list to draw beside
+   * their name. Ids only: the art is a URL the client already has compiled in
+   * (see `waifuRoster.ts`), and `src/shared/` holds no pictures.
+   *
+   * **Set by the adapters, not by `join`.** A rejoin replaces the whole seat
+   * record, so this is written immediately after every join by whichever
+   * adapter can reach a profile store, exactly as `setStudy` is. A seat that
+   * never gets one draws no faces, which is what a guest looks like.
+   *
+   * **No `SNAPSHOT_VERSION` bump**, by the same argument `accountId` above
+   * makes: a stored room from before this field comes back with it undefined,
+   * which reads as "nobody here is showing anybody". Nothing is misread, no
+   * reducer sees it, and the cost is that a room already in progress across
+   * the deploy draws no faces until somebody reconnects.
+   */
+  showcase?: string[];
+  /**
+   * The figure this seat is wearing, as the JSON its client sent.
+   *
+   * Never parsed here. `src/shared/` does not know what a loadout is, on
+   * purpose: the parts are named out of an art manifest that only the client
+   * compiles in, so the only honest thing this side can do with the string is
+   * bound it and pass it on. See `PROTOCOL_VERSION` 11.
+   *
+   * **No `SNAPSHOT_VERSION` bump**, by the argument `showcase` above makes: an
+   * older stored room comes back without it, which reads as "nobody here has
+   * built one", and the faces and figures come back when somebody reconnects.
+   */
+  avatar?: string;
 }
 
 /**
@@ -39,6 +89,15 @@ export interface SeatRecord {
  * simulation or the size of a die makes an old one land somewhere new and a
  * restored game draws dice that disagree with the score beside them. Same
  * failure as a misread field, same cure.
+ *
+ * 25: Word Chain's ending lock is priced off the right side of the exchange.
+ * It charged by how many words *end* on the letter, which is not the harm the
+ * rule was written for; it now charges by how many the answering seat can
+ * still *start* with, flat five turns under five hundred. Meaning rather than
+ * shape: the stored `until` deadlines were computed under the old price, so a
+ * resumed chain has some seat locked out of an ending nothing would charge for
+ * now and free to hand over the Y that costs five. Version 10 moved the
+ * stranding threshold and needed the bump for the same reason.
  *
  * 24: Vocab Race hears words, and asks the ones nobody got again. `VocabAsk`
  * gained `hear`, so a restored round's `asks` may hold a value the old code
@@ -155,7 +214,7 @@ export interface SeatRecord {
  * than a 2.5D solver on the server. Any one of those alone would need the
  * bump.
  */
-export const SNAPSHOT_VERSION = 24;
+export const SNAPSHOT_VERSION = 25;
 
 /** Everything needed to rebuild a room. This is what gets persisted. */
 export interface RoomSnapshot {
@@ -355,6 +414,53 @@ export class RoomEngine {
   setStudy(seat: number, lists: StudyLists): void {
     if (seat < 0) return;
     this.study[seat] = lists;
+  }
+
+  /**
+   * Tell the room who one seat is showing, for the seat list.
+   *
+   * Called by the adapters for the same reason `setStudy` is -- they are the
+   * only things here that can reach a profile store -- but called on every
+   * join rather than at the deal, because this is drawn in the lobby and the
+   * lobby is where it does its work: the seat list is the one screen somebody
+   * who has never rolled looks at while waiting for a game to start.
+   *
+   * On the seat record rather than in an array beside it, so it survives
+   * hibernation. A transient one would empty on the first restore and the
+   * faces would vanish out of a game in progress.
+   *
+   * Capped rather than trusted. This is a profile read on both adapters today,
+   * but the cap is one line and a seat list is not the place to discover that
+   * somebody found a way to put forty pictures beside their name.
+   */
+  setShowcase(seat: number, ids: readonly string[] | undefined): void {
+    const at = this.seats[seat];
+    if (!at) return;
+    // A profile with no `showcase` at all is not hypothetical: a player object
+    // stored before the field existed answers without it, and the adapter
+    // hands on whatever it read. That is a seat with no faces, not a throw
+    // inside the join that seats them.
+    at.showcase = (ids ?? []).slice(0, SEAT_SHOWCASE_MAX).map(String);
+  }
+
+  /**
+   * Tell the room what one seat is wearing.
+   *
+   * The counterpart of `setShowcase`, and deliberately not the same source: a
+   * showcase is read off the profile the server holds, an avatar arrives in
+   * the `hello` because the equipped loadout lives in the player's browser and
+   * nowhere else yet. Which makes this the one seat field a client sets about
+   * itself, so it is bounded here and taken on trust nowhere.
+   *
+   * Anything that is not a string of a sane length is "no avatar", which is
+   * the same seat a guest gets. There is nothing to refuse a join over: the
+   * worst a bad value does is draw an initial.
+   */
+  setAvatar(seat: number, raw: unknown): void {
+    const at = this.seats[seat];
+    if (!at) return;
+    at.avatar =
+      typeof raw === 'string' && raw.length > 0 && raw.length <= SEAT_AVATAR_MAX ? raw : undefined;
   }
 
   /** How many people are sitting here. */
@@ -570,6 +676,12 @@ export class RoomEngine {
         seat: i,
         name: s.name,
         connected: connected.has(i),
+        // Always an array, never undefined, so no board has to decide what an
+        // absent field means. An empty one is the honest answer for a guest.
+        showcase: s.showcase ?? [],
+        // Null rather than absent, for the reason the line above is an array:
+        // a board should not have to decide what a missing field means.
+        avatar: s.avatar ?? null,
       })),
       // Null while the room is still gathering. There is no game to look at
       // yet, and a board handed a made-up state would draw a lie.
@@ -581,9 +693,13 @@ export class RoomEngine {
       canAct: waiting || seat < 0 ? false : this.def.canAct(this.state, seat, now),
       status: waiting ? this.lobbyStatus() : this.def.status(this.state, names),
       over: waiting ? false : this.def.isOver(this.state),
+      // Only asked of a finished game, which is the only state the contract
+      // promises an answer for. A game still running names nobody.
+      winner: waiting || !this.def.isOver(this.state) ? null : this.def.winner(this.state),
       waiting,
       canStart: this.canStart(),
       capacity: this.capacity,
+      minimum: this.def.minPlayers,
       // The server's clock, sent so a timed countdown is measured against the
       // clock that ends it rather than the player's, which may be wrong by
       // minutes.
@@ -602,6 +718,10 @@ export class RoomEngine {
       return `Waiting for ${more} more player${more === 1 ? '' : 's'}...`;
     }
     const host = this.seats[0]?.name || 'Player 1';
-    return `Ready. ${host} can start whenever you are`;
+    // Not "Ready. <host> can start whenever you are": "ready" and "can start"
+    // are the same fact, and the line spent its first word restating its
+    // second. What is left is the two things a player who is not the host
+    // actually needs, who they are waiting on and that nothing else is owed.
+    return `${host} can start whenever you are`;
   }
 }

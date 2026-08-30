@@ -12,17 +12,17 @@
       named are examples, and "and more" is what stops the eleventh game making
       this wrong again.
     -->
-    <title>Rebellia Games - Connect Four, Backgammon, Battleships and more</title>
+    <title>Rebellia Games - Free ad-free games</title>
     <meta
       name="description"
-      content="Play Connect Four, Backgammon, Battleships, Yahtzee, Word Duel and more with friends over a shared link. No adverts, no accounts, no app store. Start a game, send the room code, and play."
+      content="Play Connect Four, Backgammon, Battleships, Yahtzee, Word Duel and more with friends over a shared link. Learn a language while you play, and spend what you earn on characters to show off beside your name. No adverts, no accounts, no app store."
     />
 
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Rebellia Games - Connect Four, Backgammon, Battleships and more" />
     <meta
       property="og:description"
-      content="Play Connect Four, Backgammon, Battleships, Yahtzee, Word Duel and more with friends over a shared link. No adverts, no accounts, no app store."
+      content="Play Connect Four, Backgammon, Battleships, Yahtzee, Word Duel and more with friends over a shared link. Learn a language while you play, and spend what you earn on characters to show off beside your name."
     />
     <meta property="og:image" content="/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -36,7 +36,16 @@
 
     <!-- Kept in step with the active palette by the app; the stage is the default. -->
     <meta name="theme-color" content="#0C0C0F" />
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!--
+      The supplied mark, which is artwork rather than a two-colour glyph, so it
+      ships as a PNG and does not answer `prefers-color-scheme` the way the
+      generated `icon.svg` did. Its ground is transparent and its ink is near
+      black, so a dark browser chrome gets the coloured squares and a faint
+      figure; that is the trade for using the real mark, and the apple-touch
+      link is the same file because iOS ignores SVG icons entirely.
+    -->
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="336x336" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
   </head>
   <body>
     <div id="root"></div>

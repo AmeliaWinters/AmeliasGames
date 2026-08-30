@@ -96,13 +96,98 @@
   }
 }
 
+/* Winning, with a face on it
+   The panel used to be a sentence at hero size, which named the winner and
+   showed nothing of them. Everything drawn here was already on the wire and
+   already drawn on the seat list one size down: the figure somebody built and
+   the three characters they have on show. This is the screen where the two of
+   them earn their keep, because it is the one moment everybody in the room is
+   looking at the same thing with nothing to press yet.
+
+   Stacked rather than a row. The name is the widest thing in the panel at
+   hero size and a portrait beside it would take the column that name needs at
+   320px, which is the measurement `css.test.ts` keeps failing the seat list
+   over. Top to bottom it is: who, their name, why, and what they collect. */
+.result-won {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Twice the seat list's 44 and then some. It is a bust crop, so the height is
+   the whole of it and the circle is what the seat figure uses -- same shape,
+   read across two screens as the same thing. */
+.result-figure {
+  inline-size: 96px;
+  block-size: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--board);
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--muted);
+  /* The accent ring is what says this one is the winner rather than a seat
+     that happens to be drawn larger. */
+  border: 2px solid var(--accent);
+}
+
+/* "you", beside your own name and nowhere else. The status sentence under it
+   is written once for the whole room and cannot say this. */
+.result-you {
+  margin-inline-start: 8px;
+  font-family: var(--body);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+/* Not overlapped, unlike the seat row's fan. That fan exists because three
+   portraits do not fit beside a name in half a 320px phone; here they have a
+   whole panel, and three faces with air between them read as three characters
+   rather than as one badge. 56 each plus two 10px gaps is 188, which clears
+   320 with the panel's padding either side. */
+.result-showcase {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.result-face {
+  inline-size: 56px;
+  block-size: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--surface);
+  background: var(--board);
+}
+
+/* The last beat, after the line saying why. The order on screen is the order
+   they arrive in, which is the whole idea `result-open` started. */
+.result-figure {
+  animation: result-land 420ms cubic-bezier(0.2, 1.3, 0.5, 1) 200ms both;
+}
+
+.result-showcase {
+  animation: result-note 300ms ease-out 700ms both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* The result is the whole point of the screen and none of it is being
      withheld -- only the order it arrives in. Dropped entirely, and it is
      there. */
   .result,
   .result .who,
-  .result .why {
+  .result .why,
+  .result-figure,
+  .result-showcase {
     animation: none;
   }
 }
@@ -146,58 +231,5 @@
 
 .next-game .hint {
   text-align: center;
-}
-
-/* Waiting room
-   Sharing the room is the only job on this screen, so the code stops being a
-   0.72rem button in the corner and becomes the thing you read out -- and the
-   corner one goes away while it does, so the code is on screen once.
-
-   The frame used to be dashed, on the reasoning that dashes say "copy this".
-   They do not; they say "drop a file here", and a cut-out border around the
-   one solid thing on the screen made the code look provisional. It is a
-   button, so it is drawn like the other buttons: one hairline, one surface. */
-.bigcode {
-  background: var(--surface);
-  border: 1px solid var(--rule-hi);
-  border-radius: var(--board-radius);
-  padding: 18px 12px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  width: 100%;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-
-.bigcode:hover {
-  border-color: var(--ink);
-}
-
-.bigcode .label {
-  font-size: 0.6rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* What pressing it does, said once and quietly. The code above already says
-   what this is; without this line the box is a control that never admits it. */
-.bigcode .act {
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-
-.bigcode .value {
-  font-family: var(--mono);
-  font-size: clamp(1.4rem, 7vw, 1.9rem);
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  color: var(--ink);
 }
 

@@ -391,6 +391,10 @@ export const wordle: GameDefinition<WordleState, WordleMove> = {
 
   isOver,
 
+  winner(state) {
+    return state.winner;
+  },
+
   /**
    * The soonest anyone's minute runs out. Only one clock is ever running, so
    * in practice this is that clock, written as the earliest of the two anyway

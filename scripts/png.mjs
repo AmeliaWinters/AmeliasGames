@@ -5,7 +5,7 @@
  * same palette the app uses, with no image dependency to install or keep
  * up to date. Shapes are edge-blended, so circles come out antialiased.
  */
-import { deflateSync, crc32 as zlibCrc32 } from "node:zlib";
+import { deflateSync, inflateSync, crc32 as zlibCrc32 } from "node:zlib";
 
 /** "#rrggbb" or "#rrggbbaa" → [r, g, b, a] */
 export function rgba(hex) {
@@ -206,3 +206,78 @@ export const PALETTE = {
   // instead. 3.9:1 on the board, against 1.2:1 for a --hole fill.
   motifOff: rgba("#7a7a86"),
 };
+
+/**
+ * Read one of our own PNGs back into a Raster.
+ *
+ * Deliberately narrow: 8-bit RGBA, no interlacing, which is what everything
+ * this repo writes and everything `extract-sutemo.py` exports. Anything else
+ * throws rather than guessing, because a silently mis-decoded avatar sheet is
+ * a review that agrees with itself.
+ *
+ * It exists so a wardrobe can be looked at without a browser. See the note in
+ * CLAUDE.md about the pane being a hidden document: this is the same bargain
+ * as `render:throw`, one contact sheet instead of an afternoon of measuring.
+ */
+export function readPNG(buffer) {
+  if (buffer.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
+  let at = 8;
+  let header = null;
+  const parts = [];
+  while (at < buffer.length) {
+    const length = buffer.readUInt32BE(at);
+    const type = buffer.toString("ascii", at + 4, at + 8);
+    const body = buffer.subarray(at + 8, at + 8 + length);
+    if (type === "IHDR") {
+      header = {
+        width: body.readUInt32BE(0),
+        height: body.readUInt32BE(4),
+        depth: body[8],
+        colour: body[9],
+        interlace: body[12],
+      };
+    } else if (type === "IDAT") {
+      parts.push(body);
+    } else if (type === "IEND") {
+      break;
+    }
+    at += 12 + length;
+  }
+  if (!header) throw new Error("no IHDR");
+  if (header.depth !== 8 || header.colour !== 6 || header.interlace !== 0) {
+    throw new Error(`only 8-bit RGBA, non-interlaced: got ${JSON.stringify(header)}`);
+  }
+
+  const raw = inflateSync(Buffer.concat(parts));
+  const { width, height } = header;
+  const stride = width * 4;
+  const out = new Raster(width, height);
+  let previous = Buffer.alloc(stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    for (let i = 0; i < stride; i++) {
+      const left = i >= 4 ? line[i - 4] : 0;
+      const up = previous[i];
+      const corner = i >= 4 ? previous[i - 4] : 0;
+      let add = 0;
+      if (filter === 1) add = left;
+      else if (filter === 2) add = up;
+      else if (filter === 3) add = (left + up) >> 1;
+      else if (filter === 4) {
+        // Paeth: the neighbour the gradient predicts.
+        const guess = left + up - corner;
+        const dl = Math.abs(guess - left);
+        const du = Math.abs(guess - up);
+        const dc = Math.abs(guess - corner);
+        add = dl <= du && dl <= dc ? left : du <= dc ? up : corner;
+      } else if (filter !== 0) {
+        throw new Error(`filter ${filter}`);
+      }
+      line[i] = (line[i] + add) & 0xff;
+    }
+    line.copy(out.data, y * stride);
+    previous = line;
+  }
+  return out;
+}

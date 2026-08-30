@@ -102,6 +102,41 @@ describe('the die as drawn', () => {
     }
   });
 
+  it('draws no triangle with nothing in it', () => {
+    /*
+      The other half of the test above, and the reason that one was passing a
+      lie for as long as it was.
+
+      A zero-area triangle paints nothing, so on its own it is only waste. The
+      damage is that it has no normal either, which is what `quad` reads to
+      decide which way round to wind the cell -- so at the twenty-four cells
+      that had one, the winding check silently abstained and took its
+      un-flipped branch, and on four of the eight corner octants that branch is
+      the inside-out one. "Points every triangle outwards" cannot catch that,
+      because the triangle it would have caught is the one with no area to
+      have a direction.
+
+      So the two are pinned separately: this one is the guard, and it fails
+      first if a future patch reintroduces a collapsed row.
+    */
+    const geometry = dieGeometry();
+    const p = points(geometry);
+    const index = geometry.getIndex()!;
+    for (let i = 0; i < index.count; i += 3) {
+      const a = p[index.getX(i)];
+      const b = p[index.getX(i + 1)];
+      const c = p[index.getX(i + 2)];
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const n = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+      ];
+      expect(Math.hypot(n[0], n[1], n[2])).toBeGreaterThan(0);
+    }
+  });
+
   it('samples the pips at the size the canvas drew them', () => {
     /*
       The flat part of a rounded die is smaller than the die, so stretching the

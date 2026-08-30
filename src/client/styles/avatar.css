@@ -1,0 +1,388 @@
+/* Avatars, and the screen where you build one.
+
+   Two halves. The first is the compositor: a frame, a scaled stage inside it,
+   and absolutely positioned layers on the stage. There are no numbers in it,
+   because every one of them is a percentage set inline by `Avatar.tsx` from
+   the manifest -- which is what lets a 26px chip and a 400px figure be the
+   same component and lets the art change resolution without touching this.
+
+   The second is the customiser's chrome, which follows the house rules the art
+   does not: palette tokens, no hex, flat. The art carries its own colours and
+   that is fine; nothing around it does. The one exception is the colour
+   swatch, which is an inline style because it *is* a picture of the art.
+
+   Checked in both palettes. The illustrated set is light line art with a white
+   collar, which strands on cream, so a figure and a thumbnail both sit on a
+   ground of their own rather than on the page: `--board` in both palettes,
+   which the page never is. */
+
+/* The frame. `overflow: hidden` is what makes the bust crop a crop. */
+.avatar {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.avatar-stage {
+  position: absolute;
+}
+
+.avatar-layer {
+  position: absolute;
+  /* The art is the only thing in the app allowed to bring its own colours, and
+     it may not be squeezed: every layer is placed from the same canvas, so a
+     fringe that stretched independently would part company with the head. */
+  object-fit: fill;
+}
+
+/* The Kit is a 64 unit canvas drawn at anything up to 400. Smoothing it would
+   make it a blurry photograph of pixel art, and every diagonal in the line art
+   would grow a grey fringe. Scoped to the set rather than applied to every
+   layer, because Sutemo is 1011 wide drawn at 260 and wants the smoothing. */
+.avatar[data-set="kit"] .avatar-layer {
+  image-rendering: pixelated;
+}
+
+.avatar-fill {
+  position: absolute;
+  inset: 0;
+}
+
+/* The two places the initials avatar used to be, when there is a character to
+   draw instead. The letter versions are untouched: a player who has never
+   opened the customiser keeps exactly the chip they had, which is `.av` and
+   `.prof-me-av` in `controls.css` and `profile.css`.
+
+   The accent ground goes, because it was there to hold a letter. A drawn bust
+   needs a ground it reads against instead, and `--board` is the one neutral
+   that is neither the page nor the card in either palette. */
+.av.avatar,
+.prof-me-av.avatar {
+  background: var(--board);
+  color: transparent;
+}
+
+/* Pressed open, the chip inverts and its letter went with it. There is no
+   letter now, so the ring is what says the same thing. */
+.whoami[aria-expanded="true"] .av.avatar {
+  box-shadow: 0 0 0 2px var(--ground);
+}
+
+/* The customiser
+   ------------------------------------------------------------------ */
+
+.cust {
+  gap: 10px;
+}
+
+/* The figure, on its own ground and capped so it cannot eat a phone screen.
+   The aspect ratio is not set here, and that is the point: the stage inside
+   fills its frame in both directions, so a frame this file guessed the shape
+   of stretches the art instead of letterboxing it. `Avatar.tsx` sets the
+   ratio inline from the crop it is actually drawing, which is the only place
+   that knows it. A 7/8 written here squashed the 64x64 kit by 14% and put its
+   line art and its colour on two different pixel grids. */
+.cust-figure {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--board);
+}
+
+/* A multiple of 64, and it is arithmetic rather than taste: the Kit is a 64
+   unit canvas, so 128 is exactly 2 pixels a unit and every sprite edge lands
+   on a whole pixel. At 240 the scale was 3.75, and a part's colour mask and
+   its line art are trimmed to different boxes on purpose, so they took their
+   own fractional offsets and `image-rendering: pixelated` snapped each to a
+   different grid -- the outline sitting one pixel off the hair it outlines.
+   Keep this a multiple of 64 if it changes again. */
+.cust-full {
+  width: 100%;
+  max-width: 128px;
+}
+
+/* Sets. Two cards side by side at any width the app is drawn at: there are two
+   of them and there will not be six, and stacking them would put the locked
+   one below the fold, which is the one that is supposed to be seen. */
+.cust-sets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cust-set {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-areas:
+    "thumb name"
+    "thumb by";
+  align-items: center;
+  gap: 2px 8px;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+/* The cover is a square picture rather than a stack of layers, so it needs
+   the crop `Avatar` does for itself. Both card slots are square. */
+img.cust-thumb,
+img.chest-art {
+  display: block;
+  object-fit: cover;
+}
+
+.cust-set .cust-thumb {
+  grid-area: thumb;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.cust-set-name {
+  grid-area: name;
+  font-family: var(--display);
+  font-weight: 700;
+}
+
+.cust-set-by {
+  grid-area: by;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+/* Selected reads as selected on the ink, not on a hue: the two sets already
+   differ by their thumbnails and a coloured card would compete with them. */
+.cust-set[aria-pressed="true"] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* Locked, and still legible. Not faded to a whisper: the whole point of
+   drawing a locked item is that somebody sees what is in the chests. The
+   dashed edge is the same one a room code takes, which is this app's existing
+   mark for "not yet", and since the price line went it is now the only thing
+   saying so.
+
+   `--motif-off` rather than `--rule-hi`, and measured rather than chosen:
+   `--rule-hi` came out at 1.68:1 on `--surface` in stage and 2.03:1 in
+   daylight, which is a state signal nobody can see. `--motif-off` is the token
+   for a shape that has to be found against a ground with nothing bright on
+   top of it, which is exactly this, and it clears 3:1 in both. */
+/* Keyed to the attribute rather than to `:disabled`, because none of these
+   are disabled any more: a locked control here is a way to the chest screen,
+   so it has to stay pressable while still reading as locked. `.cust-set` had
+   already stopped being disabled and quietly took its dashed border with it,
+   which left a locked set looking exactly like an owned one. */
+.cust-set[data-locked],
+.cust-item[data-locked] {
+  border-style: dashed;
+  border-color: var(--motif-off);
+  color: var(--muted);
+}
+
+/* The art behind the glass keeps its colours and loses its weight, so a locked
+   item is recognisable without pretending to be available. Not a blur and not
+   a tint: both read as a rendering fault at 44px. */
+.cust-set[data-locked] .cust-thumb,
+.cust-item[data-locked] .cust-thumb {
+  opacity: 0.55;
+}
+
+/* Tabs. A scrolling strip rather than a wrapping one, because the pixel set
+   has seven and a wrapped second row moves the grid under somebody's thumb
+   every time they switch.
+
+   The bar is drawn rather than hidden. Five tabs already outrun a 360px
+   popover, and a hidden scrollbar on a strip that overflows is a tab nobody
+   knows is there: Background was simply unreachable with a mouse. */
+.cust-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.cust-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.cust-tabs::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--rule-hi);
+}
+
+.cust-tab {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--display);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cust-tab[aria-selected="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
+}
+
+/* Colour. Either a row of the shades the art comes in, or -- for a set drawn
+   as a tintable mask -- a row of quick picks with a real picker on the end.
+   Both are the same row of 44px chips, so a set that offers five colours and a
+   set that offers sixteen million look like the same control. */
+.cust-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cust-swatch {
+  /* 44 square, because it is a target before it is a swatch.
+     `padding: 0` against the app's `button`, which pays 12px/16px: a 44px box
+     with 16px of side padding leaves a 10px content box, and the 24px chip
+     centred in that sat off to one side of the button it belongs to. */
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.cust-chip {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  /* The chip is somebody else's colour and can land anywhere, including on top
+     of the card it sits on. The ring is what keeps a pale blonde from
+     disappearing into `--surface` in daylight. */
+  box-shadow: inset 0 0 0 1px var(--rule-hi);
+}
+
+.cust-swatch[aria-pressed="true"] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.cust-swatch[data-locked] .cust-chip {
+  opacity: 0.4;
+}
+
+/* The picker, wearing the swatch row's clothes.
+
+   A `<label>` rather than a button, so that the whole 44px target opens the
+   input: the input itself is what browsers make focusable and what a keyboard
+   reaches, and it is laid over the chip at full size rather than hidden,
+   because `display: none` on a colour input is how you get a control that a
+   pointer can use and a keyboard cannot. */
+.cust-any {
+  position: relative;
+  cursor: pointer;
+}
+
+/* The dashed ring says "and anything else" without a word of copy, and it is
+   the one thing in the row that is not itself a colour. */
+.cust-any .cust-chip {
+  box-shadow:
+    inset 0 0 0 1px var(--rule-hi),
+    0 0 0 2px var(--surface),
+    0 0 0 3px var(--ink);
+}
+
+.cust-any input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Focus has to be drawn on the label, because the thing that takes focus is
+   the invisible input on top of it. */
+.cust-any:focus-within {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+/* The grid.
+
+   `auto-fill` at 88px, so it is three columns at 320px and as many as fit on a
+   desktop, and so a set with forty five hairstyles and a set with nine outfits
+   are the same component. No height cap and no scroller of its own: this is a
+   page now rather than a drawer hanging off the account chip, so the grid runs
+   to whatever it holds and the page scrolls. A cap here bought a reachable
+   Back button back when the whole account was 360px in a popover, and all it
+   does on a page is put a second scroller inside the first. */
+.cust-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  padding: 2px;
+  /* Rows are the height of what is in them and nothing else. The default is
+     `normal`, which behaves as `stretch`, and any time the grid's own height
+     is resolved rather than free -- a cap, a flex parent that stretches it --
+     the rows get sized to the box instead of to the card, and a card shorter
+     than its contents pushes the name out through the bottom border. Four rows
+     was where it started showing, back when this grid had a cap. */
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+.cust-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  /* The floor the row is measured against. A button is a replaced-ish box the
+     browser is happy to draw smaller than its contents, so this is what turns
+     "the card is too short" into "the row is taller", which is the outcome we
+     want: the grid scrolls, it does not crush. */
+  min-height: min-content;
+}
+
+/* `flex: none`, and it is load bearing. Any time the card's height is decided
+   for it rather than by it, the column inside squeezes; a thumbnail that may
+   shrink loses its aspect ratio and the art comes out squashed, which is how
+   the face and outfit tabs shipped back when this screen was a capped popover.
+   The card may be the odd size, the art may not. */
+.cust-item .cust-thumb {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: var(--board);
+}
+
+.cust-item-name {
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.cust-item[aria-pressed="true"] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
